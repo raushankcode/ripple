@@ -6,3 +6,4 @@ dist/
 .ripple/graph.cache.json
 .DS_Store
 Thumbs.db
+.ripple/
