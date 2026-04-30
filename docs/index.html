@@ -1,0 +1,1763 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ripple — Live Architectural Intelligence</title>
+    <meta
+      name="description"
+      content="AI agents can search your codebase. Ripple already knows it. Live blast radius, caller count, and AI agent context for TypeScript projects." />
+    <meta
+      property="og:title"
+      content="Ripple — Live Architectural Intelligence" />
+    <meta
+      property="og:description"
+      content="AI agents can search your codebase. Ripple already knows it." />
+    <meta property="og:type" content="website" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet" />
+
+    <style>
+      /* ── TOKENS ──────────────────────────────────────────────── */
+      :root {
+        --bg: #0c1118;
+        --bg-2: #0f1520;
+        --bg-card: #111820;
+        --border: rgba(0, 212, 255, 0.12);
+        --border-dim: rgba(255, 255, 255, 0.06);
+        --cyan: #00d4ff;
+        --cyan-dim: rgba(0, 212, 255, 0.15);
+        --cyan-glow: rgba(0, 212, 255, 0.25);
+        --white: #f0f4f8;
+        --grey: #7a8899;
+        --grey-light: #a8b8c8;
+        --danger: #ff5f5f;
+        --caution: #f0c040;
+        --safe: #3ddc84;
+        --font-mono: "IBM Plex Mono", monospace;
+        --font-sans: "IBM Plex Sans", sans-serif;
+        --radius: 6px;
+        --gutter: clamp(20px, 5vw, 80px);
+      }
+
+      /* ── RESET ───────────────────────────────────────────────── */
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background: var(--bg);
+        color: var(--white);
+        font-family: var(--font-sans);
+        font-size: 16px;
+        line-height: 1.6;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      /* ── NAV ─────────────────────────────────────────────────── */
+      nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px var(--gutter);
+        background: rgba(12, 17, 24, 0.85);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--border-dim);
+      }
+      .nav-logo {
+        font-family: var(--font-mono);
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.5px;
+        color: var(--white);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .nav-logo span {
+        color: var(--cyan);
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 36px;
+        list-style: none;
+      }
+      .nav-links a {
+        font-size: 13px;
+        font-family: var(--font-mono);
+        color: var(--grey-light);
+        transition: color 0.2s;
+      }
+      .nav-links a:hover {
+        color: var(--white);
+      }
+      .nav-cta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 18px;
+        background: var(--cyan);
+        color: var(--bg) !important;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 600;
+        border-radius: var(--radius);
+        transition:
+          opacity 0.2s,
+          transform 0.15s;
+      }
+      .nav-cta:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+      }
+
+      /* ── HERO ─────────────────────────────────────────────────── */
+      .hero {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        align-items: center;
+        gap: 60px;
+        padding: 120px var(--gutter) 80px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* Background grid */
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+        background-size: 48px 48px;
+        pointer-events: none;
+      }
+
+      /* Radial glow */
+      .hero::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: 10%;
+        transform: translateY(-50%);
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(
+          circle,
+          rgba(0, 212, 255, 0.08) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+
+      .hero-text {
+        position: relative;
+        z-index: 2;
+      }
+
+      .hero-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: var(--cyan);
+        padding: 6px 14px;
+        border: 1px solid var(--border);
+        border-radius: 100px;
+        background: var(--cyan-dim);
+        margin-bottom: 28px;
+        animation: fadeInUp 0.6s ease both;
+      }
+
+      .hero-eyebrow::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        background: var(--cyan);
+        border-radius: 50%;
+        animation: pulse-dot 2s infinite;
+      }
+
+      @keyframes pulse-dot {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.4;
+          transform: scale(0.7);
+        }
+      }
+
+      h1 {
+        font-family: var(--font-mono);
+        font-size: clamp(36px, 4.5vw, 62px);
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -1.5px;
+        color: var(--white);
+        margin-bottom: 24px;
+        animation: fadeInUp 0.6s 0.1s ease both;
+      }
+      h1 em {
+        font-style: normal;
+        color: var(--cyan);
+      }
+
+      .hero-sub {
+        font-size: clamp(16px, 1.8vw, 19px);
+        color: var(--grey-light);
+        line-height: 1.65;
+        max-width: 480px;
+        margin-bottom: 40px;
+        font-weight: 300;
+        animation: fadeInUp 0.6s 0.2s ease both;
+      }
+
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        animation: fadeInUp 0.6s 0.3s ease both;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 28px;
+        background: var(--cyan);
+        color: var(--bg);
+        font-family: var(--font-mono);
+        font-size: 14px;
+        font-weight: 700;
+        border-radius: var(--radius);
+        transition:
+          transform 0.15s,
+          box-shadow 0.15s;
+        box-shadow: 0 0 0 0 var(--cyan-glow);
+      }
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px var(--cyan-glow);
+      }
+
+      .btn-ghost {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 28px;
+        border: 1px solid var(--border);
+        color: var(--grey-light);
+        font-family: var(--font-mono);
+        font-size: 14px;
+        border-radius: var(--radius);
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .btn-ghost:hover {
+        border-color: var(--cyan);
+        color: var(--white);
+      }
+
+      /* ── GRAPH ANIMATION ─────────────────────────────────────── */
+      .graph-canvas {
+        position: relative;
+        z-index: 2;
+        animation: fadeIn 0.8s 0.4s ease both;
+      }
+
+      .graph-svg {
+        width: 100%;
+        max-width: 540px;
+        margin-left: auto;
+        filter: drop-shadow(0 0 40px rgba(0, 212, 255, 0.15));
+      }
+
+      /* Node animations */
+      .node-center {
+        animation: node-pulse-center 3s ease-in-out infinite;
+      }
+      @keyframes node-pulse-center {
+        0%,
+        100% {
+          r: 10;
+          opacity: 1;
+        }
+        50% {
+          r: 12;
+          opacity: 0.85;
+        }
+      }
+
+      .node-danger {
+        animation: node-pulse-danger 2.5s 0.3s ease-in-out infinite;
+      }
+      @keyframes node-pulse-danger {
+        0%,
+        100% {
+          r: 7;
+        }
+        50% {
+          r: 9;
+        }
+      }
+
+      .ripple-ring-1 {
+        animation: ripple-out 3s 0s ease-out infinite;
+        transform-origin: 270px 200px;
+      }
+      .ripple-ring-2 {
+        animation: ripple-out 3s 1s ease-out infinite;
+        transform-origin: 270px 200px;
+      }
+      .ripple-ring-3 {
+        animation: ripple-out 3s 2s ease-out infinite;
+        transform-origin: 270px 200px;
+      }
+
+      @keyframes ripple-out {
+        0% {
+          r: 10;
+          opacity: 0.6;
+          stroke-width: 2;
+        }
+        100% {
+          r: 90;
+          opacity: 0;
+          stroke-width: 0.5;
+        }
+      }
+
+      .edge {
+        stroke-dasharray: 6 4;
+        animation: edge-flow 2s linear infinite;
+      }
+      .edge-2 {
+        animation-delay: -1s;
+      }
+      .edge-3 {
+        animation-delay: -0.5s;
+      }
+      .edge-4 {
+        animation-delay: -1.5s;
+      }
+
+      @keyframes edge-flow {
+        to {
+          stroke-dashoffset: -20;
+        }
+      }
+
+      .label-anim {
+        animation: fadeIn 1s 0.8s ease both;
+      }
+
+      /* Risk badge on the graph */
+      .risk-badge {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+
+      /* ── PROOF QUOTE ─────────────────────────────────────────── */
+      .proof {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--cyan);
+        border-radius: var(--radius);
+        padding: 28px 32px;
+        margin: 48px 0 0;
+        animation: fadeInUp 0.6s 0.4s ease both;
+      }
+      .proof-story {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--grey-light);
+        line-height: 1.7;
+      }
+      .proof-story strong {
+        color: var(--white);
+      }
+      .proof-story .highlight {
+        color: var(--cyan);
+      }
+      .proof-result {
+        font-family: var(--font-mono);
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--cyan);
+        margin-top: 12px;
+      }
+
+      /* ── SECTION SHARED ──────────────────────────────────────── */
+      section {
+        padding: 100px var(--gutter);
+      }
+      .section-eyebrow {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--cyan);
+        margin-bottom: 16px;
+      }
+      .section-title {
+        font-family: var(--font-mono);
+        font-size: clamp(28px, 3.5vw, 44px);
+        font-weight: 700;
+        letter-spacing: -1px;
+        line-height: 1.15;
+        color: var(--white);
+        margin-bottom: 16px;
+      }
+      .section-sub {
+        font-size: 17px;
+        color: var(--grey-light);
+        font-weight: 300;
+        max-width: 560px;
+        line-height: 1.65;
+      }
+
+      /* ── HOW IT WORKS ────────────────────────────────────────── */
+      .how {
+        background: var(--bg-2);
+        border-top: 1px solid var(--border-dim);
+        border-bottom: 1px solid var(--border-dim);
+      }
+      .how-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2px;
+        margin-top: 60px;
+      }
+      .how-step {
+        background: var(--bg-card);
+        padding: 36px 32px;
+        position: relative;
+        border: 1px solid var(--border-dim);
+        transition: border-color 0.25s;
+      }
+      .how-step:hover {
+        border-color: var(--border);
+      }
+      .how-step:first-child {
+        border-radius: var(--radius) 0 0 var(--radius);
+      }
+      .how-step:last-child {
+        border-radius: 0 var(--radius) var(--radius) 0;
+      }
+      .step-num {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 2px;
+        color: var(--cyan);
+        margin-bottom: 16px;
+      }
+      .step-title {
+        font-family: var(--font-mono);
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--white);
+        margin-bottom: 12px;
+      }
+      .step-desc {
+        font-size: 14px;
+        color: var(--grey-light);
+        line-height: 1.65;
+      }
+      .step-icon {
+        position: absolute;
+        top: 32px;
+        right: 32px;
+        font-size: 22px;
+        opacity: 0.5;
+      }
+
+      /* ── FEATURES ────────────────────────────────────────────── */
+      .features-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-top: 60px;
+      }
+      .feature-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-dim);
+        border-radius: 8px;
+        padding: 36px;
+        transition:
+          border-color 0.25s,
+          transform 0.2s;
+      }
+      .feature-card:hover {
+        border-color: var(--border);
+        transform: translateY(-2px);
+      }
+      .feature-card.featured {
+        grid-column: 1 / -1;
+        border-color: var(--border);
+        background: linear-gradient(
+          135deg,
+          rgba(0, 212, 255, 0.04) 0%,
+          var(--bg-card) 60%
+        );
+      }
+      .feature-icon {
+        width: 44px;
+        height: 44px;
+        background: var(--cyan-dim);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        margin-bottom: 20px;
+      }
+      .feature-title {
+        font-family: var(--font-mono);
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--white);
+        margin-bottom: 10px;
+      }
+      .feature-desc {
+        font-size: 14px;
+        color: var(--grey-light);
+        line-height: 1.7;
+        margin-bottom: 20px;
+      }
+      .feature-tag {
+        display: inline-block;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--cyan);
+        background: var(--cyan-dim);
+        padding: 3px 10px;
+        border-radius: 100px;
+        border: 1px solid var(--border);
+      }
+
+      /* ── CODE BLOCK ──────────────────────────────────────────── */
+      .code-window {
+        background: #080d13;
+        border: 1px solid var(--border-dim);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-top: 24px;
+      }
+      .code-titlebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-dim);
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .dot-red {
+        background: #ff5f57;
+      }
+      .dot-yellow {
+        background: #febc2e;
+      }
+      .dot-green {
+        background: #28c840;
+      }
+      .code-filename {
+        margin-left: 8px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--grey);
+      }
+      .code-body {
+        padding: 20px 24px;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.85;
+        overflow-x: auto;
+      }
+      .c-comment {
+        color: #4a6475;
+      }
+      .c-keyword {
+        color: #569cd6;
+      }
+      .c-fn {
+        color: #dcdcaa;
+      }
+      .c-string {
+        color: #ce9178;
+      }
+      .c-type {
+        color: #4ec9b0;
+      }
+      .c-num {
+        color: #b5cea8;
+      }
+      .c-cyan {
+        color: var(--cyan);
+      }
+      .c-danger {
+        color: var(--danger);
+      }
+      .c-caution {
+        color: var(--caution);
+      }
+      .c-safe {
+        color: var(--safe);
+      }
+
+      /* ── FOCUS FILE ──────────────────────────────────────────── */
+      .focus-demo {
+        background: #0a0f18;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 28px;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        line-height: 1.8;
+        margin-top: 24px;
+        position: relative;
+        overflow: hidden;
+      }
+      .focus-demo::before {
+        content: "200 tokens";
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        font-size: 10px;
+        color: var(--cyan);
+        background: var(--cyan-dim);
+        border: 1px solid var(--border);
+        padding: 3px 10px;
+        border-radius: 100px;
+      }
+      .json-key {
+        color: #9cdcfe;
+      }
+      .json-str {
+        color: #ce9178;
+      }
+      .json-num {
+        color: #b5cea8;
+      }
+      .json-bool {
+        color: #569cd6;
+      }
+      .json-punct {
+        color: #666;
+      }
+
+      /* ── RISK TABLE ──────────────────────────────────────────── */
+      .risk-section {
+        background: var(--bg-2);
+        border-top: 1px solid var(--border-dim);
+        border-bottom: 1px solid var(--border-dim);
+      }
+      .risk-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 48px;
+      }
+      .risk-card {
+        background: var(--bg-card);
+        border-radius: 8px;
+        padding: 28px 24px;
+        border-top: 3px solid transparent;
+      }
+      .risk-card.danger {
+        border-color: var(--danger);
+      }
+      .risk-card.caution {
+        border-color: var(--caution);
+      }
+      .risk-card.safe {
+        border-color: var(--safe);
+      }
+      .risk-badge-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        padding: 4px 12px;
+        border-radius: 100px;
+        margin-bottom: 16px;
+      }
+      .danger .risk-badge-pill {
+        color: var(--danger);
+        background: rgba(255, 95, 95, 0.1);
+        border: 1px solid rgba(255, 95, 95, 0.3);
+      }
+      .caution .risk-badge-pill {
+        color: var(--caution);
+        background: rgba(240, 192, 64, 0.1);
+        border: 1px solid rgba(240, 192, 64, 0.3);
+      }
+      .safe .risk-badge-pill {
+        color: var(--safe);
+        background: rgba(61, 220, 132, 0.1);
+        border: 1px solid rgba(61, 220, 132, 0.3);
+      }
+      .risk-rule {
+        font-size: 14px;
+        color: var(--grey-light);
+        line-height: 1.65;
+      }
+      .risk-rule strong {
+        color: var(--white);
+      }
+
+      /* ── STACK COMPAT ────────────────────────────────────────── */
+      .compat-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 40px;
+      }
+      .compat-pill {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        padding: 8px 18px;
+        border: 1px solid var(--border-dim);
+        border-radius: 100px;
+        color: var(--grey-light);
+        background: var(--bg-card);
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .compat-pill:hover {
+        border-color: var(--border);
+        color: var(--white);
+      }
+      .compat-pill.highlight {
+        border-color: var(--border);
+        color: var(--cyan);
+      }
+
+      /* ── PROOF SECTION ───────────────────────────────────────── */
+      .proof-section {
+        text-align: center;
+        background: linear-gradient(180deg, var(--bg) 0%, #091018 100%);
+      }
+      .proof-blockquote {
+        max-width: 680px;
+        margin: 48px auto 0;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 40px;
+        position: relative;
+      }
+      .proof-blockquote::before {
+        content: '"';
+        position: absolute;
+        top: -18px;
+        left: 32px;
+        font-size: 80px;
+        font-family: Georgia, serif;
+        color: var(--cyan);
+        opacity: 0.3;
+        line-height: 1;
+      }
+      .proof-text {
+        font-family: var(--font-mono);
+        font-size: 15px;
+        color: var(--grey-light);
+        line-height: 1.8;
+        text-align: left;
+      }
+      .proof-text strong {
+        color: var(--white);
+      }
+      .proof-text .cyan {
+        color: var(--cyan);
+      }
+      .proof-number {
+        font-family: var(--font-mono);
+        font-size: 48px;
+        font-weight: 700;
+        color: var(--cyan);
+        margin-top: 24px;
+        letter-spacing: -2px;
+      }
+      .proof-number-label {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--grey);
+        margin-top: 4px;
+      }
+
+      /* ── CTA ─────────────────────────────────────────────────── */
+      .cta-section {
+        text-align: center;
+        padding: 100px var(--gutter) 80px;
+        background: var(--bg-2);
+        border-top: 1px solid var(--border-dim);
+        position: relative;
+        overflow: hidden;
+      }
+      .cta-section::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 600px;
+        height: 300px;
+        background: radial-gradient(
+          ellipse,
+          rgba(0, 212, 255, 0.06) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+      .cta-section .section-title {
+        max-width: 560px;
+        margin: 0 auto 16px;
+      }
+      .cta-section .section-sub {
+        max-width: 480px;
+        margin: 0 auto 40px;
+        text-align: center;
+      }
+      .cta-actions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .install-cmd {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 24px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border-dim);
+        border-radius: var(--radius);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--grey-light);
+      }
+      .install-cmd code {
+        color: var(--white);
+      }
+
+      /* ── FOOTER ──────────────────────────────────────────────── */
+      footer {
+        padding: 32px var(--gutter);
+        border-top: 1px solid var(--border-dim);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .footer-logo {
+        font-family: var(--font-mono);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--grey);
+      }
+      .footer-logo span {
+        color: var(--cyan);
+      }
+      .footer-links {
+        display: flex;
+        gap: 28px;
+        list-style: none;
+      }
+      .footer-links a {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--grey);
+        transition: color 0.2s;
+      }
+      .footer-links a:hover {
+        color: var(--white);
+      }
+      .footer-legal {
+        font-size: 12px;
+        color: var(--grey);
+        font-family: var(--font-mono);
+      }
+
+      /* ── ANIMATIONS ──────────────────────────────────────────── */
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(24px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(20px);
+        transition:
+          opacity 0.6s ease,
+          transform 0.6s ease;
+      }
+      .reveal.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      /* ── RESPONSIVE ──────────────────────────────────────────── */
+      @media (max-width: 900px) {
+        .hero {
+          grid-template-columns: 1fr;
+          padding-top: 100px;
+        }
+        .graph-svg {
+          max-width: 360px;
+          margin: 0 auto;
+        }
+        .how-grid {
+          grid-template-columns: 1fr;
+          gap: 2px;
+        }
+        .how-step:first-child {
+          border-radius: var(--radius) var(--radius) 0 0;
+        }
+        .how-step:last-child {
+          border-radius: 0 0 var(--radius) var(--radius);
+        }
+        .features-grid {
+          grid-template-columns: 1fr;
+        }
+        .feature-card.featured {
+          grid-column: 1;
+        }
+        .risk-grid {
+          grid-template-columns: 1fr;
+        }
+        .nav-links {
+          display: none;
+        }
+        footer {
+          flex-direction: column;
+          gap: 20px;
+          text-align: center;
+        }
+        .footer-links {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .hero-actions {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ── NAV ──────────────────────────────────────────────── -->
+    <nav>
+      <div class="nav-logo"><span>↯</span> Ripple</div>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#stack">Stack</a></li>
+        <li><a href="https://github.com/raushankcode/ripple">GitHub</a></li>
+      </ul>
+      <a
+        href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+        class="nav-links nav-cta"
+        >Install Free →</a
+      >
+    </nav>
+
+    <!-- ── HERO ─────────────────────────────────────────────── -->
+    <section class="hero">
+      <div class="hero-text">
+        <div class="hero-eyebrow">
+          VS Code Extension · TypeScript + JavaScript
+        </div>
+
+        <h1>
+          AI agents can<br />search your code.<br /><em
+            >Ripple already<br />knows it.</em
+          >
+        </h1>
+
+        <p class="hero-sub">
+          Live blast radius, caller count, and AI agent context for every file
+          in your project. Zero configuration. Works with Claude Code, Cursor,
+          and Copilot.
+        </p>
+
+        <div class="hero-actions">
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+            class="btn-primary"
+            >↯ Install for VS Code</a
+          >
+          <a href="https://github.com/raushankcode/ripple" class="btn-ghost"
+            >View on GitHub →</a
+          >
+        </div>
+
+        <div class="proof">
+          <div class="proof-story">
+            I gave an AI agent a refactor task on
+            <strong>SacredButton.tsx</strong>.<br />
+            <span class="highlight">28 files</span> depended on it. The agent
+            read the Ripple focus file. Saw the risk. Stopped and confirmed.
+            Changed only the internals. Every caller kept working.
+          </div>
+          <div class="proof-result">3m 23s · zero debugging</div>
+        </div>
+      </div>
+
+      <!-- Live dependency graph SVG -->
+      <div class="graph-canvas">
+        <svg
+          class="graph-svg"
+          viewBox="0 0 540 400"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg">
+          <!-- Background -->
+          <rect width="540" height="400" fill="#080d13" rx="10" />
+          <rect
+            width="540"
+            height="400"
+            fill="url(#grid)"
+            rx="10"
+            opacity="0.4" />
+          <defs>
+            <pattern
+              id="grid"
+              width="32"
+              height="32"
+              patternUnits="userSpaceOnUse">
+              <path
+                d="M 32 0 L 0 0 0 32"
+                fill="none"
+                stroke="rgba(0,212,255,0.06)"
+                stroke-width="0.5" />
+            </pattern>
+          </defs>
+
+          <!-- Ripple rings from center -->
+          <circle
+            class="ripple-ring-1"
+            cx="270"
+            cy="200"
+            r="10"
+            fill="none"
+            stroke="#00d4ff"
+            stroke-width="2"
+            opacity="0.5" />
+          <circle
+            class="ripple-ring-2"
+            cx="270"
+            cy="200"
+            r="10"
+            fill="none"
+            stroke="#00d4ff"
+            stroke-width="2"
+            opacity="0.5" />
+          <circle
+            class="ripple-ring-3"
+            cx="270"
+            cy="200"
+            r="10"
+            fill="none"
+            stroke="#00d4ff"
+            stroke-width="2"
+            opacity="0.5" />
+
+          <!-- Edges: center to satellites -->
+          <line
+            class="edge"
+            x1="270"
+            y1="200"
+            x2="120"
+            y2="100"
+            stroke="rgba(0,212,255,0.35)"
+            stroke-width="1.5" />
+          <line
+            class="edge edge-2"
+            x1="270"
+            y1="200"
+            x2="420"
+            y2="100"
+            stroke="rgba(0,212,255,0.35)"
+            stroke-width="1.5" />
+          <line
+            class="edge edge-3"
+            x1="270"
+            y1="200"
+            x2="110"
+            y2="300"
+            stroke="rgba(0,212,255,0.35)"
+            stroke-width="1.5" />
+          <line
+            class="edge edge-4"
+            x1="270"
+            y1="200"
+            x2="430"
+            y2="310"
+            stroke="rgba(0,212,255,0.35)"
+            stroke-width="1.5" />
+          <line
+            class="edge"
+            x1="270"
+            y1="200"
+            x2="270"
+            y2="70"
+            stroke="rgba(0,212,255,0.35)"
+            stroke-width="1.5" />
+
+          <!-- Secondary edges -->
+          <line
+            x1="120"
+            y1="100"
+            x2="50"
+            y2="60"
+            stroke="rgba(0,212,255,0.15)"
+            stroke-width="1" />
+          <line
+            x1="420"
+            y1="100"
+            x2="495"
+            y2="55"
+            stroke="rgba(0,212,255,0.15)"
+            stroke-width="1" />
+          <line
+            x1="110"
+            y1="300"
+            x2="50"
+            y2="360"
+            stroke="rgba(0,212,255,0.15)"
+            stroke-width="1" />
+          <line
+            x1="430"
+            y1="310"
+            x2="500"
+            y2="370"
+            stroke="rgba(0,212,255,0.15)"
+            stroke-width="1" />
+
+          <!-- Center node — SacredButton.tsx -->
+          <circle
+            cx="270"
+            cy="200"
+            r="26"
+            fill="rgba(0,212,255,0.12)"
+            stroke="#00d4ff"
+            stroke-width="2" />
+          <circle class="node-center" cx="270" cy="200" r="10" fill="#00d4ff" />
+
+          <!-- Satellite nodes -->
+          <!-- DANGEROUS -->
+          <circle
+            class="node-danger"
+            cx="120"
+            cy="100"
+            r="7"
+            fill="rgba(255,95,95,0.2)"
+            stroke="#ff5f5f"
+            stroke-width="1.5" />
+          <circle
+            cx="420"
+            cy="100"
+            r="7"
+            fill="rgba(240,192,64,0.2)"
+            stroke="#f0c040"
+            stroke-width="1.5" />
+          <circle
+            cx="110"
+            cy="300"
+            r="7"
+            fill="rgba(0,212,255,0.2)"
+            stroke="#00d4ff"
+            stroke-width="1.5" />
+          <circle
+            cx="430"
+            cy="310"
+            r="7"
+            fill="rgba(0,212,255,0.2)"
+            stroke="#00d4ff"
+            stroke-width="1.5" />
+          <circle
+            cx="270"
+            cy="70"
+            r="5"
+            fill="rgba(0,212,255,0.2)"
+            stroke="#00d4ff"
+            stroke-width="1.5" />
+          <!-- leaf nodes -->
+          <circle
+            cx="50"
+            cy="60"
+            r="4"
+            fill="rgba(255,255,255,0.08)"
+            stroke="rgba(255,255,255,0.2)"
+            stroke-width="1" />
+          <circle
+            cx="495"
+            cy="55"
+            r="4"
+            fill="rgba(255,255,255,0.08)"
+            stroke="rgba(255,255,255,0.2)"
+            stroke-width="1" />
+          <circle
+            cx="50"
+            cy="360"
+            r="4"
+            fill="rgba(255,255,255,0.08)"
+            stroke="rgba(255,255,255,0.2)"
+            stroke-width="1" />
+          <circle
+            cx="500"
+            cy="370"
+            r="4"
+            fill="rgba(255,255,255,0.08)"
+            stroke="rgba(255,255,255,0.2)"
+            stroke-width="1" />
+
+          <!-- Labels -->
+          <g class="label-anim">
+            <!-- Center label -->
+            <rect
+              x="192"
+              y="230"
+              width="156"
+              height="22"
+              rx="3"
+              fill="rgba(0,212,255,0.1)"
+              stroke="rgba(0,212,255,0.3)"
+              stroke-width="0.5" />
+            <text
+              x="270"
+              y="245"
+              fill="#00d4ff"
+              font-family="IBM Plex Mono,monospace"
+              font-size="10"
+              text-anchor="middle">
+              SacredButton.tsx
+            </text>
+
+            <!-- Risk badge center -->
+            <rect
+              x="228"
+              y="163"
+              width="84"
+              height="16"
+              rx="8"
+              fill="rgba(255,95,95,0.15)"
+              stroke="rgba(255,95,95,0.4)"
+              stroke-width="0.5" />
+            <text
+              x="270"
+              y="174"
+              fill="#ff5f5f"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8.5"
+              font-weight="700"
+              text-anchor="middle"
+              letter-spacing="1">
+              DANGEROUS
+            </text>
+
+            <!-- CodeLens badge -->
+            <rect
+              x="208"
+              y="183"
+              width="124"
+              height="14"
+              rx="3"
+              fill="rgba(255,255,255,0.03)"
+              stroke="rgba(255,255,255,0.08)"
+              stroke-width="0.5" />
+            <text
+              x="270"
+              y="193.5"
+              fill="#7a8899"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8"
+              text-anchor="middle">
+              ↯ 28 callers — click
+            </text>
+
+            <!-- Satellite labels -->
+            <text
+              x="100"
+              y="88"
+              fill="#ff5f5f"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8.5"
+              text-anchor="middle">
+              SepsisGalaxy
+            </text>
+            <text
+              x="440"
+              y="88"
+              fill="#f0c040"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8.5"
+              text-anchor="middle">
+              RingDisplay
+            </text>
+            <text
+              x="110"
+              y="322"
+              fill="#00d4ff"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8.5"
+              text-anchor="middle">
+              ScorePanel
+            </text>
+            <text
+              x="434"
+              y="330"
+              fill="#00d4ff"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8.5"
+              text-anchor="middle">
+              PatientFace
+            </text>
+            <text
+              x="270"
+              y="57"
+              fill="#7a8899"
+              font-family="IBM Plex Mono,monospace"
+              font-size="8"
+              text-anchor="middle">
+              Page.tsx
+            </text>
+          </g>
+
+          <!-- Importer count badge top-right -->
+          <rect
+            x="380"
+            y="16"
+            width="140"
+            height="30"
+            rx="5"
+            fill="rgba(0,212,255,0.06)"
+            stroke="rgba(0,212,255,0.2)"
+            stroke-width="0.5" />
+          <text
+            x="390"
+            y="35"
+            fill="#7a8899"
+            font-family="IBM Plex Mono,monospace"
+            font-size="10">
+            importedBy:
+            <tspan fill="#00d4ff">28</tspan>
+          </text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- ── HOW IT WORKS ──────────────────────────────────────── -->
+    <section class="how" id="how">
+      <div class="section-eyebrow">How it works</div>
+      <h2 class="section-title">
+        Built into every save.<br />Read by every agent.
+      </h2>
+      <p class="section-sub">
+        Ripple runs inside VS Code, maintaining a live dependency graph. Every
+        file save updates it in real time.
+      </p>
+
+      <div class="how-grid">
+        <div class="how-step reveal">
+          <div class="step-num">01</div>
+          <div class="step-icon">⚡</div>
+          <div class="step-title">Scan on install</div>
+          <div class="step-desc">
+            Ripple scans your entire TypeScript and JavaScript codebase on first
+            install. Done in seconds. No configuration. Barrel files, path
+            aliases, and tsconfig paths all resolved.
+          </div>
+        </div>
+        <div class="how-step reveal" style="transition-delay: 0.1s">
+          <div class="step-num">02</div>
+          <div class="step-icon">↯</div>
+          <div class="step-title">Update on every save</div>
+          <div class="step-desc">
+            Every file save triggers an incremental graph update. The focus file
+            for the changed file is rewritten within milliseconds. Impact Lens
+            and CodeLens refresh automatically.
+          </div>
+        </div>
+        <div class="how-step reveal" style="transition-delay: 0.2s">
+          <div class="step-num">03</div>
+          <div class="step-icon">◎</div>
+          <div class="step-title">Agent reads, not searches</div>
+          <div class="step-desc">
+            Right-click → Copy Agent Prompt. The agent reads your file's focus
+            file first — 200 tokens of precise architectural truth. No codebase
+            search needed. No guesswork.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FEATURES ──────────────────────────────────────────── -->
+    <section id="features">
+      <div class="section-eyebrow">Features</div>
+      <h2 class="section-title">
+        Three live features.<br />Zero configuration.
+      </h2>
+      <p class="section-sub">
+        Everything works immediately on project open. No setup files. No API
+        keys. No accounts.
+      </p>
+
+      <div class="features-grid">
+        <!-- Featured: AI context -->
+        <div class="feature-card featured reveal">
+          <div class="feature-icon">◎</div>
+          <div class="feature-title">↯ Copy Agent Prompt</div>
+          <div class="feature-desc">
+            Right-click any TypeScript file and copy a ready-to-paste AI agent
+            prompt. Contains the file's risk level, its importers, its symbols
+            with layer classification, and the path to the 200-token focus file.
+            Works with Claude Code, Cursor, Copilot, and any agent.
+          </div>
+
+          <div class="code-window">
+            <div class="code-titlebar">
+              <div class="dot dot-red"></div>
+              <div class="dot dot-yellow"></div>
+              <div class="dot dot-green"></div>
+              <span class="code-filename">Copied prompt</span>
+            </div>
+            <div class="code-body">
+              <span class="c-comment">[DESCRIBE YOUR TASK HERE]</span>
+
+              <span class="c-keyword">Before</span> making any changes:
+              <span class="c-num">1.</span> Read the focus file:
+              <span class="c-cyan"
+                >.ripple/focus/scoring-lib-calculateRisk.json</span
+              >
+              <span class="c-num">2.</span>
+              <span class="c-danger">STOP — 7 files import this.</span> Ask:
+              <span class="c-string">"Confirm before I proceed?"</span>
+              <span class="c-num">3.</span> Check calledBy before modifying each
+              symbol <span class="c-num">4.</span> Only touch layer:
+              <span class="c-type">logic</span>
+
+              File: <span class="c-fn">calculateRisk.ts</span> | Risk:
+              <span class="c-danger">DANGEROUS</span> Symbols:
+              <span class="c-fn">calculateRisk</span> [logic],
+              <span class="c-fn">normaliseScore</span> [logic]
+            </div>
+          </div>
+          <br />
+          <span class="feature-tag">~400 tokens per prompt</span>
+        </div>
+
+        <!-- Impact Lens -->
+        <div class="feature-card reveal" style="transition-delay: 0.1s">
+          <div class="feature-icon">◈</div>
+          <div class="feature-title">↯ Impact Lens</div>
+          <div class="feature-desc">
+            Open any file. The sidebar instantly shows what imports it and what
+            it imports — across your entire project. Click any file in the list
+            to open it. Updates on every save.
+          </div>
+          <span class="feature-tag">Sidebar · always visible</span>
+        </div>
+
+        <!-- CodeLens -->
+        <div class="feature-card reveal" style="transition-delay: 0.2s">
+          <div class="feature-icon">◉</div>
+          <div class="feature-title">↯ CodeLens</div>
+          <div class="feature-desc">
+            Every function shows its caller count above the declaration —
+            permanently. Click any hint to open the full caller panel with
+            clickable file links. No hovering. No commands.
+          </div>
+          <span class="feature-tag">Inline · always on</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FOCUS FILE ─────────────────────────────────────────── -->
+    <section style="padding-top: 0">
+      <div class="section-eyebrow reveal">The focus file</div>
+      <h2 class="section-title reveal">
+        200 tokens.<br />Complete architectural truth.
+      </h2>
+      <p class="section-sub reveal">
+        Every file in your project has a focus file in
+        <code style="color: var(--cyan); font-family: var(--font-mono)"
+          >.ripple/focus/</code
+        >. Agents read this first — before touching a single line of code.
+      </p>
+
+      <div class="focus-demo reveal">
+        <span class="json-punct">{</span><br />
+        &nbsp;&nbsp;<span class="json-key">"file"</span
+        ><span class="json-punct">:</span>
+        <span class="json-str">"handleCancelBooking.ts"</span
+        ><span class="json-punct">,</span><br />
+        &nbsp;&nbsp;<span class="json-key">"modificationRisk"</span
+        ><span class="json-punct">:</span>
+        <span class="json-str">"dangerous"</span
+        ><span class="json-punct">,</span><br />
+        &nbsp;&nbsp;<span class="json-key">"totalImporterCount"</span
+        ><span class="json-punct">:</span> <span class="json-num">7</span
+        ><span class="json-punct">,</span><br />
+        &nbsp;&nbsp;<span class="json-key">"dataQuality"</span
+        ><span class="json-punct">:</span>
+        <span class="json-str">"complete"</span><span class="json-punct">,</span
+        ><br />
+        &nbsp;&nbsp;<span class="json-key">"instructions"</span
+        ><span class="json-punct">: [</span><br />
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="json-str"
+          >"DANGER: 7 importers. Top: BookingListItem, route.ts,
+          handleNewBooking. Confirm before proceeding."</span
+        ><span class="json-punct">,</span><br />
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="json-str"
+          >"calledBy uses project-relative paths — direct lookup in
+          context.files.json."</span
+        ><br />
+        &nbsp;&nbsp;<span class="json-punct">],</span><br />
+        &nbsp;&nbsp;<span class="json-key">"symbols"</span
+        ><span class="json-punct">: [{</span><br />
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="json-key">"name"</span
+        ><span class="json-punct">:</span>
+        <span class="json-str">"handleCancelBooking"</span
+        ><span class="json-punct">,</span> <span class="json-key">"layer"</span
+        ><span class="json-punct">:</span> <span class="json-str">"logic"</span
+        ><span class="json-punct">,</span><br />
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="json-key">"callerCount"</span
+        ><span class="json-punct">:</span> <span class="json-num">3</span
+        ><span class="json-punct">,</span><br />
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="json-key">"calledBy"</span
+        ><span class="json-punct">: [</span
+        ><span class="json-str"
+          >"apps/web/components/booking/BookingListItem.tsx::CancelButton"</span
+        ><span class="json-punct">]</span><br />
+        &nbsp;&nbsp;<span class="json-punct">}]</span><br />
+        <span class="json-punct">}</span>
+      </div>
+    </section>
+
+    <!-- ── RISK SYSTEM ────────────────────────────────────────── -->
+    <section class="risk-section">
+      <div class="section-eyebrow">Risk classification</div>
+      <h2 class="section-title">
+        Agents know before<br />they touch anything.
+      </h2>
+      <p class="section-sub">
+        Every file is classified by blast radius. Agents read the risk level
+        from the focus file and follow the WORKFLOW.md protocol accordingly —
+        automatically.
+      </p>
+
+      <div class="risk-grid">
+        <div class="risk-card danger reveal">
+          <div class="risk-badge-pill">● Dangerous</div>
+          <div class="risk-rule">
+            <strong>5+ importers or 15+ saves.</strong> Agent stops and asks for
+            explicit confirmation before making any change. Cannot be overridden
+            without user approval.
+          </div>
+        </div>
+        <div class="risk-card caution reveal" style="transition-delay: 0.1s">
+          <div class="risk-badge-pill">● Caution</div>
+          <div class="risk-rule">
+            <strong>2-4 importers or 8+ saves.</strong> Agent proceeds but
+            verifies every caller still works after each change. Reports what it
+            touched.
+          </div>
+        </div>
+        <div class="risk-card safe reveal" style="transition-delay: 0.2s">
+          <div class="risk-badge-pill">● Safe</div>
+          <div class="risk-rule">
+            <strong>0-1 importers, low churn.</strong> Agent proceeds directly.
+            Low blast radius means changes are contained and safe to make
+            without confirmation.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── STACK ──────────────────────────────────────────────── -->
+    <section id="stack">
+      <div class="section-eyebrow">Stack compatibility</div>
+      <h2 class="section-title">
+        Works with your stack.<br />Detected automatically.
+      </h2>
+      <p class="section-sub">
+        Ripple reads your package.json and config files at install. WORKFLOW.md
+        is customised for your specific stack — no configuration required.
+      </p>
+
+      <div class="compat-grid reveal">
+        <span class="compat-pill highlight">Next.js App Router</span>
+        <span class="compat-pill highlight">Next.js Pages Router</span>
+        <span class="compat-pill highlight">Vite</span>
+        <span class="compat-pill highlight">React Router</span>
+        <span class="compat-pill highlight">Turborepo</span>
+        <span class="compat-pill highlight">MobX</span>
+        <span class="compat-pill highlight">React Query</span>
+        <span class="compat-pill highlight">tRPC</span>
+        <span class="compat-pill highlight">Prisma</span>
+        <span class="compat-pill highlight">Tailwind CSS</span>
+        <span class="compat-pill">NestJS</span>
+        <span class="compat-pill">Remix</span>
+        <span class="compat-pill">Astro</span>
+        <span class="compat-pill">SWR</span>
+        <span class="compat-pill">Zustand</span>
+        <span class="compat-pill">Redux</span>
+        <span class="compat-pill">Jotai</span>
+        <span class="compat-pill">Recoil</span>
+      </div>
+    </section>
+
+    <!-- ── PROOF ──────────────────────────────────────────────── -->
+    <section class="proof-section">
+      <div class="section-eyebrow">Proven result</div>
+      <h2 class="section-title">A real refactor.<br />A real result.</h2>
+
+      <div class="proof-blockquote reveal">
+        <p class="proof-text">
+          I gave an AI agent a refactor task on
+          <strong>SacredButton.tsx</strong>. <strong>28 files</strong> depended
+          on it. The agent read the Ripple focus file. Saw
+          <span class="cyan">modificationRisk: "dangerous"</span> and
+          <span class="cyan">totalImporterCount: 28</span>. Stopped. Confirmed
+          with me. Changed only the internals. Kept the public API identical.
+          All 28 callers worked.
+        </p>
+        <div class="proof-number">3m 23s</div>
+        <div class="proof-number-label">
+          total time · zero debugging · zero broken callers
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CTA ───────────────────────────────────────────────── -->
+    <section class="cta-section">
+      <div class="section-eyebrow">Free · No account · No config</div>
+      <h2 class="section-title">Install Ripple.<br />Start in 30 seconds.</h2>
+      <p class="section-sub">
+        Open VS Code. Search Ripple in Extensions. Install. Done. Open any
+        TypeScript project and Impact Lens activates immediately.
+      </p>
+
+      <div class="cta-actions">
+        <a
+          href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+          class="btn-primary"
+          style="font-size: 15px; padding: 16px 32px">
+          ↯ Install for VS Code — Free
+        </a>
+        <div class="install-cmd">
+          <code>ext install rippleai.ripple</code>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FOOTER ─────────────────────────────────────────────── -->
+    <footer>
+      <div class="footer-logo"><span>↯</span> Ripple</div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/raushankcode/ripple">GitHub</a></li>
+        <li>
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+            >Marketplace</a
+          >
+        </li>
+        <li>
+          <a href="https://github.com/raushankcode/ripple/issues">Issues</a>
+        </li>
+        <li>
+          <a href="https://github.com/raushankcode/ripple/blob/main/LICENSE"
+            >MIT License</a
+          >
+        </li>
+      </ul>
+      <div class="footer-legal">Built by Raushan Soni</div>
+    </footer>
+
+    <!-- ── SCROLL REVEAL ─────────────────────────────────────── -->
+    <script>
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("visible");
+            }
+          });
+        },
+        { threshold: 0.12 },
+      );
+
+      document
+        .querySelectorAll(".reveal")
+        .forEach((el) => observer.observe(el));
+    </script>
+  </body>
+</html>

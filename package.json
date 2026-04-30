@@ -1,0 +1,169 @@
+{
+  "name": "ripple",
+  "displayName": "Ripple: Know Your Code Before You Change It",
+  "description": "See exactly what your code change will break before you make it. Ripple shows caller count, dependency graph, and blast radius instantly — plus generates AI-ready context for tools like Copilot and Cursor.",
+  "version": "1.0.0",
+  "publisher": "rippleai",
+  "author": {
+    "name": "raushan soni"
+  },
+  "license": "MIT",
+  "icon": "resources/icon-marketplace.png",
+  "galleryBanner": {
+    "color": "#0c1425",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other",
+    "Linters"
+  ],
+  "keywords": [
+    "typescript",
+    "javascript",
+    "impact analysis",
+    "dependency graph",
+    "call graph",
+    "blast radius",
+    "ai agent",
+    "architectural intelligence",
+    "codelens",
+    "ripple",
+    "claude code",
+    "cursor",
+    "copilot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raushankcode/ripple"
+  },
+  "bugs": {
+    "url": "https://github.com/raushankcode/ripple/issues"
+  },
+  "homepage": "https://github.com/raushankcode/ripple#readme",
+  "activationEvents": [
+    "workspaceContains:**/*.ts",
+    "workspaceContains:**/*.tsx",
+    "workspaceContains:**/*.js",
+    "workspaceContains:**/*.jsx"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ripple.showCallers",
+        "title": "↯ Ripple: Show Callers",
+        "category": "Ripple"
+      },
+      {
+        "command": "ripple.copyPrompt",
+        "title": "↯ Ripple: Copy Agent Prompt",
+        "category": "Ripple",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "ripple.showSetupPanel",
+        "title": "↯ Ripple: Show AI Setup Panel",
+        "category": "Ripple"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ripple.copyPrompt",
+          "when": "editorLangId =~ /typescript|javascript|typescriptreact|javascriptreact/",
+          "group": "ripple@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ripple.copyPrompt",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "ripple.showCallers",
+          "when": "false"
+        },
+        {
+          "command": "ripple.showSetupPanel"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ripple-container",
+          "title": "Ripple",
+          "icon": "resources/icon-activitybar.svg"
+        }
+      ]
+    },
+    "views": {
+      "ripple-container": [
+        {
+          "id": "ripple.impactLens",
+          "name": "Impact Lens",
+          "when": "workspaceHasTypeScriptOrJavaScript",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "ripple.impactLens",
+        "contents": "Open any TypeScript or JavaScript file.\n\nRipple will show exactly which files depend on it and which files it depends on — across your entire project.\n\nChange that file and you'll know what else might break.\n\n[Learn more](https://github.com/raushankcode/ripple)"
+      }
+    ],
+    "configuration": {
+      "title": "Ripple",
+      "properties": {
+        "ripple.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable Ripple entirely."
+        },
+        "ripple.showCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show caller count above every function declaration."
+        },
+        "ripple.safetyCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show blast radius warnings when staging files for git commit."
+        },
+        "ripple.generateContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate AI agent context files in .ripple/ on every save."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "compile": "tsc -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --minify",
+    "watch": "tsc -watch -p ./",
+    "watch:bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --watch",
+    "lint": "eslint src --ext ts",
+    "package": "npx vsce package",
+    "publish": "npx vsce publish",
+    "pretest": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^5.42.0",
+    "@typescript-eslint/parser": "^5.42.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.26.0",
+    "typescript": "~5.3.3"
+  },
+  "dependencies": {
+    "ts-morph": "^21.0.0"
+  }
+}

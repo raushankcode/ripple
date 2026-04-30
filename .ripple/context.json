@@ -1,0 +1,107 @@
+{
+  "rippleVersion": "1.0.0",
+  "projectName": "ripple",
+  "projectDescription": "See exactly what your code change will break before you make it. Ripple shows caller count, dependency graph, and blast radius instantly — plus generates AI-ready context for tools like Copilot and Cursor.",
+  "importAlias": "Use relative imports (no tsconfig alias detected)",
+  "generated": "2026-04-30T02:23:15.640Z",
+  "instructions": [
+    "FASTEST: Look up your target file in availableFocusFiles and read that path (~200 tokens).",
+    "Real examples: types.ts → .ripple/focus/ripple-src-types.json | normalizer.ts → .ripple/focus/ripple-src-normalizer.json | graph.ts → .ripple/focus/ripple-src-graph.json",
+    "For new features or debugging: read this file first, then check _tieredContext.decisionTree.",
+    "Check criticalFiles and warnings before touching any file.",
+    "Check lastChangeGroup.changedAt to see when the last change happened.",
+    "Use safeToCreateIn to know where to put new files.",
+    "Check orphanedSymbols before creating new utility functions.",
+    "Never modify or delete files inside .ripple/ — these are Ripple internal files."
+  ],
+  "project": {
+    "totalFiles": 6,
+    "totalSymbols": 19,
+    "totalDependencies": 4
+  },
+  "_tieredContext": {
+    "summary": "Read the smallest file that answers your question. Start with the focus file.",
+    "decisionTree": {
+      "I know which file to modify": "Look it up in availableFocusFiles → read that path (~200 tokens)",
+      "I need to add a new file": "Check safeToCreateIn and publicApi in this file",
+      "I need to understand file connections": "Read context.files.json",
+      "I need to trace a call chain": "Read context.symbols.json — calledBy uses file::function format",
+      "I am debugging across files": "Check lastChangeGroup.changedAt → read context.symbols.json"
+    },
+    "files": {
+      ".ripple/focus/{dir}-{name}.json": "PRIMARY. ~200 tokens. Read for any targeted file change.",
+      ".ripple/context.json": "This file. ~500 tokens. Orientation and new features.",
+      ".ripple/context.files.json": "~3000 tokens. Full file map, coding patterns, public API.",
+      ".ripple/context.symbols.json": "~5000 tokens. Full call graph. calledBy = file.tsx::function."
+    },
+    "tokenEstimates": {
+      "focus file only": "~200 tokens",
+      "context.json only": "~500 tokens",
+      "context.json + context.files.json": "~3000 tokens",
+      "context.json + context.symbols.json": "~5000 tokens",
+      "all files": "~15000 tokens"
+    }
+  },
+  "queryHints": {
+    "mostConnectedFiles": [
+      "normalizer.ts"
+    ],
+    "recentlyChangedFiles": [],
+    "highRiskSymbols": []
+  },
+  "entryPoints": [
+    "/src/extension.ts"
+  ],
+  "lastChangeGroup": {
+    "id": null,
+    "filesChanged": [],
+    "symbolsChanged": [],
+    "message": "No changes recorded yet — Ripple was just installed"
+  },
+  "criticalFiles": [],
+  "warnings": [],
+  "techStack": {
+    "hasNextJs": false,
+    "hasVite": false,
+    "hasReactRouter": false,
+    "hasTurborepo": false,
+    "hasTypeScript": true,
+    "hasTailwind": false,
+    "hasTests": false,
+    "packageManager": "npm"
+  },
+  "safeToCreateIn": [],
+  "orphanedSymbols": [],
+  "availableFocusFiles": {
+    "types.ts": ".ripple/focus/ripple-src-types.json [safe]",
+    "normalizer.ts": ".ripple/focus/ripple-src-normalizer.json [caution]",
+    "graph.ts": ".ripple/focus/ripple-src-graph.json [safe]",
+    "extension.ts": ".ripple/focus/ripple-src-extension.json [safe]"
+  },
+  "agentTasks": {
+    "addNewComponent": [
+      "1. Check safeToCreateIn for the correct directory",
+      "2. Use detected styling for styling",
+      "3. Check publicApi and orphanedSymbols — reuse before creating new",
+      "4. Component pattern: class or functional"
+    ],
+    "modifyExistingFile": [
+      "1. Look up file in availableFocusFiles — read that path (~200 tokens)",
+      "2. Check modificationRisk — stop and confirm with user if 'dangerous'",
+      "3. Check each symbol's layer — only touch the layer the user requested",
+      "4. Check calledBy (uses file.tsx::function format) — every caller must still work"
+    ],
+    "addNewFeature": [
+      "1. Check entryPoints to understand where new routes or pages go",
+      "2. Check safeToCreateIn for file placement",
+      "3. Check publicApi for existing utilities to reuse",
+      "4. State management: useState",
+      "5. Import style: use relative imports"
+    ],
+    "debugBug": [
+      "1. Check lastChangeGroup.changedAt — what changed and when",
+      "2. Check warnings — high_churn files are most likely sources",
+      "3. Read context.symbols.json — calledBy uses file.tsx::function to trace full chain"
+    ]
+  }
+}

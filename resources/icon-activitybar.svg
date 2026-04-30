@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!--
+    Ripple Activity Bar Icon
+    VS Code renders this as a CSS mask-image — all colors become the
+    current theme foreground. Rules:
+      1. Use currentColor ONLY — hardcoded colors invisible on some themes
+      2. No background rect — must be transparent
+      3. Strokes >= 1.6px on 24x24 viewBox to survive small icon sizes
+  -->
+
+  <!-- Outer ripple ring -->
+  <circle cx="12" cy="12" r="8.5"
+    stroke="currentColor" stroke-width="1.6" fill="none"/>
+
+  <!-- Inner ripple ring -->
+  <circle cx="12" cy="12" r="4.5"
+    stroke="currentColor" stroke-width="1.6" fill="none"/>
+
+  <!-- Center impact dot — solid fill for visibility at small sizes -->
+  <circle cx="12" cy="12" r="1.8"
+    fill="currentColor"/>
+
+  <!-- Lightning bolt ↯ — wide enough to survive icon scaling -->
+  <path d="M13 4.5 L9 12 H12.5 L10.5 19.5 L16 11 H12.5 Z"
+    fill="currentColor"/>
+</svg>

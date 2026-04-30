@@ -1,0 +1,41 @@
+{
+  "file": "extension.ts",
+  "fullPath": "c:/my project/ripple/src/extension.ts",
+  "modificationRisk": "safe",
+  "changeCount": 1,
+  "focusKey": "ripple-src-extension",
+  "instructions": [
+    "Safe to modify — low blast radius.",
+    "calledBy uses dir/file.tsx::functionName format — use it to locate callers directly.",
+    "Use layer field to confirm you are modifying the correct layer (logic/ui/handler)."
+  ],
+  "hasParseError": false,
+  "dataQuality": "complete",
+  "totalImporterCount": 0,
+  "importedByTruncated": false,
+  "importedBy": [],
+  "imports": [
+    "src/graph.ts",
+    "src/normalizer.ts"
+  ],
+  "symbols": [
+    {
+      "name": "activate",
+      "kind": "function",
+      "layer": "data",
+      "callerCount": 0,
+      "calledBy": [],
+      "calls": [
+        "src/normalizer.ts::clearAliasCache"
+      ]
+    },
+    {
+      "name": "deactivate",
+      "kind": "function",
+      "layer": "logic",
+      "callerCount": 0,
+      "calledBy": [],
+      "calls": []
+    }
+  ]
+}
