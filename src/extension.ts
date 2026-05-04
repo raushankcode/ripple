@@ -359,7 +359,7 @@ Project rules: .ripple/WORKFLOW.md`;
         if (hasWorkflow && !hasActivated) {
           vscode.window.showInformationMessage(
             `↯ Ripple: ${engine.graph.files.size} files scanned. ` +
-            `Copy .ripple/WORKFLOW.md to CLAUDE.md or AGENTS.md to activate AI agent mode.`,
+            `Copy .ripple/WORKFLOW.md to CLAUDE.md or AGENTS.md once — Ripple keeps it updated automatically after that.`,
             "Copy Now"
           ).then((choice) => {
             if (choice !== "Copy Now") return;

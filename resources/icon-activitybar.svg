@@ -3,7 +3,7 @@
     Ripple Activity Bar Icon
     VS Code renders this as a CSS mask-image — all colors become the
     current theme foreground. Rules:
-      1. Use currentColor ONLY — hardcoded colors invisible on some themes
+      1. Use currentColor ONLY — hardcoded colors are invisible on some themes
       2. No background rect — must be transparent
       3. Strokes >= 1.6px on 24x24 viewBox to survive small icon sizes
   -->

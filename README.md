@@ -1,6 +1,18 @@
 # ↯ Ripple
 
-**AI agents can search your codebase. Ripple already knows it.**
+Your AI agent's context goes stale the moment you save a file.
+Ripple fixes this. Automatically. On every save.
+
+---
+
+**Context Rot** is when your manually written CLAUDE.md or .cursorrules
+describes a codebase that no longer exists. The agent follows outdated
+instructions and breaks things you didn't ask it to touch.
+
+Ripple ends Context Rot permanently. It reads your entire project and
+auto-generates a live WORKFLOW.md on every save — then syncs it to
+your agent's instruction file automatically. Set it up once. Never
+touch it again.
 
 ---
 

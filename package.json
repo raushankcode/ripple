@@ -1,8 +1,8 @@
 {
   "name": "ripple",
-  "displayName": "Ripple: Know Your Code Before You Change It",
-  "description": "See exactly what your code change will break before you make it. Ripple shows caller count, dependency graph, and blast radius instantly — plus generates AI-ready context for tools like Copilot and Cursor.",
-  "version": "1.0.0",
+  "displayName": "Ripple — Live Architectural Intelligence",
+  "description": "Stop hand-writing context for your AI agent. Ripple auto-generates a live WORKFLOW.md on every save — synced to CLAUDE.md automatically. Your agent always knows your codebase. Context Rot ends here.",
+  "version": "1.0.1",
   "publisher": "rippleai",
   "author": {
     "name": "raushan soni"
@@ -18,7 +18,8 @@
   },
   "categories": [
     "Other",
-    "Linters"
+    "Linters",
+    "Machine Learning"
   ],
   "keywords": [
     "typescript",
