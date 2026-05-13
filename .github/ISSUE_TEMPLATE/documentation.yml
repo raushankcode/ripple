@@ -1,0 +1,37 @@
+name: Documentation issue
+description: Report unclear, missing, or outdated documentation.
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link to the page or name the file/section.
+      placeholder: README.md, Marketplace overview, docs/index.html, or another page.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or missing?
+      description: Explain what confused you or what should be added.
+      placeholder: The setup instructions do not explain how AGENTS.md is created.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Share the wording or structure you expected, if you have one.
+      placeholder: Add a short section showing where Ripple writes generated files.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and did not find a duplicate.
+          required: true

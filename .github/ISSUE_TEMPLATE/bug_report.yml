@@ -1,0 +1,110 @@
+name: Bug report
+description: Report something that is not working as expected in Ripple.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Clear reproduction steps help fix issues faster.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you were trying to do.
+      placeholder: Ripple showed an incorrect caller count after I saved a TypeScript file.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps that trigger the issue.
+      placeholder: |
+        1. Open a TypeScript project in VS Code.
+        2. Open src/example.ts.
+        3. Run Ripple: Copy Agent Prompt.
+        4. See the error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should Ripple have done instead?
+      placeholder: Ripple should show the correct importer count and copy the prompt successfully.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What did Ripple do?
+      placeholder: The sidebar stayed empty, or the copied prompt referenced a missing focus file.
+    validations:
+      required: true
+
+  - type: input
+    id: ripple-version
+    attributes:
+      label: Ripple version
+      description: Find this in the VS Code Extensions panel.
+      placeholder: "1.0.2"
+    validations:
+      required: true
+
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code version
+      placeholder: "1.90.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: project-type
+    attributes:
+      label: Project type
+      options:
+        - TypeScript
+        - JavaScript
+        - React
+        - Next.js
+        - Node.js
+        - Monorepo
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste useful output from the VS Code Developer Tools console or attach screenshots.
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and did not find a duplicate.
+          required: true
+        - label: I can reproduce this issue in the latest available Ripple version.
+          required: true

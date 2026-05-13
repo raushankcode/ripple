@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest an improvement or new capability for Ripple.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is painful or missing today?
+      placeholder: I want Ripple to expose blast radius data through an MCP server so AI agents can query it directly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you would like to see.
+      placeholder: Add a command or API that returns affected files for the active editor file.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other approaches have you tried?
+      placeholder: I currently copy the focus file path manually into my AI agent.
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: How important is this for your workflow?
+      options:
+        - Nice to have
+        - Important
+        - Blocking my workflow
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add screenshots, examples, links, or project details that would help.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and did not find a duplicate.
+          required: true

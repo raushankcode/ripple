@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ripple on the VS Code Marketplace
+    url: https://marketplace.visualstudio.com/items?itemName=rippleai.ripple
+    about: Install the extension or review the current Marketplace listing.
+  - name: Ripple repository
+    url: https://github.com/raushankcode/ripple
+    about: Read the README, source code, license, and project details.

@@ -1,0 +1,28 @@
+name: Question
+description: Ask a usage question about Ripple.
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like help with?
+      placeholder: How should I connect Ripple's generated WORKFLOW.md to my AI coding agent?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Share your project type, editor setup, or what you already tried.
+      placeholder: I am using VS Code with a Next.js TypeScript project.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and did not find a duplicate.
+          required: true
