@@ -2,17 +2,17 @@
  * types.ts — Ripple
  * Core data structures for the live system graph and architectural history.
  *
- * Three layers:
+ * Main layers:
  *
  *  Graph layer   — FileNode, SymbolNode, SystemGraph
- *    The in-memory dependency graph. Rebuilt on every VS Code session.
- *    Never persisted directly — only the ChangeLog is persisted.
+ *    The in-memory dependency and call graph. It can be restored from
+ *    .ripple/.cache/graph.cache.json, then repaired from disk when stale.
  *
  *  History layer — ChangeEvent, ChangeEventType, HistoryLog
- *    The append-only architectural history. Persisted to .ripple/history.json.
- *    Accumulates from the moment Ripple is installed. Never overwritten.
+ *    Bounded architectural history persisted to .ripple/history.json.
+ *    The first baseline_snapshot is preserved when old events are trimmed.
  *
- * ChangeEvent fields designed for Phase 3:
+ * ChangeEvent metadata:
  *  changeGroup       — links all events from the same save operation together
  *  symbol_modified   — fires when a function's content changes between saves
  *  kind              — function | class | method | variable
@@ -30,16 +30,15 @@
 export interface FileNode {
   path: string;
 
-  // Forward edges — files this file imports
+  // Forward edges: files this file imports.
   imports: Set<string>;
 
-  // Reverse edges — files that import this file.
-  // Built atomically with forward edges — never out of sync.
-  // NEVER cleared in removeFileEdges during update — only cleared when
-  // the file is truly deleted (removeFile handles this).
+  // Reverse edges: files that import this file.
+  // Preserved during incremental reparses so importer relationships survive
+  // target-file saves; true deletion cleanup happens in removeFile().
   importedBy: Set<string>;
 
-  // Symbol IDs defined in this file (format: filePath::symbolName)
+  // Symbol IDs defined in this file, formatted as filePath::symbolName.
   symbols: Set<string>;
 
   // SHA1 of file content — used for hash-gated incremental updates.
@@ -64,7 +63,7 @@ export interface SymbolNode {
 
   name: string;
 
-  // Absolute OS-native path to the file containing this symbol
+  // Absolute OS-native path to the file containing this symbol.
   file: string;
 
   kind: "function" | "class" | "method" | "variable";
@@ -80,11 +79,15 @@ export interface SymbolNode {
   // A "mixed" symbol may contain ["ui", "logic", "handler"].
   containsLayers?: string[];
 
-  // Forward call edges — symbols this symbol calls
+  // SHA1 of the symbol body/declaration text at the last successful parse.
+  // Persisted in graph.cache.json so cross-session edits still produce
+  // accurate symbol_modified history events.
+  symbolHash?: string;
+
+  // Forward call edges: symbols this symbol calls.
   calls: Set<string>;
 
-  // Reverse call edges — symbols that call this symbol.
-  // Built atomically with forward edges — never out of sync.
+  // Reverse call edges: symbols that call this symbol.
   calledBy: Set<string>;
 
   createdAt: number;
@@ -92,10 +95,10 @@ export interface SymbolNode {
 }
 
 export class SystemGraph {
-  // Keyed by absolute OS-native file path
+  // Keyed by absolute OS-native file path.
   files: Map<string, FileNode> = new Map();
 
-  // Keyed by symbolId: filePath::symbolName
+  // Keyed by symbolId, formatted as filePath::symbolName.
   symbols: Map<string, SymbolNode> = new Map();
 }
 
@@ -127,7 +130,7 @@ export interface ChangeEvent {
   // Secondary entity — present for relationship events (import/call)
   target?: string;
 
-  // ── Phase 3 fields ───────────────────────────────────────────────────────
+  // ── Event metadata ────────────────────────────────────────────────────────
 
   // Links all events from the same save operation together.
   // Format: "save_<timestamp>_<hex>" — reconstructible to ISO date.
@@ -145,8 +148,8 @@ export interface ChangeEvent {
   // Use this for comparing symbol content across saves.
   symbolHash?: string;
 
-  // SHA1 hash of the WHOLE FILE at time of event.
-  // Set on file_created and file_deleted events only.
+  // SHA1 hash of the whole file at time of event.
+  // Set on file_created events when content is available.
   fileHash?: string;
 
   // SHA1 hash of symbol body text BEFORE modification.
@@ -161,7 +164,7 @@ export interface ChangeEvent {
   // Format: "files:<n>|symbols:<n>"
   metadata?: string;
 
-  // Git commit ID — populated in Phase 3 git integration.
+  // Reserved for future git integration.
   commitId?: string;
 }
 
@@ -175,10 +178,8 @@ export class HistoryLog {
   log(event: ChangeEvent): void {
     this.events.push(event);
 
-    // Trim in-memory array to prevent unbounded memory growth on long sessions.
-    // Threshold matches flush() MAX_EVENTS exactly (10000) to prevent silent
-    // event loss on VS Code restart. Previously this was 11000 vs flush() 10000
-    // which caused events 10001-11000 to exist in memory but never reach disk.
+    // Trim in-memory history to match the persisted MAX_EVENTS limit while
+    // preserving the baseline event when it exists.
     if (this.events.length > 10000) {
       const baseline = this.events.find(
         (e) => e.type === "baseline_snapshot"

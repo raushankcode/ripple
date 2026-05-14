@@ -3,16 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ripple — Context Rot ends here.</title>
+    <title>Ripple — Live codebase context for AI agents.</title>
     <meta
       name="description"
-      content="Your AI agent's context goes stale the moment you save a file. Ripple auto-generates a live WORKFLOW.md on every save — synced to CLAUDE.md automatically. Context Rot ends here." />
-    <meta property="og:title" content="Ripple — Context Rot ends here." />
+      content="Ripple helps AI coding agents understand JavaScript and TypeScript codebases before they change shared code." />
+    <meta property="og:title" content="Ripple — Live codebase context for AI agents." />
     <meta
       property="og:description"
-      content="Stop hand-writing context for your AI agent. Ripple auto-generates it live. Your agent always knows your codebase." />
+      content="Local-first VS Code context for AI agents: dependency impact, caller counts, history, focus files, and safer prompts from your actual codebase." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://raushankcode.github.io/ripple/" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://raushankcode.github.io/ripple/" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -42,7 +44,7 @@
         --font-code: "JetBrains Mono", monospace;
         --font-body: "Inter", sans-serif;
         --ease: cubic-bezier(0.16, 1, 0.3, 1);
-        --g: clamp(18px, 5vw, 80px);
+        --g: clamp(16px, 5vw, 80px);
         --r: 8px;
       }
 
@@ -149,6 +151,7 @@
         transition:
           filter 0.2s,
           transform 0.15s;
+        white-space: nowrap;
       }
       .nav-install:hover {
         filter: brightness(1.1);
@@ -167,7 +170,6 @@
         overflow: hidden;
       }
 
-      /* Subtle dot grid background */
       .hero::before {
         content: "";
         position: absolute;
@@ -185,7 +187,6 @@
         );
       }
 
-      /* Right side ambient glow */
       .hero::after {
         content: "";
         position: absolute;
@@ -318,6 +319,7 @@
           filter 0.2s,
           transform 0.15s;
         box-shadow: 0 0 32px rgba(0, 200, 255, 0.2);
+        white-space: nowrap;
       }
       .cta-main:hover {
         filter: brightness(1.08);
@@ -337,13 +339,13 @@
         transition:
           border-color 0.2s,
           color 0.2s;
+        white-space: nowrap;
       }
       .cta-sec:hover {
         border-color: var(--neon);
         color: var(--cream);
       }
 
-      /* ── Context Rot callout in hero ── */
       .rot-alert {
         background: linear-gradient(
           135deg,
@@ -375,7 +377,6 @@
         color: var(--cream);
       }
 
-      /* ── Proof card in hero ── */
       .proof-card {
         background: var(--ink-card);
         border: 1px solid var(--line);
@@ -470,8 +471,8 @@
         }
       }
       .e {
-        stroke-dasharray: 5 4;
-        animation: ef 2.2s linear infinite;
+        stroke-dasharray: 4 4; /* Creates the dashed line */
+        animation: flow 2s linear infinite; /* Animates it */
       }
       .e2 {
         animation-delay: -1.1s;
@@ -482,13 +483,13 @@
       .e4 {
         animation-delay: -1.65s;
       }
-      @keyframes ef {
+      @keyframes flow {
         to {
-          stroke-dashoffset: -18;
+          stroke-dashoffset: -8; /* Move the dashes backward to simulate flow towards center */
         }
       }
 
-      /* ══ CONTEXT ROT SECTION ════════════════════════════════════ */
+      /* ══ PROBLEM AND PROOF SECTION ══════════════════════════════ */
       .rot-section {
         background: var(--ink-2);
         border-top: 1px solid var(--line-dim);
@@ -577,7 +578,6 @@
         border-bottom: 1px solid var(--line-dim);
       }
 
-      /* Auto-sync pipeline */
       .pipeline {
         display: flex;
         flex-direction: column;
@@ -782,6 +782,28 @@
         letter-spacing: 0.3px;
       }
 
+      .scope-note {
+        max-width: 760px;
+        margin: 42px auto 0;
+        padding-top: 22px;
+        border-top: 1px solid var(--line-dim);
+        text-align: center;
+      }
+      .scope-title {
+        font-family: var(--font-code);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1.6px;
+        text-transform: uppercase;
+        color: var(--neon);
+        margin-bottom: 10px;
+      }
+      .scope-copy {
+        color: var(--muted-2);
+        font-size: 14px;
+        line-height: 1.75;
+      }
+
       /* ── Code window ── */
       .cwin {
         background: #060e16;
@@ -798,18 +820,19 @@
         border-bottom: 1px solid var(--line-dim);
         background: rgba(255, 255, 255, 0.015);
       }
-      .d {
+      /* Code window status dots */
+      .cwin-dot {
         width: 9px;
         height: 9px;
         border-radius: 50%;
       }
-      .d-r {
+      .cwin-dot-r {
         background: #ff5f57;
       }
-      .d-y {
+      .cwin-dot-y {
         background: #febc2e;
       }
-      .d-g {
+      .cwin-dot-g {
         background: #28c840;
       }
       .cwin-name {
@@ -867,6 +890,7 @@
         line-height: 1.85;
         margin-top: 24px;
         position: relative;
+        overflow-x: auto;
       }
       .focus-demo::before {
         content: "200 tokens";
@@ -911,15 +935,17 @@
         padding: 28px 24px;
         border-top: 3px solid transparent;
       }
-      .risk-c.d {
+      /* Risk card accent states */
+      .risk-c.risk-danger {
         border-top-color: var(--red);
       }
-      .risk-c.w {
+      .risk-c.risk-warn {
         border-top-color: var(--amber);
       }
-      .risk-c.s {
+      .risk-c.risk-safe {
         border-top-color: var(--green);
       }
+
       .risk-pill {
         display: inline-flex;
         align-items: center;
@@ -933,17 +959,17 @@
         border-radius: 100px;
         margin-bottom: 14px;
       }
-      .risk-c.d .risk-pill {
+      .risk-c.risk-danger .risk-pill {
         color: var(--red);
         background: rgba(255, 79, 79, 0.1);
         border: 1px solid rgba(255, 79, 79, 0.25);
       }
-      .risk-c.w .risk-pill {
+      .risk-c.risk-warn .risk-pill {
         color: var(--amber);
         background: rgba(240, 180, 41, 0.1);
         border: 1px solid rgba(240, 180, 41, 0.25);
       }
-      .risk-c.s .risk-pill {
+      .risk-c.risk-safe .risk-pill {
         color: var(--green);
         background: rgba(45, 224, 130, 0.1);
         border: 1px solid rgba(45, 224, 130, 0.25);
@@ -1036,6 +1062,23 @@
         font-size: 12px;
         color: var(--muted);
         margin-top: 4px;
+      }
+      .proof-link {
+        display: inline-flex;
+        margin-top: 24px;
+        color: var(--neon);
+        font-family: var(--font-code);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        border-bottom: 1px solid rgba(0, 200, 255, 0.35);
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .proof-link:hover {
+        color: var(--cream);
+        border-color: var(--cream);
       }
 
       /* ══ CTA ═════════════════════════════════════════════════════ */
@@ -1192,9 +1235,22 @@
       /* ══ RESPONSIVE ══════════════════════════════════════════════ */
       @media (max-width: 960px) {
         .hero {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
           padding-top: 90px;
           gap: 40px;
+        }
+        .hero,
+        .hero * {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+        .hero-left,
+        .hero-ctas,
+        .cta-main,
+        .cta-sec,
+        .rot-alert,
+        .proof-card {
+          max-width: calc(100vw - 48px);
         }
         .hero-right {
           order: -1;
@@ -1203,12 +1259,11 @@
           max-width: 380px;
           margin: 0 auto;
         }
-        .rot-compare {
-          grid-template-columns: 1fr;
-        }
-        .steps-row {
-          grid-template-columns: 1fr;
-          gap: 2px;
+        .rot-compare,
+        .steps-row,
+        .feat-grid,
+        .risk-cards {
+          grid-template-columns: minmax(0, 1fr);
         }
         .step-card:first-child {
           border-radius: var(--r) var(--r) 0 0;
@@ -1216,14 +1271,8 @@
         .step-card:last-child {
           border-radius: 0 0 var(--r) var(--r);
         }
-        .feat-grid {
-          grid-template-columns: 1fr;
-        }
         .feat-card.hero-feat {
           grid-column: 1;
-        }
-        .risk-cards {
-          grid-template-columns: 1fr;
         }
         .nav-mid {
           display: none;
@@ -1238,14 +1287,182 @@
           justify-content: center;
         }
       }
+      /* Tight mobile view */
       @media (max-width: 560px) {
+        :root {
+          --g: 24px;
+        }
+        html,
+        body {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+        nav {
+          height: 56px;
+          padding: 0 16px;
+        }
+        .logo {
+          font-size: 16px;
+        }
+        section {
+          padding: 64px var(--g);
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+        .hero {
+          display: block;
+          min-height: auto;
+          align-items: start;
+          width: 100%;
+          max-width: 100%;
+          padding: 96px var(--g) 56px;
+        }
+        .hero-left {
+          min-width: 0;
+          width: min(100%, 342px) !important;
+          max-width: 342px !important;
+        }
+        .hero-right {
+          display: none;
+        }
+        .badge {
+          max-width: 100%;
+          margin-bottom: 24px;
+          font-size: 10px;
+          letter-spacing: 1px;
+          white-space: normal;
+        }
+        .hero-h1 {
+          font-size: 40px;
+          line-height: 1.08;
+          margin-bottom: 22px;
+        }
+        .hero-sub {
+          font-size: 16px;
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-wrap: anywhere;
+        }
         .hero-ctas {
+          width: 100% !important;
+          max-width: 100% !important;
           flex-direction: column;
-          align-items: flex-start;
+          align-items: stretch;
+        }
+        .cta-main,
+        .cta-sec,
+        .rot-alert,
+        .proof-card {
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+        .cta-main,
+        .cta-sec {
+          justify-content: center;
+          text-align: center;
+          white-space: normal;
+        }
+        .rot-alert,
+        .proof-card,
+        .proof-stat {
+          overflow-wrap: anywhere;
+        }
+        .rot-compare,
+        .pipeline,
+        .steps-row,
+        .feat-grid,
+        .risk-cards,
+        .stack-pills,
+        .focus-demo,
+        .scope-note,
+        .proof-box {
+          min-width: 0;
+          max-width: 100%;
+        }
+        section > .sp3,
+        section > .sh2,
+        section > .eye,
+        section > .rot-compare,
+        section > .pipeline,
+        section > .steps-row,
+        section > .feat-grid,
+        section > .focus-demo,
+        section > .risk-cards,
+        section > .stack-pills,
+        section > .scope-note,
+        section > .proof-box,
+        section > .cta-row {
+          width: min(100%, 342px) !important;
+          max-width: 342px !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+        }
+        .rot-card,
+        .step-card,
+        .feat-card,
+        .risk-c {
+          min-width: 0;
+          max-width: 100%;
+          overflow-wrap: anywhere;
+        }
+        .sp3,
+        .rot-card-desc,
+        .step-dsc,
+        .feat-desc,
+        .risk-body,
+        .scope-copy,
+        .proof-quote,
+        .proof-sub-label {
+          overflow-wrap: anywhere;
+        }
+        .focus-demo {
+          overflow-x: hidden;
+        }
+        .focus-demo span,
+        .cwin-body span {
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
         .cta-row {
           flex-direction: column;
           align-items: center;
+        }
+        .rot-card,
+        .feat-card {
+          padding: 24px;
+        }
+        .risk-c {
+          padding: 24px 20px;
+        }
+        .nav-install {
+          display: none;
+        }
+        footer {
+          width: 100vw;
+          max-width: 100vw;
+          padding-left: var(--g);
+          padding-right: var(--g);
+          overflow-x: hidden;
+        }
+        .foot-links {
+          width: min(100%, 342px);
+          max-width: 342px;
+          gap: 14px;
+        }
+        .foot-links a {
+          white-space: normal;
+        }
+        .badge,
+        .hero-h1,
+        .hero-sub,
+        .hero-ctas,
+        .rot-alert,
+        .proof-card {
+          animation: none;
+          opacity: 1;
+          transform: none;
         }
       }
     </style>
@@ -1261,16 +1478,26 @@
         <div class="logo-word"><span>Ripple</span></div>
       </div>
       <ul class="nav-mid">
-        <li><a href="#rot">Context Rot</a></li>
+        <li><a href="#problem">Problem</a></li>
+        <li><a href="#proof">Proof</a></li>
         <li><a href="#features">Features</a></li>
         <li><a href="#how">How it works</a></li>
         <li><a href="#stack">Stack</a></li>
-        <li><a href="https://github.com/raushankcode/ripple">GitHub</a></li>
+        <li>
+          <a
+            href="https://github.com/raushankcode/ripple"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub</a
+          >
+        </li>
       </ul>
       <a
         href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+        target="_blank"
+        rel="noopener noreferrer"
         class="nav-install">
-        ↯ Install Free →
+            ↯ Install
       </a>
     </nav>
 
@@ -1279,54 +1506,55 @@
       <div class="hero-left">
         <div class="badge">
           <div class="badge-dot"></div>
-          VS Code Extension · TypeScript + JavaScript
+          VS Code Extension · JS/TS
         </div>
 
         <h1 class="hero-h1">
-          Your AI agent<br />is working with<br />
-          <span class="strike">last week's</span><br />
-          <span class="accent">codebase.</span>
+          Live codebase<br />context for<br />
+          <span class="accent">AI agents.</span>
         </h1>
 
         <p class="hero-sub">
-          Every time you save a file, your manually written
-          <strong>CLAUDE.md</strong> becomes a little more wrong. Ripple
-          <strong>auto-generates a live WORKFLOW.md on every save</strong>
-          and syncs it to your agent automatically. Context Rot ends here.
+          Ripple scans your JavaScript or TypeScript workspace locally, builds a
+          dependency and symbol map, and turns that map into editor signals and
+          AI-ready context.
         </p>
 
         <div class="hero-ctas">
           <a
             href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+            target="_blank"
+            rel="noopener noreferrer"
             class="cta-main">
             ↯ Install for VS Code — Free
           </a>
-          <a href="https://github.com/raushankcode/ripple" class="cta-sec">
+          <a
+            href="https://github.com/raushankcode/ripple"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="cta-sec">
             View on GitHub →
           </a>
         </div>
 
         <div class="rot-alert">
-          <div class="rot-alert-label">⚠ The Problem — Context Rot</div>
+          <div class="rot-alert-label">Real project proof</div>
           <div class="rot-alert-text">
-            Your <strong>CLAUDE.md</strong> describes a codebase that no longer
-            exists. Every refactor, every new file, every added dependency makes
-            it more wrong.
-            <strong
-              >Agents follow outdated instructions and break production.</strong
-            >
+            Validated on a local clone of <strong>sindresorhus/ky</strong>:
+            52 files, 103 symbols, 349 import edges, and 41 call edges.
           </div>
         </div>
 
         <div class="proof-card">
           <div class="proof-text-sm">
-            I gave an AI agent a task on <strong>SacredButton.tsx</strong>.
-            <span class="hl">28 files</span> depended on it. Ripple's live
-            context showed the agent the blast radius. It stopped. Confirmed.
-            Changed only the internals. Every caller worked.
+            Same temporary change to
+            <strong>source/utils/merge.ts::mergeHeaders</strong>. Manual search
+            found <span class="hl">3</span> likely files. Ripple identified
+            <span class="hl">19</span> potentially impacted files, marked the
+            change dangerous, and generated verification targets.
           </div>
           <div class="proof-stat">
-            3m 23s · zero debugging · zero broken callers
+            16 more potentially impacted files surfaced
           </div>
         </div>
       </div>
@@ -1554,7 +1782,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="9.5"
               text-anchor="middle">
-              SacredButton.tsx
+              merge.ts::mergeHeaders
             </text>
 
             <!-- DANGEROUS badge -->
@@ -1596,7 +1824,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="7.5"
               text-anchor="middle">
-              ↯ 28 callers
+              ↯ 19 possible impacts
             </text>
 
             <!-- Satellite labels -->
@@ -1607,7 +1835,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="8"
               text-anchor="middle">
-              SepsisGalaxy
+              core/Ky.ts
             </text>
             <text
               x="424"
@@ -1616,7 +1844,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="8"
               text-anchor="middle">
-              RingDisplay
+              source/index.ts
             </text>
             <text
               x="105"
@@ -1625,7 +1853,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="8"
               text-anchor="middle">
-              ScorePanel
+              hooks.ts
             </text>
             <text
               x="418"
@@ -1634,7 +1862,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="8"
               text-anchor="middle">
-              PatientFace
+              options.ts
             </text>
             <text
               x="260"
@@ -1643,7 +1871,7 @@
               font-family="JetBrains Mono,monospace"
               font-size="8"
               text-anchor="middle">
-              page.tsx
+              test/base-url.ts
             </text>
 
             <!-- Corner badge -->
@@ -1662,8 +1890,8 @@
               fill="#4a6070"
               font-family="JetBrains Mono,monospace"
               font-size="9.5">
-              importedBy:
-              <tspan fill="#00c8ff">28</tspan>
+              possible:
+              <tspan fill="#00c8ff">19</tspan>
             </text>
 
             <!-- WORKFLOW.md live badge -->
@@ -1682,104 +1910,76 @@
               fill="#00ffc8"
               font-family="JetBrains Mono,monospace"
               font-size="9.5">
-              ⟳ WORKFLOW.md live
+              history: symbol_modified
             </text>
           </svg>
         </div>
       </div>
     </section>
 
-    <!-- ══ CONTEXT ROT SECTION ══════════════════════════════════════ -->
-    <section class="rot-section" id="rot">
-      <div class="eye rev">The core problem</div>
-      <h2 class="sh2 rev">Context Rot is breaking<br />your AI agent.</h2>
+    <!-- ══ CONTEXT ROT PROOF ═══════════════════════════════════════ -->
+    <section class="rot-section" id="problem">
+      <div class="eye rev">The problem: Context Rot</div>
+      <h2 class="sh2 rev">Context Rot hides<br />the blast radius.</h2>
       <p class="sp3 rev">
-        Every team using AI has this problem. You write perfect instructions
-        once. Three days later your codebase changed and your agent is following
-        a map of a city that no longer exists.
+        Hand-written agent instructions help for a while. Then files move,
+        callers grow, and risky functions change. Ripple fights that by
+        generating live architectural context from the JavaScript or TypeScript
+        codebase in front of you.
       </p>
 
       <div class="rot-compare">
         <div class="rot-card rot-bad rev">
           <div class="rot-card-eyebrow">Without Ripple</div>
-          <div class="rot-card-title">Context Rot</div>
+          <div class="rot-card-title">Text Search</div>
           <div class="rot-card-desc">
-            You spend hours writing the perfect <strong>CLAUDE.md</strong>. It
-            describes your architecture, your high-risk files, your coding
-            patterns. Then you save a file. Then another.
-            <strong
-              >Now your agent is following instructions from last week.</strong
-            >
+            Normal diff and text search showed the edited file plus a small
+            set of direct references.
+            <strong>It did not show the full downstream blast radius.</strong>
           </div>
           <div class="rot-items">
             <div class="rot-item">
-              <span class="ri">✗</span
-              ><span
-                >Agent makes changes based on outdated blast radius — breaks
-                files it didn't know about</span
-              >
+              <span class="ri">✗</span>
+              <span>Changed files from simple diff: 1</span>
             </div>
             <div class="rot-item">
-              <span class="ri">✗</span
-              ><span
-                >New high-risk files not warned about — agent refactors them
-                without asking</span
-              >
+              <span class="ri">✗</span>
+              <span>Direct text matches: 8</span>
             </div>
             <div class="rot-item">
-              <span class="ri">✗</span
-              ><span
-                >Team wastes hours updating context files manually every
-                sprint</span
-              >
+              <span class="ri">✗</span>
+              <span>Likely related files found: 3</span>
             </div>
             <div class="rot-item">
-              <span class="ri">✗</span
-              ><span
-                >Agent confidently follows correct-but-stale instructions into
-                production bugs</span
-              >
+              <span class="ri">✗</span>
+              <span>No risk level, symbol history, or verification route</span>
             </div>
           </div>
         </div>
 
         <div class="rot-card rot-good rev" style="transition-delay: 0.1s">
           <div class="rot-card-eyebrow">With Ripple</div>
-          <div class="rot-card-title">Live Protocol</div>
+          <div class="rot-card-title">Graph Context</div>
           <div class="rot-card-desc">
-            Ripple generates WORKFLOW.md from your
-            <strong>actual live dependency graph</strong> on every save. Blast
-            radius, risk levels, stack detection, coding constraints — all
-            derived from ground truth, not memory.
+            Ripple used the local dependency graph and symbol history to show a
+            wider impact picture for the same temporary change.
           </div>
           <div class="rot-items">
             <div class="rot-item">
-              <span class="ri">✓</span
-              ><span
-                >Copy WORKFLOW.md to CLAUDE.md once — Ripple syncs it
-                automatically after that</span
-              >
+              <span class="ri">✓</span>
+              <span>Potentially impacted files identified: 19</span>
             </div>
             <div class="rot-item">
-              <span class="ri">✓</span
-              ><span
-                >Every save regenerates blast radius, importers, and safe
-                directories accurately</span
-              >
+              <span class="ri">✓</span>
+              <span>Risk marked: dangerous</span>
             </div>
             <div class="rot-item">
-              <span class="ri">✓</span
-              ><span
-                >Zero maintenance — your team never manually updates the context
-                file again</span
-              >
+              <span class="ri">✓</span>
+              <span>Changed symbol recorded: mergeHeaders</span>
             </div>
             <div class="rot-item">
-              <span class="ri">✓</span
-              ><span
-                >Agent works as a true architectural collaborator with live,
-                accurate knowledge</span
-              >
+              <span class="ri">✓</span>
+              <span>Verification targets generated before treating the edit as safe</span>
             </div>
           </div>
         </div>
@@ -1789,21 +1989,22 @@
     <!-- ══ HOW IT WORKS ═════════════════════════════════════════════ -->
     <section class="how-bg" id="how">
       <div class="eye rev">How it works</div>
-      <h2 class="sh2 rev">One setup.<br />Zero maintenance forever.</h2>
+      <h2 class="sh2 rev">Open a project.<br />Ripple maps the risk.</h2>
       <p class="sp3 rev">
-        Copy WORKFLOW.md to CLAUDE.md once. Every save after that keeps it
-        perfectly up to date — automatically.
+        Ripple scans supported JavaScript and TypeScript files locally, updates
+        the graph as files change, and writes project-relative context that an
+        AI agent can read before editing.
       </p>
 
-      <!-- Auto-sync pipeline -->
+      <!-- Local context pipeline -->
       <div class="pipeline rev">
         <div class="pipe-step lit">
           <div class="pipe-node">1</div>
           <div class="pipe-body">
-            <div class="pipe-title">You save a TypeScript file</div>
+            <div class="pipe-title">Open a TypeScript or JavaScript project</div>
             <div class="pipe-desc">
-              Ripple detects the change instantly via VS Code's file system
-              watcher. No polling. No delay.
+              Ripple starts with a local scan of supported `.ts`, `.tsx`,
+              `.js`, and `.jsx` files.
             </div>
           </div>
         </div>
@@ -1811,11 +2012,11 @@
           <div class="pipe-node">2</div>
           <div class="pipe-body">
             <div class="pipe-title">
-              Dependency graph rebuilds in milliseconds
+              Dependency graph and symbols are mapped
             </div>
             <div class="pipe-desc">
-              Blast radius, import edges, calledBy counts, layer classification
-              — all recalculated from your live codebase. Not from memory.
+              Import edges, caller counts, risk labels, and focus-file context
+              are derived from the codebase in front of you.
             </div>
           </div>
         </div>
@@ -1823,29 +2024,28 @@
           <div class="pipe-node">3</div>
           <div class="pipe-body">
             <div class="pipe-title">
-              WORKFLOW.md regenerated from ground truth
+              Context files are generated locally
             </div>
             <div class="pipe-desc">
-              A perfect, accurate agent protocol written to
+              Project memory is written to
               <code style="color: var(--neon); font-size: 11px"
                 >.ripple/WORKFLOW.md</code
-              >. Framework rules, high-risk files, safe directories — all live.
+               >, `.ripple/history.json`, and focused cache files for agents.
             </div>
-            <div class="pipe-tag auto">auto · every save</div>
+            <div class="pipe-tag auto">local · project-relative</div>
           </div>
         </div>
         <div class="pipe-step final">
           <div class="pipe-node">✓</div>
           <div class="pipe-body">
             <div class="pipe-title">
-              CLAUDE.md synced — your agent reads fresh context
+              Agent reads before it edits
             </div>
             <div class="pipe-desc">
-              If your CLAUDE.md or AGENTS.md was created by Ripple, it updates
-              automatically. Your agent starts every session with a perfect,
-              current understanding of your architecture.
+              Copy Agent Prompt points the agent to the right focus file, risk,
+              importers, and project workflow.
             </div>
-            <div class="pipe-tag once">Do this once · never again</div>
+            <div class="pipe-tag once">copy prompt · verify first</div>
           </div>
         </div>
       </div>
@@ -1854,29 +2054,28 @@
         <div class="step-card rev">
           <div class="step-n">01</div>
           <div class="step-ico">⚡</div>
-          <div class="step-ttl">Scan on install</div>
+          <div class="step-ttl">Scan locally</div>
           <div class="step-dsc">
-            Full codebase scan in seconds. No config. Barrel files, tsconfig
-            paths, and all path aliases resolved correctly.
+            The scan runs inside your workspace. No account, no telemetry, no
+            cloud indexing, no code upload.
           </div>
         </div>
         <div class="step-card rev" style="transition-delay: 0.1s">
           <div class="step-n">02</div>
           <div class="step-ico">↯</div>
-          <div class="step-ttl">Update on every save</div>
+          <div class="step-ttl">Update graph</div>
           <div class="step-dsc">
-            Incremental graph update. Focus file rewrites in milliseconds.
-            Impact Lens and CodeLens refresh. WORKFLOW.md stays current.
+            Impact Lens, CodeLens, history, and focus files stay aligned with
+            recent file changes.
           </div>
         </div>
         <div class="step-card rev" style="transition-delay: 0.2s">
           <div class="step-n">03</div>
           <div class="step-ico">◎</div>
-          <div class="step-ttl">Agent reads, not guesses</div>
+          <div class="step-ttl">Agent verifies</div>
           <div class="step-dsc">
-            200-token focus files contain precise architectural truth. No
-            codebase search needed. Agent acts like a senior engineer who has
-            read everything.
+            The prompt and focus file give the agent a smaller, safer starting
+            point than blind editing.
           </div>
         </div>
       </div>
@@ -1885,10 +2084,10 @@
     <!-- ══ FEATURES ══════════════════════════════════════════════════ -->
     <section id="features">
       <div class="eye rev">Features</div>
-      <h2 class="sh2 rev">Four features.<br />Zero configuration.</h2>
+      <h2 class="sh2 rev">Practical signals.<br />No account required.</h2>
       <p class="sp3 rev">
-        Everything works immediately on project open. No setup files. No API
-        keys. No accounts required.
+        Ripple turns the local graph into visible editor features and
+        AI-ready context files.
       </p>
 
       <div class="feat-grid">
@@ -1896,49 +2095,46 @@
         <div class="feat-card hero-feat rev">
           <div class="feat-ico">⟳</div>
           <div class="feat-title">
-            ↯ Live WORKFLOW.md — Context Rot ends here
+            ↯ `.ripple/WORKFLOW.md`
           </div>
           <div class="feat-desc">
-            Ripple generates a complete AI agent protocol from your live
-            dependency graph on every save. Framework detection, blast radius
-            warnings, high-risk file list, safe directories — all derived from
-            your actual codebase, never from memory you wrote six days ago.
+            Ripple generates a local workflow file that tells AI agents how to
+            inspect focus files, check importers, respect risk labels, and avoid
+            unrelated edits.
             <br /><br />
-            Copy it to CLAUDE.md once. Ripple syncs it automatically every time
-            your codebase changes. You write the prompt once. Ripple keeps it
-            perfect forever.
+            You can connect it to AGENTS.md, CLAUDE.md, or .cursorrules without
+            replacing your own notes.
           </div>
           <div class="cwin">
             <div class="cwin-bar">
-              <div class="d d-r"></div>
-              <div class="d d-y"></div>
-              <div class="d d-g"></div>
+              <div class="cwin-dot cwin-dot-r"></div>
+              <div class="cwin-dot cwin-dot-y"></div>
+              <div class="cwin-dot cwin-dot-g"></div>
               <span class="cwin-name"
-                >CLAUDE.md — auto-synced by Ripple on every save</span
+                >AGENTS.md — Ripple-managed section</span
               >
             </div>
             <div class="cwin-body">
-              <span class="cc"># sentio — Ripple Workflow</span>
+              <span class="cc"># sindresorhus/ky — Ripple Workflow</span>
               <span class="cc"
-                >*Auto-generated by Ripple v1.0.1 — always current*</span
+                >*Auto-generated by Ripple — refreshed from project graph*</span
               >
 
-              <span class="ck">High-blast files</span> (STOP + confirm before
-              touching): <span class="cr">IntuitionTypes.ts</span>
-              <span class="cc">— 29 importers</span>
-              <span class="cr">SacredButton.tsx</span>
-              <span class="cc">— 28 importers</span>
+              <span class="ck">High-blast files</span> (verify before
+              touching): <span class="cr">source/types/options.ts</span>
+              <span class="cc">— 27 importers</span>
+              <span class="cr">source/errors/KyError.ts</span>
+              <span class="cc">— 21 importers</span>
+              <span class="cr">source/utils/merge.ts</span>
+              <span class="cc">— 19 importers</span>
 
-              <span class="ck">Framework:</span> <span class="ct">Next.js</span>
-              <span class="ck">State:</span> <span class="ct">useState</span>
-              <span class="ck">New files:</span>
-              <span class="cs">app/components/</span>
-              <span class="ck">Import style:</span>
-              <span class="cs">use '@/...'</span>
+              <span class="ck">Project:</span> <span class="ct">TypeScript library</span>
+              <span class="ck">History:</span>
+              <span class="cs">source/utils/merge.ts::mergeHeaders</span>
             </div>
           </div>
           <br />
-          <span class="feat-pill">live · auto-synced · zero maintenance</span>
+          <span class="feat-pill">local · project memory · agent guidance</span>
         </div>
 
         <!-- Copy Agent Prompt -->
@@ -1946,10 +2142,10 @@
           <div class="feat-ico">◎</div>
           <div class="feat-title">↯ Copy Agent Prompt</div>
           <div class="feat-desc">
-            Right-click any TypeScript file. Copy a ready-to-paste prompt
-            containing the file's risk level, its importers, symbols with layer
-            classification, and the path to its 200-token focus file. Works with
-            Claude Code, Cursor, Copilot, any agent.
+            Right-click any supported file. Copy a ready-to-paste prompt
+            containing the file's risk level, importers, symbols, project rules,
+            and the path to its focused context file. Works with Claude Code,
+            Cursor, Copilot, Continue, or another local-file-aware agent.
           </div>
           <span class="feat-pill">one right-click · ~400 tokens</span>
         </div>
@@ -1959,7 +2155,7 @@
           <div class="feat-ico">◈</div>
           <div class="feat-title">↯ Impact Lens</div>
           <div class="feat-desc">
-            Open any file. The sidebar instantly shows what imports it and what
+            Open any file. The sidebar shows what imports it and what
             it imports — across your entire project. Click any file in the list
             to open it. Updates on every save without reloading VS Code.
           </div>
@@ -1971,42 +2167,54 @@
           <div class="feat-ico">◉</div>
           <div class="feat-title">↯ CodeLens Caller Count</div>
           <div class="feat-desc">
-            Every function shows its live caller count above the declaration —
-            permanently. Click to open the full caller panel with clickable file
-            links. No hovering. No commands. Always on.
+            Relevant exported functions and components show caller counts above
+            the declaration. Click to open the full caller panel with clickable
+            file links.
           </div>
           <span class="feat-pill">inline · always on</span>
+        </div>
+
+        <!-- Safety Check -->
+        <div class="feat-card rev" style="transition-delay: 0.2s">
+          <div class="feat-ico">✓</div>
+          <div class="feat-title">↯ Safety Check</div>
+          <div class="feat-desc">
+            When you stage files for a git commit, Ripple can warn when untested
+            files may be affected. It does not block the commit; it gives you
+            impact awareness before you ship.
+          </div>
+          <span class="feat-pill">staged changes · review before ship</span>
         </div>
       </div>
     </section>
 
     <!-- ══ FOCUS FILE ════════════════════════════════════════════════ -->
     <section style="padding-top: 0">
-      <div class="eye rev">The focus file</div>
-      <h2 class="sh2 rev">200 tokens.<br />Complete architectural truth.</h2>
+      <div class="eye rev">Focus files</div>
+      <h2 class="sh2 rev">Focused context.<br />Small enough to read first.</h2>
       <p class="sp3 rev">
-        Every file in your project has a focus file in
+        Supported source files with useful graph data get a focus file in
         <code
           style="
             color: var(--neon);
             font-family: var(--font-code);
             font-size: 13px;
           "
-          >.ripple/focus/</code
-        >. Agents read this first — precise live data, never a description you
-        wrote and forgot to update.
+          >.ripple/.cache/focus/</code
+        >. Agents read this first: targeted graph data instead of a giant prompt
+        dump.
       </p>
 
       <div class="focus-demo rev">
         <span class="jp">{</span><br />
         &nbsp;&nbsp;<span class="jk">"file"</span><span class="jp">:</span>
-        <span class="jv">"handleCancelBooking.ts"</span><span class="jp">,</span
+        <span class="jv">"source/utils/merge.ts"</span><span class="jp">,</span
         ><br />
         &nbsp;&nbsp;<span class="jk">"modificationRisk"</span
         ><span class="jp">:</span> <span class="jv">"dangerous"</span
         ><span class="jp">,</span><br />
         &nbsp;&nbsp;<span class="jk">"totalImporterCount"</span
-        ><span class="jp">:</span> <span class="jn">7</span
+        ><span class="jp">:</span> <span class="jn">19</span
         ><span class="jp">,</span><br />
         &nbsp;&nbsp;<span class="jk">"dataQuality"</span
         ><span class="jp">:</span> <span class="jv">"complete"</span
@@ -2014,24 +2222,24 @@
         &nbsp;&nbsp;<span class="jk">"instructions"</span
         ><span class="jp">: [</span><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jv"
-          >"DANGER: 7 importers. Top: BookingListItem, route.ts,
-          handleNewBooking. Confirm before proceeding."</span
+          >"DANGER: 19 potentially impacted files. Check verification targets
+          before treating this edit as safe."</span
         ><br />
         &nbsp;&nbsp;<span class="jp">],</span><br />
         &nbsp;&nbsp;<span class="jk">"symbols"</span><span class="jp">: [{</span
         ><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jk">"name"</span
-        ><span class="jp">:</span> <span class="jv">"handleCancelBooking"</span
+        ><span class="jp">:</span> <span class="jv">"mergeHeaders"</span
         ><span class="jp">,</span> <span class="jk">"layer"</span
         ><span class="jp">:</span> <span class="jv">"logic"</span
         ><span class="jp">,</span><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jk">"callerCount"</span
-        ><span class="jp">:</span> <span class="jn">3</span
+        ><span class="jp">:</span> <span class="jn">1</span
         ><span class="jp">,</span><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jk">"calledBy"</span
         ><span class="jp">: [</span
         ><span class="jv"
-          >"apps/web/components/BookingListItem.tsx::CancelButton"</span
+          >"source/utils/merge.ts::mergeHeaderContainers"</span
         ><span class="jp">]</span><br />
         &nbsp;&nbsp;<span class="jp">}]</span><br />
         <span class="jp">}</span>
@@ -2043,21 +2251,20 @@
       <div class="eye rev">Risk classification</div>
       <h2 class="sh2 rev">Agents know before<br />they touch anything.</h2>
       <p class="sp3 rev">
-        Every file is classified by blast radius in real time. Agents read the
-        risk from the focus file and follow the auto-generated WORKFLOW.md
-        protocol accordingly — on every task, automatically.
+        Files are classified by blast radius from importers, churn, and usage
+        signals. These labels are practical safety signals, not mathematical
+        proof or a replacement for tests and code review.
       </p>
 
       <div class="risk-cards">
-        <div class="risk-c d rev">
+        <div class="risk-c risk-danger rev">
           <div class="risk-pill">● Dangerous</div>
           <div class="risk-body">
-            <strong>5+ importers or 15+ saves.</strong> Agent stops and asks for
-            explicit confirmation before making any change. Cannot be bypassed
-            without user approval.
+            <strong>5+ importers or 15+ saves.</strong> Agent is instructed to
+            stop and ask for explicit confirmation before changing shared code.
           </div>
         </div>
-        <div class="risk-c w rev" style="transition-delay: 0.1s">
+        <div class="risk-c risk-warn rev" style="transition-delay: 0.1s">
           <div class="risk-pill">● Caution</div>
           <div class="risk-body">
             <strong>2–4 importers or 8+ saves.</strong> Agent proceeds but
@@ -2065,12 +2272,12 @@
             file it touched.
           </div>
         </div>
-        <div class="risk-c s rev" style="transition-delay: 0.2s">
+        <div class="risk-c risk-safe rev" style="transition-delay: 0.2s">
           <div class="risk-pill">● Safe</div>
           <div class="risk-body">
             <strong>0–1 importers, low churn.</strong> Agent proceeds directly.
-            Low blast radius means changes are contained and safe to make
-            without confirmation.
+            Low blast radius means changes are usually more contained, but
+            callers and tests still matter.
           </div>
         </div>
       </div>
@@ -2080,69 +2287,83 @@
     <section id="stack">
       <div class="eye rev">Stack compatibility</div>
       <h2 class="sh2 rev">
-        Works with your stack.<br />Detected automatically.
+        Works with your stack.<br />Detected heuristically.
       </h2>
       <p class="sp3 rev">
-        Ripple reads your package.json and config files. WORKFLOW.md is
-        customised for your specific stack — framework rules, state management
-        constraints, data layer detection. No configuration required.
+        Ripple is focused on JavaScript and TypeScript codebases first, including
+        common React, Node.js, Next.js, Vite, Remix, Astro, NestJS, Turborepo,
+        and pnpm workspace projects.
       </p>
 
       <div class="stack-pills rev">
-        <span class="sp hi">Next.js App Router</span>
-        <span class="sp hi">Next.js Pages Router</span>
+        <span class="sp hi">Next.js</span>
+        <span class="sp hi">React</span>
+        <span class="sp hi">Node.js</span>
         <span class="sp hi">Vite</span>
-        <span class="sp hi">React Router</span>
+        <span class="sp hi">Remix</span>
+        <span class="sp hi">Astro</span>
+        <span class="sp hi">NestJS</span>
         <span class="sp hi">Turborepo</span>
-        <span class="sp hi">MobX</span>
-        <span class="sp hi">React Query</span>
-        <span class="sp hi">tRPC</span>
-        <span class="sp hi">Prisma</span>
-        <span class="sp hi">Tailwind CSS</span>
-        <span class="sp">NestJS</span>
-        <span class="sp">Remix</span>
-        <span class="sp">Astro</span>
-        <span class="sp">SWR</span>
-        <span class="sp">Zustand</span>
-        <span class="sp">Redux</span>
-        <span class="sp">Jotai</span>
-        <span class="sp">Recoil</span>
+        <span class="sp hi">pnpm workspaces</span>
+        <span class="sp">.ts</span>
+        <span class="sp">.tsx</span>
+        <span class="sp">.js</span>
+        <span class="sp">.jsx</span>
+      </div>
+
+      <div class="scope-note rev">
+        <div class="scope-title">Honest scope</div>
+        <p class="scope-copy">
+          Ripple uses practical static analysis. It is a strong safety signal,
+          not a mathematical proof. Namespace imports, aliased imports, dynamic
+          imports, and some CommonJS patterns are part of the deeper semantic
+          work planned after launch.
+        </p>
       </div>
     </section>
 
     <!-- ══ PROOF ══════════════════════════════════════════════════════ -->
-    <section class="proof-wrap">
-      <div class="eye rev">Proven result</div>
-      <h2 class="sh2 rev">A real refactor.<br />A real result.</h2>
+    <section class="proof-wrap" id="proof">
+      <div class="eye rev">Validation report</div>
+      <h2 class="sh2 rev">Real test numbers.<br />Careful claims.</h2>
 
       <div class="proof-box rev">
         <p class="proof-quote">
-          I gave an AI agent a refactor task on
-          <strong>SacredButton.tsx</strong>. <strong>28 files</strong> depended
-          on it. The agent read the Ripple focus file. Saw
-          <span class="pn">modificationRisk: "dangerous"</span> and
-          <span class="pn">totalImporterCount: 28</span>. Stopped. Confirmed
-          with me. Changed only the internals. Kept the public API identical.
-          All 28 callers worked. <br /><br />
-          <strong
-            >This is what every one-line prompt looks like with Ripple
-            installed.</strong
-          >
+          Ripple was tested on a local clone of
+          <strong>sindresorhus/ky</strong>. The same temporary edit to
+          <strong>source/utils/merge.ts::mergeHeaders</strong> was checked with
+          and without Ripple. The test was local, temporary, and does not imply
+          endorsement by the Ky project or its maintainers.
+          <br /><br />
+          Manual search found <span class="pn">3 likely files</span>. Ripple
+          identified <span class="pn">19 potentially impacted files</span>,
+          recorded <span class="pn">symbol_modified</span>, marked the risk
+          <span class="pn">dangerous</span>, and generated verification targets.
+          <br /><br />
+          <strong>This is the core value: know the blast radius before an AI
+          agent edits shared code.</strong>
         </p>
-        <div class="proof-big">3m 23s</div>
+        <div class="proof-big">19</div>
         <div class="proof-sub-label">
-          total time · zero debugging · zero broken callers
+          potentially impacted files identified from one high-risk runtime file
         </div>
+        <a
+          class="proof-link"
+          href="https://github.com/raushankcode/ripple/blob/main/docs/validation.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Read full technical validation →</a
+        >
       </div>
     </section>
 
     <!-- ══ CTA ════════════════════════════════════════════════════════ -->
     <section class="cta-wrap">
-      <div class="eye">Free · No account · No config</div>
-      <h2 class="sh2">Context Rot ends the<br />moment you install.</h2>
+      <div class="eye">Free · Local-first · No account</div>
+      <h2 class="sh2">Start every AI task<br />with real project context.</h2>
       <p class="sp3" style="margin: 0 auto; text-align: center">
         Open VS Code. Search Ripple in Extensions. Install. Open any TypeScript
-        project. Copy
+        or JavaScript project. Use Impact Lens, CodeLens, Copy Agent Prompt, and
         <code
           style="
             color: var(--neon);
@@ -2151,19 +2372,20 @@
           "
           >.ripple/WORKFLOW.md</code
         >
-        to CLAUDE.md once. Done — your agent always knows your codebase from
-        this point forward.
+        to help agents inspect before editing.
       </p>
 
       <div class="cta-row">
         <a
           href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+          target="_blank"
+          rel="noopener noreferrer"
           class="cta-main"
           style="font-size: 15px; padding: 15px 32px">
           ↯ Install for VS Code — Free
         </a>
         <div class="cmd-box">
-          <code>ext install rippleai.ripple</code>
+          <code>code --install-extension rippleai.ripple</code>
         </div>
       </div>
     </section>
@@ -2176,18 +2398,35 @@
         <span>↯</span> Ripple
       </div>
       <ul class="foot-links">
-        <li><a href="https://github.com/raushankcode/ripple">GitHub</a></li>
+        <li>
+          <a
+            href="https://github.com/raushankcode/ripple"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub</a
+          >
+        </li>
         <li>
           <a
             href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+            target="_blank"
+            rel="noopener noreferrer"
             >Marketplace</a
           >
         </li>
         <li>
-          <a href="https://github.com/raushankcode/ripple/issues">Issues</a>
+          <a
+            href="https://github.com/raushankcode/ripple/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Issues</a
+          >
         </li>
         <li>
-          <a href="https://github.com/raushankcode/ripple/blob/main/LICENSE"
+          <a
+            href="https://github.com/raushankcode/ripple/blob/main/LICENSE"
+            target="_blank"
+            rel="noopener noreferrer"
             >MIT License</a
           >
         </li>

@@ -1,26 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Ripple activity bar icon">
   <!--
     Ripple Activity Bar Icon
-    VS Code renders this as a CSS mask-image — all colors become the
-    current theme foreground. Rules:
-      1. Use currentColor ONLY — hardcoded colors are invisible on some themes
-      2. No background rect — must be transparent
-      3. Strokes >= 1.6px on 24x24 viewBox to survive small icon sizes
+    Designed for VS Code activity bar usage.
+
+    Rules:
+    - Transparent background
+    - currentColor only
+    - No gradients, filters, or hardcoded colors
+    - Strong strokes for small 16–24px rendering
   -->
 
-  <!-- Outer ripple ring -->
-  <circle cx="12" cy="12" r="8.5"
-    stroke="currentColor" stroke-width="1.6" fill="none"/>
+  <!-- Outer architectural ripple -->
+  <path
+    d="M12 3.75
+       C16.56 3.75 20.25 7.44 20.25 12
+       C20.25 16.56 16.56 20.25 12 20.25
+       C7.44 20.25 3.75 16.56 3.75 12
+       C3.75 7.44 7.44 3.75 12 3.75Z"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
 
-  <!-- Inner ripple ring -->
-  <circle cx="12" cy="12" r="4.5"
-    stroke="currentColor" stroke-width="1.6" fill="none"/>
+  <!-- Inner impact ring -->
+  <path
+    d="M12 7.55
+       C14.46 7.55 16.45 9.54 16.45 12
+       C16.45 14.46 14.46 16.45 12 16.45
+       C9.54 16.45 7.55 14.46 7.55 12
+       C7.55 9.54 9.54 7.55 12 7.55Z"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
 
-  <!-- Center impact dot — solid fill for visibility at small sizes -->
-  <circle cx="12" cy="12" r="1.8"
-    fill="currentColor"/>
+  <!-- Architecture signal nodes -->
+  <path
+    d="M12 3.75V6.05
+       M20.25 12H17.95
+       M12 20.25V17.95
+       M3.75 12H6.05"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
 
-  <!-- Lightning bolt ↯ — wide enough to survive icon scaling -->
-  <path d="M13 4.5 L9 12 H12.5 L10.5 19.5 L16 11 H12.5 Z"
-    fill="currentColor"/>
+  <!-- Center impact point -->
+  <circle cx="12" cy="12" r="1.65" fill="currentColor"/>
 </svg>

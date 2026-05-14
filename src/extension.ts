@@ -1,36 +1,15 @@
 /**
  * extension.ts — Ripple
- * Live Architectural Intelligence for TypeScript and JavaScript Projects
+ * VS Code integration layer for Ripple.
  *
- * Three features:
+ * This file wires the graph engine into user-facing VS Code surfaces:
+ * - Impact Lens sidebar for upstream and downstream file relationships
+ * - CodeLens caller hints and the caller-detail webview
+ * - Safety Check warnings for staged changes with untested blast radius
+ * - AI setup and prompt-copy workflows backed by .ripple/ context files
  *
- *  Feature 1 — Impact Lens
- *    Sidebar tree view. Open any file and instantly see what it
- *    imports and what imports it. Zero configuration required.
- *    CSS and style files shown as real dependencies.
- *
- *  Feature 2 — Ripple CodeLens
- *    Persistent hint above every function declaration showing
- *    how many callers exist. Click to see full caller detail
- *    in a dedicated panel. Always visible — no cursor hunting.
- *
- *  Feature 3 — Safety Check
- *    Watches .git/index via hybrid watcher + poll approach.
- *    Fires when files are staged. Shows blast radius of untested
- *    files before the developer pushes. Never blocks the commit.
- *
- * ALL BUGS FIXED IN THIS VERSION:
- *  Bug 1 — Background scan implemented — features register instantly
- *           initialScan runs non-blocking with progress status bar
- *           Priority file scanned first for immediate CodeLens feedback
- *  Bug 2 — engine.dispose() called on deactivate — cache write flushed
- *  Bug 3 — dependsOn filtered through isSourceFile() — no node_modules
- *  Bug 4 — Welcome notification on first install via globalState
- *  Bug 5 — Output channel reused, never multiplied
- *  Bug 6 — CodeLens refresh debounced 300ms — no flicker
- *  Bug 7 — Per-snapshot cooldown for Safety Check
- *  Bug 8 — Flexible test file detection — 12 conventions
- *  Bug 9 — Export detection via regex not uppercase heuristic
+ * Keep this layer thin. Long-running analysis belongs in GraphEngine; this file
+ * should focus on commands, watchers, UI refreshes, and VS Code lifecycle.
  */
 
 import * as vscode from "vscode";
@@ -47,10 +26,111 @@ import {
 import { clearAliasCache } from "./normalizer";
 
 // ────────────────────────────────────────────────────────────────────────────
-// ENGINE INSTANCE — accessible by deactivate()
+// EXTENSION LIFECYCLE STATE
 // ────────────────────────────────────────────────────────────────────────────
 
 let _engine: GraphEngine | undefined;
+
+// Ripple-managed sections are marker-bounded so user-written agent instructions
+// can live in the same file without being overwritten.
+const RIPPLE_SECTION_START = "<!-- RIPPLE:START -->";
+const RIPPLE_SECTION_END = "<!-- RIPPLE:END -->";
+const LEGACY_RIPPLE_SECTION_START = "<!-- RIPPLE_START -->";
+const LEGACY_RIPPLE_SECTION_END = "<!-- RIPPLE_END -->";
+
+/**
+ * Formats a file path for UI and generated prompts. Workspace files are shown
+ * relative to the project root; external paths fall back to normalized absolute
+ * paths so they remain clickable and readable.
+ */
+function relativeFilePath(filePath: string, workspaceRoot?: string): string {
+  const root = workspaceRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (root) {
+    const relative = path.relative(root, filePath);
+    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+      return relative.split(path.sep).join("/");
+    }
+  }
+  return filePath.split(path.sep).join("/");
+}
+
+/**
+ * Escapes values interpolated into webview HTML. Keep all graph-derived file
+ * names and symbol names going through this helper before rendering.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Copies the generated Ripple workflow into AGENTS.md while preserving any
+ * developer-owned content outside the Ripple-managed section.
+ */
+function writeAgentsFileWithRippleSection(workspaceRoot: string): void {
+  const workflowPath = path.join(workspaceRoot, ".ripple", "WORKFLOW.md");
+  const agentsPath = path.join(workspaceRoot, "AGENTS.md");
+
+  if (!fs.existsSync(workflowPath)) {
+    throw new Error("WORKFLOW.md not found");
+  }
+
+  const workflowContent = fs.readFileSync(workflowPath, "utf8");
+  const rippleSection = `${RIPPLE_SECTION_START}\n${workflowContent}\n${RIPPLE_SECTION_END}\n`;
+
+  if (!fs.existsSync(agentsPath)) {
+    fs.writeFileSync(agentsPath, rippleSection);
+    return;
+  }
+
+  const existing = fs.readFileSync(agentsPath, "utf8");
+
+  const replaceMarkedSection = (startMarker: string, endMarker: string): string | null => {
+    const start = existing.indexOf(startMarker);
+    const end = existing.indexOf(endMarker);
+    if (start === -1 || end === -1 || end < start) {
+      return null;
+    }
+    return `${existing.substring(0, start)}${rippleSection}${existing.substring(end + endMarker.length)}`;
+  };
+
+  const currentMarked = replaceMarkedSection(RIPPLE_SECTION_START, RIPPLE_SECTION_END);
+  if (currentMarked !== null) {
+    fs.writeFileSync(agentsPath, currentMarked);
+    return;
+  }
+
+  const legacyMarked = replaceMarkedSection(LEGACY_RIPPLE_SECTION_START, LEGACY_RIPPLE_SECTION_END);
+  if (legacyMarked !== null) {
+    fs.writeFileSync(agentsPath, legacyMarked);
+    return;
+  }
+
+  if (existing.includes("Auto-generated by Ripple")) {
+    fs.writeFileSync(agentsPath, rippleSection);
+    return;
+  }
+
+  fs.writeFileSync(agentsPath, `${existing.trimEnd()}\n\n${rippleSection}`);
+}
+
+/**
+ * Detects whether an agent instruction file already contains a Ripple-managed
+ * section or an older generated signature.
+ */
+function containsRippleManagedContent(content: string): boolean {
+  return (
+    content.includes(RIPPLE_SECTION_START) ||
+    content.includes(LEGACY_RIPPLE_SECTION_START) ||
+    content.includes("Auto-generated by Ripple") ||
+    content.includes(".ripple/.cache/focus") ||
+    content.includes(".ripple/focus")
+  );
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // ACTIVATION
@@ -60,15 +140,15 @@ export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) return;
+  if (!workspaceFolders || workspaceFolders.length === 0) {return;}
 
   const workspaceRoot = workspaceFolders[0].uri.fsPath;
 
   console.log("[Ripple] Extension activated.");
 
-  // ── Read user configuration ───────────────────────────────────────────────
-  // Read once at activation. VS Code calls activate() on workspace open.
-  // If the user changes settings mid-session, they reload the window (standard pattern).
+  // ── User configuration ────────────────────────────────────────────────────
+  // Settings are read at activation. Project-config changes are watched below;
+  // extension setting changes take effect after a window reload.
   const cfg = vscode.workspace.getConfiguration("ripple");
   const cfgEnabled       = cfg.get<boolean>("enabled",         true);
   const cfgShowCodeLens  = cfg.get<boolean>("showCodeLens",    true);
@@ -86,12 +166,10 @@ export async function activate(
 
   // Apply context generation setting — graph always builds, but
   // .ripple/ file writes are suppressed when the user opts out.
-  if (!cfgGenContext) engine.setContextGeneration(false);
+  if (!cfgGenContext) {engine.setContextGeneration(false);}
 
-  // Bug fix: set context key so the Impact Lens view appears in the sidebar.
-  // 'workspaceHasTypeScriptOrJavaScript' is NOT a built-in VS Code key —
-  // the extension must set it explicitly. Without this, the view panel shows
-  // an empty "No views are available" state even though the icon is registered.
+  // The Impact Lens view uses this extension-owned context key in package.json.
+  // Set it explicitly so VS Code can reveal the sidebar view immediately.
   vscode.commands.executeCommand(
     "setContext",
     "workspaceHasTypeScriptOrJavaScript",
@@ -99,8 +177,8 @@ export async function activate(
   );
 
   // ── Feature 1 — Impact Lens ──────────────────────────────────────────────
-  // Registered BEFORE scan starts so sidebar appears instantly
-  const impactLens = new ImpactLensProvider(engine);
+  // Register before scanning so the sidebar can render while the graph warms up.
+  const impactLens = new ImpactLensProvider(engine, workspaceRoot);
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("ripple.impactLens", impactLens)
   );
@@ -110,7 +188,7 @@ export async function activate(
   );
 
   // ── Feature 2 — Ripple CodeLens ──────────────────────────────────────────
-  // Registered BEFORE scan starts so it appears on first file open
+  // Register before scanning so CodeLens can refresh as soon as data appears.
   const codeLensProvider = new RippleCodeLensProvider(engine);
 
   if (cfgShowCodeLens) {
@@ -138,7 +216,7 @@ export async function activate(
 
   // ── "Copy Ripple Prompt" command ──────────────────────────────────────────
   //
-  // Right-click any TypeScript/JavaScript file → "↯ Ripple: Copy Agent Prompt"
+  // Right-click any TypeScript/JavaScript file -> "Ripple: Copy Agent Prompt".
   // Generates a ready-to-paste prompt for any AI agent.
   // Developer fills in their task. Paste to Claude Code, Cursor, Copilot etc.
   // Uses ~400 tokens total (prompt + focus file). Safe, fast, minimal.
@@ -148,7 +226,7 @@ export async function activate(
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showWarningMessage(
-          "↯ Ripple: Open a TypeScript file to generate a prompt."
+          "↯ Ripple: Open a TypeScript or JavaScript file to generate a prompt."
         );
         return;
       }
@@ -163,7 +241,7 @@ export async function activate(
         return;
       }
 
-      const fileName = path.basename(filePath);
+      const targetFile = relativeFilePath(filePath, workspaceRoot);
       const blastSize = fileNode.importedBy.size;
       const risk =
         blastSize >= DANGEROUS_BLAST_RADIUS || fileNode.changeCount > DANGEROUS_CHURN
@@ -174,91 +252,121 @@ export async function activate(
 
       const importedByNames = Array.from(fileNode.importedBy)
         .filter((f) => !f.includes("node_modules"))
-        .map((f) => path.basename(f))
+        .map((f) => relativeFilePath(f, workspaceRoot))
         .slice(0, 4)
         .join(", ");
 
       const symbolSummary = Array.from(fileNode.symbols)
         .map((id) => {
           const sym = engine.graph.symbols.get(id);
-          if (!sym) return null;
+          if (!sym) {return null;}
           return `${sym.name} [${sym.layer ?? "unknown"}]`;
         })
         .filter(Boolean)
         .slice(0, 5)
         .join(", ");
 
-      // Build focus file key using the same 3-segment formula as makeFocusKey() in graph.ts.
-      // Must match exactly — if this diverges, the copied prompt points to a non-existent file.
-      // Formula: grandparent-parent-basename for depth>=4, parent-basename for shallower paths.
-      const parts = filePath.split(path.sep);
-      const baseName = path.basename(filePath, path.extname(filePath));
-      const focusBasename = parts.length >= 4
-        ? `${parts[parts.length - 3]}-${parts[parts.length - 2]}-${baseName}`
-        : parts.length >= 2
-        ? `${parts[parts.length - 2]}-${baseName}`
-        : baseName;
+      const focusBasename = engine.focusKeyForFile(filePath);
 
-      // Absolute path — resolves Codex gap where relative path was not found
+      // Include an absolute path for agents that cannot resolve workspace-relative paths.
       const absoluteFocusPath = path.join(
-        workspaceRoot, ".ripple", "focus", `${focusBasename}.json`
+        workspaceRoot, ".ripple", ".cache", "focus", `${focusBasename}.json`
       );
 
       const riskLine = risk === "DANGEROUS"
         ? `2. STOP — ${blastSize} files import this. Ask user: "This affects ${blastSize} other files. Confirm before I proceed."`
         : risk === "caution"
         ? `2. Caution — ${blastSize} importer${blastSize !== 1 ? "s" : ""}. Verify all callers work after your change.`
-        : "2. Safe to modify — low blast radius.";
+        : "2. Low-risk signal — low blast radius. Still run the relevant checks.";
 
-      const prompt = `[DESCRIBE YOUR TASK HERE]
+      const prompt = `[DESCRIBE THE CHANGE YOU WANT]
 
 Before making any changes:
 1. Read the focus file for this file:
-   Relative: .ripple/focus/${focusBasename}.json
+   Relative: .ripple/.cache/focus/${focusBasename}.json
    Absolute: ${absoluteFocusPath}
 ${riskLine}
-3. Check calledBy for every symbol you will modify
-4. Only touch the layer the user requested (logic/ui/handler/state/data)
+3. Check calledBy for every symbol you will modify.
+4. Only touch the layer the user requested: logic, UI, handler, state, or data.
 
-File: ${fileName} | Risk: ${risk} | ${blastSize} importer${blastSize !== 1 ? "s" : ""}${importedByNames ? ` (${importedByNames})` : ""}
+File: ${targetFile} | Risk: ${risk} | ${blastSize} importer${blastSize !== 1 ? "s" : ""}${importedByNames ? ` (${importedByNames})` : ""}
 Symbols: ${symbolSummary || "none detected yet"}
 Project rules: .ripple/WORKFLOW.md`;
 
       vscode.env.clipboard.writeText(prompt).then(() => {
         vscode.window.showInformationMessage(
-          `↯ Ripple: Prompt copied — paste to your AI agent and replace [DESCRIBE YOUR TASK HERE].`
+          `↯ Ripple: Prompt copied — paste to your AI agent and replace [DESCRIBE THE CHANGE YOU WANT].`
         );
       });
     })
   );
 
-  // ── "Show Setup Panel" command — resets insight panel state ──────────────
-  // Available in Command Palette: "Ripple: Show AI Setup Panel"
-  // Solves the problem of panel not reappearing after reinstall or
-  // after AGENTS.md is deleted. Developer runs this to see the panel again.
+  // ── "Show Setup Panel" command ────────────────────────────────────────────
+  // Lets users re-run onboarding after dismissing it or removing agent files.
 
   context.subscriptions.push(
     vscode.commands.registerCommand("ripple.showSetupPanel", () => {
-      // Clear both state keys so maybeShow will run fresh
+      // Clear both state keys so maybeShow can evaluate the project again.
       context.workspaceState.update("ripple.insight.activated", false);
       context.workspaceState.update("ripple.insight.dismissCount", 0);
-      // Show immediately — do not wait for next launch
+      // Show immediately instead of waiting for the next activation.
       RippleInsightPanel.maybeShow(context, engine, workspaceRoot);
     })
   );
 
-  // Bug 6 fix: debounce CodeLens refresh — prevents flicker on rapid saves
+  // Debounce CodeLens refreshes so rapid saves do not flicker the editor.
   let codeLensRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let configRescanTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const refreshFeatureViews = () => {
+    impactLens.refresh();
+    if (codeLensRefreshTimer) {clearTimeout(codeLensRefreshTimer);}
+    codeLensRefreshTimer = setTimeout(() => {
+      codeLensProvider.refresh();
+    }, 300);
+  };
+
+  const updateSourceFile = (filePath: string) => {
+    engine.updateFile(filePath);
+
+    if (engine.isScanning) {
+      scanStatus.text = "↯ Ripple: scanning... (changes queued)";
+      scanStatus.tooltip =
+        "Ripple is still scanning. Your changes are queued and will be processed automatically when scanning finishes.";
+    }
+
+    refreshFeatureViews();
+  };
+
+  const rebuildAfterProjectConfigChange = () => {
+    clearAliasCache(workspaceRoot);
+    if (configRescanTimer) {clearTimeout(configRescanTimer);}
+
+    configRescanTimer = setTimeout(() => {
+      const priority = vscode.window.activeTextEditor?.document.uri.fsPath;
+      scanStatus.text = "↯ Ripple: rebuilding context...";
+      scanStatus.tooltip = "Ripple is rebuilding the graph after project configuration changed.";
+
+      engine
+        .rebuildFromDisk((scanned, total) => {
+          scanStatus.text = `↯ Ripple: rebuilding ${scanned}/${total}`;
+        }, priority)
+        .then(() => {
+          scanStatus.text = "↯ Ripple: ready";
+          scanStatus.tooltip = "Ripple: dependency graph rebuilt";
+          refreshFeatureViews();
+          setTimeout(() => scanStatus.hide(), 3000);
+        })
+        .catch((err) => {
+          scanStatus.text = "↯ Ripple: rebuild failed";
+          console.error("[Ripple] Project config rebuild failed:", err);
+        });
+    }, 300);
+  };
 
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      engine.updateFile(doc.uri.fsPath);
-      impactLens.refresh();
-
-      if (codeLensRefreshTimer) clearTimeout(codeLensRefreshTimer);
-      codeLensRefreshTimer = setTimeout(() => {
-        codeLensProvider.refresh();
-      }, 300);
+      updateSourceFile(doc.uri.fsPath);
     })
   );
 
@@ -268,7 +376,7 @@ Project rules: .ripple/WORKFLOW.md`;
     safetyCheck.start(context);
   }
 
-  // ── File watcher for new / deleted files ─────────────────────────────────
+  // ── File watcher for new / changed / deleted files ───────────────────────
   const watcher = vscode.workspace.createFileSystemWatcher(
     "**/*.{ts,tsx,js,jsx}"
   );
@@ -276,38 +384,51 @@ Project rules: .ripple/WORKFLOW.md`;
   context.subscriptions.push(
     watcher.onDidCreate((uri) => {
       engine.addFile(uri.fsPath);
-      codeLensProvider.refresh();
-      impactLens.refresh();
+      refreshFeatureViews();
+    })
+  );
+
+  context.subscriptions.push(
+    watcher.onDidChange((uri) => {
+      updateSourceFile(uri.fsPath);
     })
   );
 
   context.subscriptions.push(
     watcher.onDidDelete((uri) => {
       engine.removeFile(uri.fsPath);
-      codeLensProvider.refresh();
-      impactLens.refresh();
+      refreshFeatureViews();
     })
   );
 
   context.subscriptions.push(watcher);
 
-  // ── tsconfig.json watcher — invalidates alias cache on change ────────────
-  const tsconfigWatcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(workspaceRoot, "tsconfig.json")
+  // ── Project config watcher — aliases/workspaces can change graph edges ───
+  const projectConfigWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(
+      workspaceRoot,
+      "{tsconfig.json,jsconfig.json,package.json,pnpm-workspace.yaml,lerna.json}"
+    )
   );
   context.subscriptions.push(
-    tsconfigWatcher.onDidChange(() => {
-      clearAliasCache(workspaceRoot);
-      console.log("[Ripple] tsconfig.json changed — alias cache cleared");
-    })
+    projectConfigWatcher.onDidChange(rebuildAfterProjectConfigChange)
   );
-  context.subscriptions.push(tsconfigWatcher);
+  context.subscriptions.push(
+    projectConfigWatcher.onDidCreate(rebuildAfterProjectConfigChange)
+  );
+  context.subscriptions.push(
+    projectConfigWatcher.onDidDelete(rebuildAfterProjectConfigChange)
+  );
+  context.subscriptions.push(projectConfigWatcher);
+  context.subscriptions.push({
+    dispose: () => {
+      if (configRescanTimer) {clearTimeout(configRescanTimer);}
+    },
+  });
 
-  // ── Bug 1 fix: Background scan — non-blocking ────────────────────────────
-  //
-  // Features are already registered above. Scan runs in background.
-  // Priority file scanned first so CodeLens appears within ~1 second.
-  // Status bar shows progress. Features refresh after scan completes.
+  // ── Background scan ───────────────────────────────────────────────────────
+  // Features are already registered above. The graph builds in the background,
+  // prioritizing the active file so editor feedback appears quickly.
 
   const scanStatus = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -325,8 +446,7 @@ Project rules: .ripple/WORKFLOW.md`;
     .initialScan((scanned, total) => {
       scanStatus.text = `↯ Ripple: scanning ${scanned}/${total}`;
 
-      // Refresh after enough files scanned to show meaningful data
-      // scanned === 5 gives call edges a chance to be detected
+      // Refresh once a small batch has been parsed so early UI is useful.
       if (scanned === 5 || total <= 5) {
         impactLens.refresh();
         codeLensProvider.refresh();
@@ -336,19 +456,17 @@ Project rules: .ripple/WORKFLOW.md`;
       scanStatus.text = "↯ Ripple: ready";
       scanStatus.tooltip = "Ripple: dependency graph built";
 
-      // Final refresh — full graph now complete
+      // Final refresh after the full graph is available.
       impactLens.refresh();
       codeLensProvider.refresh();
 
       setTimeout(() => scanStatus.hide(), 3000);
 
-      // Show project insight panel — persists until developer activates AI mode
-      // Smart dismissal: only stops showing once WORKFLOW.md is copied,
-      // or after 3 manual dismissals with "Remind me later"
+      // Show onboarding until the user activates AI mode or dismisses it enough
+      // times that the project should stay quiet.
       RippleInsightPanel.maybeShow(context, engine, workspaceRoot);
 
-      // Small project onboarding — projects under 10 files never trigger maybeShow.
-      // Give them a direct notification pointing to the next step.
+      // Small projects skip the full panel, but still get a direct next step.
       if (engine.graph.files.size > 0 && engine.graph.files.size < 10) {
         const hasWorkflow = fs.existsSync(path.join(workspaceRoot, ".ripple", "WORKFLOW.md"));
         const hasActivated =
@@ -359,14 +477,12 @@ Project rules: .ripple/WORKFLOW.md`;
         if (hasWorkflow && !hasActivated) {
           vscode.window.showInformationMessage(
             `↯ Ripple: ${engine.graph.files.size} files scanned. ` +
-            `Copy .ripple/WORKFLOW.md to CLAUDE.md or AGENTS.md once — Ripple keeps it updated automatically after that.`,
+            `Copy .ripple/WORKFLOW.md to AGENTS.md, CLAUDE.md, or .cursorrules once — Ripple keeps its managed section updated after that.`,
             "Copy Now"
           ).then((choice) => {
-            if (choice !== "Copy Now") return;
-            const workflowPath = path.join(workspaceRoot, ".ripple", "WORKFLOW.md");
-            const agentsPath   = path.join(workspaceRoot, "AGENTS.md");
+            if (choice !== "Copy Now") {return;}
             try {
-              fs.copyFileSync(workflowPath, agentsPath);
+              writeAgentsFileWithRippleSection(workspaceRoot);
               vscode.window.showInformationMessage(
                 "↯ Ripple: AGENTS.md created. AI agents now follow the Ripple protocol."
               );
@@ -385,8 +501,7 @@ Project rules: .ripple/WORKFLOW.md`;
     });
 }
 
-// Bug 2 fix: engine.dispose() called on deactivate
-// Flushes any pending debounced cache write before VS Code closes
+// Flush any pending debounced cache write before VS Code closes.
 export function deactivate(): void {
   _engine?.dispose();
 }
@@ -395,14 +510,17 @@ export function deactivate(): void {
 // FEATURE 1 — IMPACT LENS
 // Sidebar tree view showing upstream and downstream file connections.
 // Updates every time the active editor changes.
-// Shows ALL dependency types including CSS and style files.
+// Shows source dependencies, including CSS and style files.
 // ────────────────────────────────────────────────────────────────────────────
 
 class ImpactLensProvider implements vscode.TreeDataProvider<ImpactItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private engine: GraphEngine) {}
+  constructor(
+    private engine: GraphEngine,
+    private workspaceRoot: string
+  ) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire();
@@ -413,11 +531,11 @@ class ImpactLensProvider implements vscode.TreeDataProvider<ImpactItem> {
   }
 
   getChildren(element?: ImpactItem): ImpactItem[] {
-    if (element) return [];
+    if (element) {return [];}
 
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-      return [new ImpactItem("Open a TypeScript file to begin", "info")];
+      return [new ImpactItem("Open a TypeScript or JavaScript file to begin", "info")];
     }
 
     const filePath = editor.document.uri.fsPath;
@@ -441,13 +559,11 @@ class ImpactLensProvider implements vscode.TreeDataProvider<ImpactItem> {
     } else {
       items.push(new ImpactItem(`Used by (${usedBy.length}):`, "header"));
       usedBy.forEach((p) =>
-        items.push(new ImpactItem(path.basename(p), "file", p))
+        items.push(new ImpactItem(relativeFilePath(p, this.workspaceRoot), "file", p))
       );
     }
 
     // ── Depends on ─────────────────────────────────────────────────────────
-    // Bug 3 fix: also filter dependsOn through isSourceFile()
-    // Previously only usedBy was filtered — node_modules could appear here
     const dependsOn = this.engine
       .upstreamFiles(filePath)
       .filter((p) => this.isSourceFile(p));
@@ -459,15 +575,14 @@ class ImpactLensProvider implements vscode.TreeDataProvider<ImpactItem> {
         new ImpactItem(`Depends on (${dependsOn.length}):`, "header")
       );
       dependsOn.forEach((p) =>
-        items.push(new ImpactItem(path.basename(p), "file", p))
+        items.push(new ImpactItem(relativeFilePath(p, this.workspaceRoot), "file", p))
       );
     }
 
     return items;
   }
 
-  // Filters out generated and package directories
-  // Shows source files and style files — hides everything else
+  // Keep generated output and package-manager folders out of the user-facing tree.
   private isSourceFile(filePath: string): boolean {
     return (
       !filePath.includes("node_modules") &&
@@ -505,11 +620,8 @@ class ImpactItem extends vscode.TreeItem {
 //
 // Shows impact information above every function declaration permanently.
 // No cursor interaction required — information is always visible.
-//
-// Bug 9 fix: export detection via regex — not uppercase name heuristic.
-//   Show "no external callers" only on genuinely exported functions.
-//   Show caller count on ALL functions with 1+ callers.
-//   Hide completely on internal functions with 0 callers.
+// Exported functions with no callers get a quiet hint; internal functions with
+// no callers stay hidden to avoid noise.
 // ────────────────────────────────────────────────────────────────────────────
 
 class RippleCodeLensProvider implements vscode.CodeLensProvider {
@@ -525,29 +637,28 @@ class RippleCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     const filePath = document.uri.fsPath;
     const fileNode = this.engine.graph.files.get(filePath);
-    if (!fileNode) return [];
+    if (!fileNode) {return [];}
 
     const lenses: vscode.CodeLens[] = [];
     const exportedNames = this.getExportedNames(document);
 
     fileNode.symbols.forEach((symbolId) => {
       const sym = this.engine.graph.symbols.get(symbolId);
-      if (!sym) return;
+      if (!sym) {return;}
 
-      // Only show CodeLens for functions and methods
-      if (sym.kind !== "function" && sym.kind !== "method") return;
+      // Keep CodeLens focused on callable symbols.
+      if (sym.kind !== "function" && sym.kind !== "method") {return;}
 
       const declarationLine = this.engine.getSymbolDeclarationLine(symbolId);
-      if (declarationLine === null) return;
+      if (declarationLine === null) {return;}
 
       const range = new vscode.Range(declarationLine, 0, declarationLine, 0);
       const callerCount = sym.calledBy.size;
 
       if (callerCount === 0) {
-        // Only show "no external callers" on exported functions
-        // Internal functions with 0 callers are expected — no hint needed
+        // No-caller hints are useful for public exports, but noisy for locals.
         const isExported = exportedNames.has(sym.name);
-        if (!isExported) return;
+        if (!isExported) {return;}
 
         lenses.push(
           new vscode.CodeLens(range, {
@@ -574,9 +685,8 @@ class RippleCodeLensProvider implements vscode.CodeLensProvider {
     return lenses;
   }
 
-  // Extracts exported symbol names using regex — fast, no AST needed.
-  // Handles: export default function, export function, export const,
-  //          export { Name }, export async function
+  // Lightweight export detection for deciding whether a zero-caller symbol
+  // deserves a CodeLens hint. The graph remains the source of truth for callers.
   private getExportedNames(document: vscode.TextDocument): Set<string> {
     const text = document.getText();
     const names = new Set<string>();
@@ -587,7 +697,7 @@ class RippleCodeLensProvider implements vscode.CodeLensProvider {
     );
     defaultFn?.forEach((m) => {
       const match = m.match(/function\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
-      if (match) names.add(match[1]);
+      if (match) {names.add(match[1]);}
     });
 
     // export function Name / export async function Name
@@ -608,7 +718,7 @@ class RippleCodeLensProvider implements vscode.CodeLensProvider {
     for (const match of text.matchAll(/export\s+\{([^}]+)\}/g)) {
       match[1].split(",").forEach((name) => {
         const trimmed = name.trim().split(/\s+as\s+/)[0].trim();
-        if (trimmed) names.add(trimmed);
+        if (trimmed) {names.add(trimmed);}
       });
     }
 
@@ -621,7 +731,7 @@ class RippleCodeLensProvider implements vscode.CodeLensProvider {
 //
 // WebView panel opened when developer clicks a CodeLens hint.
 // Shows full caller detail — function names, file paths, clickable links.
-// Bug 5 fix: single panel instance reused — never multiplies.
+// A single panel instance is reused so repeated clicks update the same view.
 // ────────────────────────────────────────────────────────────────────────────
 
 class RippleCallerPanel {
@@ -644,9 +754,8 @@ class RippleCallerPanel {
 
     this.panel.webview.onDidReceiveMessage((message) => {
       if (message.command === "openFile" && message.filePath) {
-        // Bug fix: use vscode.Uri.file() not raw string.
-        // Raw strings with Windows backslashes can fail silently.
-        // vscode.Uri.file() handles all platform path separators correctly.
+        // Convert through vscode.Uri.file() so platform-specific separators are
+        // handled consistently when opening caller locations.
         const uri = vscode.Uri.file(message.filePath);
         vscode.workspace
           .openTextDocument(uri)
@@ -664,7 +773,7 @@ class RippleCallerPanel {
     });
   }
 
-  // Bug 5 fix: reuse existing panel — update content for new symbol
+  // Reuse the existing panel and replace its content for the selected symbol.
   static show(
     extensionUri: vscode.Uri,
     engine: GraphEngine,
@@ -695,15 +804,10 @@ class RippleCallerPanel {
     const callerCards = callerIds
       .map((callerId) => {
         const caller = engine.graph.symbols.get(callerId);
-        if (!caller) return "";
-        const fileName = path.basename(caller.file);
-        const dirParts = path.dirname(caller.file).split(path.sep);
-        const shortDir = dirParts.slice(-2).join("/");
-        // Bug fix: JSON.stringify produces surrounding double-quotes which break
-        // the HTML onclick attribute: onclick="openFile("path")" is parsed as
-        // onclick="openFile(" followed by broken trailing tokens.
-        // Fix: store path in a data- attribute and read it in JS.
-        // data- attributes use HTML entity encoding which handles any path safely.
+        if (!caller) {return "";}
+        const callerPath = relativeFilePath(caller.file);
+        // Store the path in a data attribute instead of an inline JS argument;
+        // encoded attributes survive quotes, spaces, and Windows separators.
         const safeDataPath = caller.file
           .replace(/&/g, "&amp;")
           .replace(/"/g, "&quot;")
@@ -712,8 +816,8 @@ class RippleCallerPanel {
           .replace(/>/g, "&gt;");
         return `
         <div class="caller-card" data-path="${safeDataPath}" onclick="openFile(this.getAttribute('data-path'))">
-          <div class="caller-fn">${caller.name}()</div>
-          <div class="caller-path">${shortDir}/<strong>${fileName}</strong></div>
+          <div class="caller-fn">${escapeHtml(caller.name)}()</div>
+          <div class="caller-path">${escapeHtml(callerPath)}</div>
         </div>`;
       })
       .join("");
@@ -745,7 +849,7 @@ class RippleCallerPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title>Ripple — ${sym.name}()</title>
+  <title>Ripple — ${escapeHtml(sym.name)}()</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -839,10 +943,10 @@ class RippleCallerPanel {
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="ripple-badge">↯ Ripple — Impact Analysis</div>
-    <div class="symbol-name">${sym.name}()</div>
-    <div class="symbol-file">${path.basename(sym.file)}</div>
+    <div class="header">
+      <div class="ripple-badge">↯ Ripple — Impact Analysis</div>
+    <div class="symbol-name">${escapeHtml(sym.name)}()</div>
+    <div class="symbol-file">${escapeHtml(relativeFilePath(sym.file))}</div>
   </div>
 
   ${warningBanner}
@@ -878,13 +982,10 @@ class RippleCallerPanel {
 // ────────────────────────────────────────────────────────────────────────────
 // FEATURE 3 — SAFETY CHECK
 //
-// Hybrid: FileSystemWatcher on .git/index as primary,
-// git diff --cached polling every 2s as fallback for Windows.
-//
-// Bug 7 fix: snapshot-based cooldown — different staged file sets
-//   always fire independently regardless of cooldown window.
-// Bug 5 fix: single output channel reused — never multiplied.
-// Bug 8 fix: flexible test file detection — 12 conventions covered.
+// Uses a .git/index watcher plus git diff polling. The watcher is fast when
+// available; polling covers platforms where hidden-directory watching is flaky.
+// Snapshot-based cooldown prevents duplicate notifications without suppressing
+// a different staged file set.
 // ────────────────────────────────────────────────────────────────────────────
 
 class SafetyCheckProvider {
@@ -908,7 +1009,7 @@ class SafetyCheckProvider {
       return;
     }
 
-    // PRIMARY — FileSystemWatcher on .git/index
+    // Primary signal: .git/index changes when the staged snapshot changes.
     try {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(
@@ -924,43 +1025,74 @@ class SafetyCheckProvider {
       console.log("[Ripple] .git/index watcher failed — poll only");
     }
 
-    // FALLBACK — Poll git diff --cached directly every 2s
+    // Fallback signal: poll git directly when file watching misses an update.
     let lastStagedSnapshot = "";
 
     this.pollTimer = setInterval(() => {
-      try {
-        const { execSync } = require("child_process");
-        const current = execSync("git diff --cached --name-only", {
-          cwd: this.workspaceRoot,
-          encoding: "utf8",
-          timeout: 2000,
-        }) as string;
-
-        const snapshot = current.trim();
-        if (snapshot !== lastStagedSnapshot) {
-          lastStagedSnapshot = snapshot;
-          if (snapshot.length > 0) this.checkStaging();
+      const { exec } = require("child_process") as typeof import("child_process");
+      exec(
+        "git diff --cached --name-only",
+        { cwd: this.workspaceRoot, timeout: 2000 },
+        (error: any, stdout: string) => {
+          if (error || !stdout?.trim()) {return;}
+          const snapshot = stdout.trim();
+          if (snapshot !== lastStagedSnapshot) {
+            lastStagedSnapshot = snapshot;
+            if (snapshot.length > 0) {this.checkStaging();}
+          }
         }
-      } catch {
-        // git not available — stay silent
-      }
+      );
     }, this.POLL_MS);
 
     context.subscriptions.push({
       dispose: () => {
-        if (this.pollTimer) clearInterval(this.pollTimer);
-        if (this.outputChannel) this.outputChannel.dispose();
+        if (this.pollTimer) {clearInterval(this.pollTimer);}
+        if (this.outputChannel) {this.outputChannel.dispose();}
       },
     });
 
     console.log("[Ripple] Safety Check active — watcher + poll hybrid");
   }
+  private hasTestFile(filePath: string): boolean {
+    if (this.isTestFile(filePath)) {return true;}
+
+    const dir = path.dirname(filePath);
+    const ext = path.extname(filePath);
+    const base = path.basename(filePath, ext);
+    const extensions = [ext, ".ts", ".tsx", ".js", ".jsx"];
+    const uniqueExtensions = Array.from(new Set(extensions));
+    const candidateDirs = [
+      dir,
+      path.join(dir, "__tests__"),
+      path.join(dir, "test"),
+      path.join(dir, "tests"),
+      path.join(this.workspaceRoot, "test"),
+      path.join(this.workspaceRoot, "tests"),
+    ];
+
+    const candidates: string[] = [];
+    candidateDirs.forEach((candidateDir) => {
+      uniqueExtensions.forEach((candidateExt) => {
+        candidates.push(path.join(candidateDir, `${base}.test${candidateExt}`));
+        candidates.push(path.join(candidateDir, `${base}.spec${candidateExt}`));
+        candidates.push(path.join(candidateDir, `${base}_test${candidateExt}`));
+        candidates.push(path.join(candidateDir, `${base}-test${candidateExt}`));
+      });
+      candidates.push(path.join(candidateDir, `${base}${ext}`));
+    });
+
+    return candidates.some((candidate) =>
+      candidate !== filePath &&
+      fs.existsSync(candidate) &&
+      this.isTestFile(candidate)
+    );
+  }
 
   private checkStaging(): void {
     const stagedFiles = this.getStagedFiles();
-    if (stagedFiles.length === 0) return;
+    if (stagedFiles.length === 0) {return;}
 
-    // Bug 7 fix: snapshot-based cooldown
+    // Cool down only identical staged snapshots; new file sets notify immediately.
     const snapshot = stagedFiles.sort().join("|");
     const now = Date.now();
 
@@ -976,22 +1108,22 @@ class SafetyCheckProvider {
     );
 
     const blastRadius = this.engine.blastRadius(absoluteStagedFiles);
-    const untestedFiles = blastRadius.filter((f) => !this.isTestFile(f));
+    const untestedFiles = blastRadius.filter((f) => !this.hasTestFile(f));
 
-    if (untestedFiles.length === 0) return;
+    if (untestedFiles.length === 0) {return;}
 
     this.lastNotifiedSnapshot = snapshot;
     this.lastNotificationTime = now;
 
     const stagedNames = stagedFiles
       .slice(0, 2)
-      .map((f) => path.basename(f))
+      .map((f) => f.split(path.sep).join("/"))
       .join(", ");
     const moreSuffix =
       stagedFiles.length > 2 ? ` +${stagedFiles.length - 2} more` : "";
     const untestedNames = untestedFiles
       .slice(0, 3)
-      .map((f) => path.basename(f))
+      .map((f) => relativeFilePath(f, this.workspaceRoot))
       .join(", ");
     const moreUntested =
       untestedFiles.length > 3 ? ` +${untestedFiles.length - 3} more` : "";
@@ -1017,7 +1149,7 @@ class SafetyCheckProvider {
     stagedFiles: string[],
     untestedFiles: string[]
   ): void {
-    // Bug 5 fix: reuse single output channel
+    // Reuse one output channel so repeated checks update a single details view.
     if (!this.outputChannel) {
       this.outputChannel = vscode.window.createOutputChannel(
         "Ripple — Safety Check"
@@ -1030,16 +1162,15 @@ class SafetyCheckProvider {
     this.outputChannel.appendLine("");
     this.outputChannel.appendLine(`Staged files (${stagedFiles.length}):`);
     stagedFiles.forEach((f) =>
-      this.outputChannel!.appendLine(`  • ${path.basename(f)}`)
+      this.outputChannel!.appendLine(`  • ${f.split(path.sep).join("/")}`)
     );
     this.outputChannel.appendLine("");
     this.outputChannel.appendLine(
       `Untested files in blast radius (${untestedFiles.length}):`
     );
     untestedFiles.forEach((f) => {
-      const shortDir = path.dirname(f).split(path.sep).slice(-2).join("/");
       this.outputChannel!.appendLine(
-        `  • ${path.basename(f)}  (${shortDir})`
+        `  • ${relativeFilePath(f, this.workspaceRoot)}`
       );
     });
     this.outputChannel.appendLine("");
@@ -1076,10 +1207,10 @@ class SafetyCheckProvider {
     }
   }
 
-  // Bug 8 fix: flexible test file detection — 12 conventions
+  // Recognize common colocated, nested, and end-to-end test conventions.
   private isTestFile(filePath: string): boolean {
     const base = path.basename(filePath);
-    const normalized = filePath.split(path.sep).join("/");
+    const normalized = relativeFilePath(filePath, this.workspaceRoot);
 
     return (
       base.includes(".test.") ||
@@ -1103,8 +1234,7 @@ class SafetyCheckProvider {
 // ────────────────────────────────────────────────────────────────────────────
 // RIPPLE INSIGHT PANEL
 //
-// PER-PROJECT: Uses workspaceState, not globalState.
-// Each project is tracked independently:
+// Uses workspaceState so each project is tracked independently:
 //   - Project A with no AGENTS.md → panel shows
 //   - Project A activated → panel never shows for Project A again
 //   - Project B (different folder) → panel shows independently
@@ -1112,7 +1242,7 @@ class SafetyCheckProvider {
 // Shows per project until one of three exit conditions is met:
 //   1. AGENTS.md / CLAUDE.md / .cursorrules contains Ripple content (success)
 //   2. Developer clicks "Activate AI Mode" button (success)
-//   3. Developer clicks "Remind me later" 3 times (give up)
+//   3. Developer clicks "Remind me later" 3 times (stop prompting)
 //
 // Developer can always re-show via Command Palette:
 //   "Ripple: Show AI Setup Panel"
@@ -1123,26 +1253,26 @@ class RippleInsightPanel {
   private static readonly STATE_ACTIVATED = "ripple.insight.activated";
   private static readonly MAX_DISMISSALS = 3;
 
-  // Called after every scan completes — decides whether to show
+  // Called after scans complete; exits quickly when onboarding is not useful.
   static maybeShow(
     context: vscode.ExtensionContext,
     engine: GraphEngine,
     workspaceRoot: string
   ): void {
-    // Exit condition 1: developer already activated (copied WORKFLOW.md)
-    if (context.workspaceState.get(RippleInsightPanel.STATE_ACTIVATED)) return;
+    // Exit condition 1: the user already activated Ripple for this workspace.
+    if (context.workspaceState.get(RippleInsightPanel.STATE_ACTIVATED)) {return;}
 
-    // Exit condition 2: activation file exists on disk
+    // Exit condition 2: a supported agent instruction file already contains Ripple.
     const activationFiles = [
       path.join(workspaceRoot, "AGENTS.md"),
       path.join(workspaceRoot, "CLAUDE.md"),
       path.join(workspaceRoot, ".cursorrules"),
     ];
     const alreadyActivated = activationFiles.some((f) => {
-      if (!fs.existsSync(f)) return false;
+      if (!fs.existsSync(f)) {return false;}
       try {
         const content = fs.readFileSync(f, "utf8");
-        return content.includes("Ripple") || content.includes(".ripple/focus");
+        return containsRippleManagedContent(content);
       } catch { return false; }
     });
 
@@ -1151,11 +1281,11 @@ class RippleInsightPanel {
       return;
     }
 
-    // Exit condition 3: too many dismissals
+    // Exit condition 3: the user has dismissed the panel enough times.
     const dismissCount = (context.workspaceState.get(RippleInsightPanel.STATE_DISMISS_COUNT) as number) ?? 0;
-    if (dismissCount >= RippleInsightPanel.MAX_DISMISSALS) return;
+    if (dismissCount >= RippleInsightPanel.MAX_DISMISSALS) {return;}
 
-    // Find the highest-risk file with its actual callers
+    // Pick the highest fan-in source file to make onboarding concrete.
     let riskFilePath = "";
     let riskFileName = "";
     let riskCount = 0;
@@ -1173,14 +1303,13 @@ class RippleInsightPanel {
       }
     });
 
-    // Only show if project has enough files to be meaningful
-    // A 3-file project with 2 importers is not a useful Ripple demonstration
-    if (engine.graph.files.size < 10) return;
+    // Very small projects do not benefit from the full onboarding panel.
+    if (engine.graph.files.size < 10) {return;}
 
-    // Only show if project has meaningful risk structure
-    if (riskCount < CAUTION_BLAST_RADIUS) return;
+    // Show only when the graph has a meaningful dependency-risk signal.
+    if (riskCount < CAUTION_BLAST_RADIUS) {return;}
 
-    // Build the caller list — real file names from the graph
+    // Use real importer names from the graph instead of generic examples.
     const callerNames = Array.from(
       engine.graph.files.get(riskFilePath)?.importedBy ?? new Set<string>()
     )
@@ -1231,31 +1360,20 @@ class RippleInsightPanel {
 
     panel.webview.onDidReceiveMessage((message) => {
       if (message.command === "activate") {
-        // Copy WORKFLOW.md to AGENTS.md for the developer
+        // Copy the current generated workflow into the developer's AGENTS.md.
         const workflowPath = path.join(workspaceRoot, ".ripple", "WORKFLOW.md");
-        const agentsPath = path.join(workspaceRoot, "AGENTS.md");
 
         try {
           if (fs.existsSync(workflowPath)) {
-            // Check if AGENTS.md already exists with non-Ripple content
-            if (fs.existsSync(agentsPath)) {
-              const existing = fs.readFileSync(agentsPath, "utf8");
-              if (!existing.includes("Ripple")) {
-                // Append rather than overwrite
-                fs.appendFileSync(agentsPath, "\n\n" + fs.readFileSync(workflowPath, "utf8"));
-              } else {
-                fs.copyFileSync(workflowPath, agentsPath);
-              }
-            } else {
-              fs.copyFileSync(workflowPath, agentsPath);
-            }
+            writeAgentsFileWithRippleSection(workspaceRoot);
+
             context.workspaceState.update(RippleInsightPanel.STATE_ACTIVATED, true);
             vscode.window.showInformationMessage(
               "↯ Ripple: AGENTS.md created. AI agents will now follow the Ripple protocol automatically."
             );
           } else {
             vscode.window.showWarningMessage(
-              "↯ Ripple: WORKFLOW.md not found yet — save any TypeScript file to generate it, then try again."
+              "↯ Ripple: WORKFLOW.md not found yet — save any TypeScript or JavaScript file to generate it, then try again."
             );
           }
         } catch (err) {

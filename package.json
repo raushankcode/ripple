@@ -1,11 +1,11 @@
 {
   "name": "ripple",
   "displayName": "Ripple — Live Architectural Intelligence",
-  "description": "Stop hand-writing context for your AI agent. Ripple auto-generates a live WORKFLOW.md on every save — synced to CLAUDE.md automatically. Your agent always knows your codebase. Context Rot ends here.",
-  "version": "1.0.1",
+  "description": "Generate live WORKFLOW.md guidance, focus files, blast-radius signals, and safer AI-agent prompts from your JavaScript or TypeScript codebase.",
+  "version": "1.0.2",
   "publisher": "rippleai",
   "author": {
-    "name": "raushan soni"
+    "name": "Raushan Soni"
   },
   "license": "MIT",
   "icon": "resources/icon-marketplace.png",
@@ -43,7 +43,7 @@
   "bugs": {
     "url": "https://github.com/raushankcode/ripple/issues"
   },
-  "homepage": "https://github.com/raushankcode/ripple#readme",
+  "homepage": "https://raushankcode.github.io/ripple/",
   "activationEvents": [
     "workspaceContains:**/*.ts",
     "workspaceContains:**/*.tsx",
@@ -114,7 +114,7 @@
     "viewsWelcome": [
       {
         "view": "ripple.impactLens",
-        "contents": "Open any TypeScript or JavaScript file.\n\nRipple will show exactly which files depend on it and which files it depends on — across your entire project.\n\nChange that file and you'll know what else might break.\n\n[Learn more](https://github.com/raushankcode/ripple)"
+        "contents": "Open any TypeScript or JavaScript file.\n\nRipple will show exactly which files depend on it and which files it depends on — across your entire project.\n\nChange that file and you'll know what else might break.\n\n[Learn more](https://raushankcode.github.io/ripple/)"
       }
     ],
     "configuration": {
@@ -149,12 +149,14 @@
     "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --minify",
     "watch": "tsc -watch -p ./",
     "watch:bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --watch",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
+    "test": "node test/run-tests.js",
     "package": "npx vsce package",
     "publish": "npx vsce publish",
     "pretest": "npm run compile"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^5.42.0",
@@ -165,6 +167,7 @@
     "typescript": "~5.3.3"
   },
   "dependencies": {
+    "glob": "^13.0.6",
     "ts-morph": "^21.0.0"
   }
 }

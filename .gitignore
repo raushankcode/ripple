@@ -3,8 +3,8 @@ out/
 dist/
 .vscode-test/
 *.vsix
-.ripple/graph.cache.json
+.ripple/.cache/
 .DS_Store
 Thumbs.db
-.ripple/
 .vscode/
+test/.tmp/

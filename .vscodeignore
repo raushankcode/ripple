@@ -2,18 +2,20 @@
 
 .ripple/
 .github/
+.vscode/
 src/
 node_modules/
-out/graph.js
-out/normalizer.js
-out/types.js
-out/test/
+docs/
+test/
+out/**
+!out/extension.js
 .gitignore
+.vscodeignore
 .eslintrc.json
+eslint.config.mjs
 tsconfig.json
+package-lock.json
 *.ts
-!out/**
 **/*.map
 *.map
-CHANGELOG.md
 Marketplace.md
