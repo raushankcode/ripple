@@ -59,6 +59,8 @@ The goal is more concrete:
 
 ![Ripple value demo showing manual search finding 3 likely files while Ripple finds 19 potentially impacted files](resources/ripple-value-demo.gif)
 
+Watch the 78-second web demo: [raushankcode.github.io/ripple/demo-video.html](https://raushankcode.github.io/ripple/demo-video.html)
+
 Ripple was validated on a local clone of the open-source `sindresorhus/ky` TypeScript project.
 
 ```txt

@@ -1081,6 +1081,59 @@
         border-color: var(--cream);
       }
 
+      /* ══ DEMO VIDEO ══════════════════════════════════════════════ */
+      .demo-wrap {
+        text-align: center;
+        background: var(--ink-2);
+        border-top: 1px solid var(--line-dim);
+        border-bottom: 1px solid var(--line-dim);
+      }
+      .demo-wrap .sp3 {
+        margin-left: auto;
+        margin-right: auto;
+        text-align: center;
+      }
+      .demo-shell {
+        max-width: 1060px;
+        margin: 44px auto 0;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #050b12;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+        overflow: hidden;
+      }
+      .demo-frame {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border: 0;
+        background: #050b12;
+      }
+      .demo-links {
+        display: flex;
+        justify-content: center;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+      .demo-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--neon);
+        font-family: var(--font-code);
+        font-size: 12px;
+        font-weight: 700;
+        border-bottom: 1px solid rgba(0, 200, 255, 0.35);
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .demo-link:hover {
+        color: var(--cream);
+        border-color: var(--cream);
+      }
+
       /* ══ CTA ═════════════════════════════════════════════════════ */
       .cta-wrap {
         text-align: center;
@@ -1174,6 +1227,7 @@
       /* ══ SHARED SECTION STYLES ═══════════════════════════════════ */
       section {
         padding: 96px var(--g);
+        scroll-margin-top: 72px;
       }
       .eye {
         font-family: var(--font-code);
@@ -1377,6 +1431,7 @@
         .stack-pills,
         .focus-demo,
         .scope-note,
+        .demo-shell,
         .proof-box {
           min-width: 0;
           max-width: 100%;
@@ -1392,6 +1447,8 @@
         section > .risk-cards,
         section > .stack-pills,
         section > .scope-note,
+        section > .demo-shell,
+        section > .demo-links,
         section > .proof-box,
         section > .cta-row {
           width: min(100%, 342px) !important;
@@ -1426,6 +1483,10 @@
           word-break: break-word;
         }
         .cta-row {
+          flex-direction: column;
+          align-items: center;
+        }
+        .demo-links {
           flex-direction: column;
           align-items: center;
         }
@@ -1480,6 +1541,7 @@
       <ul class="nav-mid">
         <li><a href="#problem">Problem</a></li>
         <li><a href="#proof">Proof</a></li>
+        <li><a href="#demo">Demo</a></li>
         <li><a href="#features">Features</a></li>
         <li><a href="#how">How it works</a></li>
         <li><a href="#stack">Stack</a></li>
@@ -1535,6 +1597,7 @@
             class="cta-sec">
             View on GitHub →
           </a>
+          <a href="#demo" class="cta-sec">Watch demo →</a>
         </div>
 
         <div class="rot-alert">
@@ -2290,9 +2353,10 @@
         Works with your stack.<br />Detected heuristically.
       </h2>
       <p class="sp3 rev">
-        Ripple is focused on JavaScript and TypeScript codebases first, including
-        common React, Node.js, Next.js, Vite, Remix, Astro, NestJS, Turborepo,
-        and pnpm workspace projects.
+        Ripple is focused on JavaScript and TypeScript codebases first. It works
+        with ordinary .ts, .tsx, .js, and .jsx source files across React,
+        Node.js, Next.js, Vite, React Router, Turborepo, and pnpm workspace
+        projects. Framework and package detection is heuristic.
       </p>
 
       <div class="stack-pills rev">
@@ -2300,9 +2364,7 @@
         <span class="sp hi">React</span>
         <span class="sp hi">Node.js</span>
         <span class="sp hi">Vite</span>
-        <span class="sp hi">Remix</span>
-        <span class="sp hi">Astro</span>
-        <span class="sp hi">NestJS</span>
+        <span class="sp hi">React Router</span>
         <span class="sp hi">Turborepo</span>
         <span class="sp hi">pnpm workspaces</span>
         <span class="sp">.ts</span>
@@ -2353,6 +2415,38 @@
           target="_blank"
           rel="noopener noreferrer"
           >Read full technical validation →</a
+        >
+      </div>
+    </section>
+
+    <!-- ══ DEMO VIDEO ════════════════════════════════════════════════ -->
+    <section class="demo-wrap" id="demo">
+      <div class="eye rev">Demo video</div>
+      <h2 class="sh2 rev">See the proof flow<br />before installing.</h2>
+      <p class="sp3 rev">
+        A short demo built from the real Ky validation: manual search finds a
+        few likely files, then Ripple shows local blast-radius context, focus
+        files, dangerous risk, and the agent workflow.
+      </p>
+
+      <div class="demo-shell rev">
+        <iframe
+          class="demo-frame"
+          src="demo-video.html"
+          title="Ripple demo video"
+          loading="lazy"></iframe>
+      </div>
+
+      <div class="demo-links rev">
+        <a class="demo-link" href="demo-video.html" target="_blank" rel="noopener noreferrer"
+          >Open full demo →</a
+        >
+        <a
+          class="demo-link"
+          href="https://github.com/raushankcode/ripple/blob/main/docs/demo-video.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Read demo script →</a
         >
       </div>
     </section>
@@ -2455,6 +2549,20 @@
         { threshold: 0.5 },
       );
       pipes.forEach((p) => pio.observe(p));
+
+      // Keep anchored links reliable after fonts, iframes, and the hero have settled.
+      window.addEventListener("load", () => {
+        if (!window.location.hash) {
+          return;
+        }
+
+        const target = document.querySelector(window.location.hash);
+        if (target) {
+          window.setTimeout(() => {
+            target.scrollIntoView({ block: "start" });
+          }, 80);
+        }
+      });
     </script>
   </body>
 </html>
