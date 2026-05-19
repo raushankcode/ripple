@@ -1,65 +1,48 @@
-# ↯ Ripple — Live Local Context Harness for AI Coding Agents
+# ↯ Ripple — Live Local Context for AI Coding Agents
 
-Claude Code, Cursor, Copilot, Codex, and other AI coding agents can search your codebase.
+> AI coding agents can search your codebase.
+> Ripple helps them understand what a change may affect before they edit.
 
-But in real JavaScript and TypeScript projects, agents still need fresh local context before editing:
+Claude Code, Cursor, Copilot, Codex, and other AI coding agents are powerful.
+
+But in real JavaScript and TypeScript projects, agents still operate with incomplete architectural awareness.
+
+They can search files.
+
+They can read symbols.
+
+They can generate code.
+
+But before editing a shared utility, service, hook, SDK function, or public API, agents still need live local context:
 
 - What imports this file?
 - What depends on it?
-- Which symbols have callers?
-- What tests or files are likely affected?
-- Is this file safe to edit, or does it have a large blast radius?
+- Which functions have many callers?
+- Is this file safe to edit?
+- What is the likely blast radius?
 - Should the agent continue, inspect callers first, or stop and ask for confirmation?
 
 Ripple generates that context automatically.
 
-It scans your workspace locally and creates agent-readable workflow files, focus files, dependency maps, caller signals, history, and blast-radius guidance — so AI coding agents know where to look before changing code.
+It scans your workspace locally and builds live architectural context for AI agents:
 
-Ripple does not replace tests, code review, or engineering judgment.
+- dependency signals
+- caller counts
+- blast-radius awareness
+- risk guidance
+- workflow instructions
+- architectural history
 
-It is a local context harness that helps humans and AI agents make safer decisions before editing.
-
-**Less guessing. More context. Safer edits.**
-
----
-
-## The Problem: Static Agent Context Rots
-
-Hand-written agent instructions are useful, but they are passive.
-
-You can write a perfect `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, or long prompt for your AI coding agent.
-
-For a while, it helps.
-
-Then your code changes.
-
-A file moves.
-A component gets reused.
-A service gains new callers.
-A function becomes risky to edit.
-A rule in your hand-written context becomes outdated.
-
-But your AI agent does not automatically know that.
-
-It may keep following stale instructions with confidence.
-
-That is **Context Rot**.
-
-Ripple fights Context Rot by generating fresh local architectural context from your actual JavaScript or TypeScript codebase.
-
-The goal is not to make an AI agent “understand everything.”
-
-The goal is more concrete:
-
-> Before editing a risky file, the agent should see live local signals about what the change may affect.
+So agents can make safer decisions before changing code.
 
 ---
 
-## Concrete Example: `sindresorhus/ky`
+## Concrete Example — `sindresorhus/ky`
 
-![Ripple value demo showing manual search finding 3 likely files while Ripple finds 19 potentially impacted files](resources/ripple-value-demo.gif)
+🎥 Full Demo (real local run on `sindresorhus/ky`)
+**Watch the demo:** [raushankcode.github.io/ripple/demo-video.mp4](https://raushankcode.github.io/ripple/demo-video.mp4)
 
-Watch the 78-second web demo: [raushankcode.github.io/ripple/demo-video.html](https://raushankcode.github.io/ripple/demo-video.html)
+![Ripple README Demo](resources/ripple-value-demo.gif)
 
 Ripple was validated on a local clone of the open-source `sindresorhus/ky` TypeScript project.
 
@@ -70,56 +53,136 @@ Ripple was validated on a local clone of the open-source `sindresorhus/ky` TypeS
 41 call edges
 ```
 
-For the same temporary change to `source/utils/merge.ts::mergeHeaders`:
+For the same temporary change to:
 
-- Manual diff and text search found `3` likely related files
-- Ripple identified `19` potentially impacted files
-- Ripple marked the change as `dangerous`
-- Ripple recorded the exact changed symbol as `symbol_modified`
-- Ripple generated verification targets for checking the edit before shipping
+```txt
+source/utils/merge.ts::mergeHeaders
+```
 
-This does not mean Ripple “understands everything.”
+Manual search found:
+
+```txt
+2 direct text-match files
+```
+
+Ripple identified:
+
+```txt
+19 potentially impacted files
+```
+
+Ripple also:
+
+- marked the change as `dangerous`
+- surfaced caller context such as `cloneShallow()`
+- recorded the exact symbol as `symbol_modified`
+- generated workflow guidance for the AI agent
+- surfaced verification targets before shipping the edit
+
+This does **not** mean Ripple “understands everything.”
 
 It means something more practical:
 
-> Before an AI agent edits a risky file, Ripple can surface local blast-radius signals that would be easy to miss with manual search alone.
+> Before an AI agent edits a risky file, Ripple surfaces local architectural signals that are easy to miss with manual search alone.
 
-The test was performed locally on a cloned repository and used only to validate Ripple's analysis behavior.
+The validation was performed locally on a cloned repository and does not imply endorsement by the Ky project or its maintainers.
 
-This validation does not imply endorsement by the Ky project or its maintainers.
-
-Full technical validation: [docs/validation.md](https://github.com/raushankcode/ripple/blob/main/docs/validation.md)
+Full validation details: [docs/validation.md](docs/validation.md)
 
 ---
 
-## What Ripple Does
+# The Problem — Context Rot
 
-Ripple helps your AI agent ask the questions a careful engineer would ask before editing:
+Hand-written AI instructions decay.
+
+You can write:
+
+- `CLAUDE.md`
+- `.cursorrules`
+- `AGENTS.md`
+- long system prompts
+- project conventions
+
+And for a while, they help.
+
+Then the codebase changes.
+
+A component gets reused.
+
+A service gains new callers.
+
+A utility becomes dangerous to modify.
+
+A public API spreads through the project.
+
+But the AI agent does not automatically know that.
+
+The instructions stay static while the architecture evolves.
+
+That is:
+
+# Context Rot
+
+Ripple fights Context Rot by generating fresh local context directly from the real codebase.
+
+The goal is not magical “full understanding.”
+
+The goal is simpler and more useful:
+
+> Before editing risky code, the AI agent should see what the change may affect.
+
+---
+
+# What Ripple Does
+
+Ripple helps AI agents ask the questions a careful engineer would ask before changing code:
 
 - What imports this file?
-- What does this file import?
-- Which functions are used elsewhere?
-- How many callers does this symbol have?
-- Is this file risky to change?
-- Which files should be checked before shipping the edit?
-- Is this public API, internal logic, UI, state, handler, or data code?
-- Should the agent continue, inspect callers first, or stop and ask for confirmation?
+- What depends on it?
+- Which symbols are shared?
+- How many callers exist?
+- Is this file risky to edit?
+- Which files should be checked afterward?
+- Is this UI, logic, state, handler, or data code?
+- Should the agent continue or stop for confirmation?
 
-Ripple turns that information into:
+Ripple turns those signals into:
 
-- Live project context generated from your actual codebase
-- Impact Lens sidebar
-- CodeLens caller counts
-- Safety Check for staged changes
-- AI-agent prompt context
-- `.ripple/WORKFLOW.md`
-- `.ripple/history.json`
-- focused `.ripple/.cache/focus/*.json` files
-- compact project context files for agents
+- live project context
+- dependency maps
+- caller intelligence
+- blast-radius guidance
+- risk-aware focus files
+- AI workflow instructions
+- local architectural history
 
 ---
 
-## Install
+# Quick Reality Check
+
+Ripple is not:
+
+- a cloud indexer
+- a replacement for tests
+- a semantic compiler
+- a magical AI safety system
+
+Ripple is:
+
+> A live local context harness for AI coding agents.
+
+Everything runs locally.
+
+- No account
+- No telemetry
+- No cloud indexing
+- No hidden code upload
+
+Your code stays on your machine.
+
+---
+
+# Install
 
 Install Ripple from the VS Code Marketplace.
 
@@ -129,26 +192,37 @@ Search:
 Ripple
 ```
 
-Or install from the command line:
+Or install directly:
 
 ```bash
 code --install-extension rippleai.ripple
 ```
 
-Then open any TypeScript or JavaScript project. Ripple starts analyzing your workspace automatically.
+Then open a JavaScript or TypeScript project.
+
+Ripple begins analyzing the workspace automatically.
 
 ---
 
-## Quick Start
+# Quick Start
 
 1. Install Ripple
 2. Open a TypeScript or JavaScript project
-3. Wait for `↯ Ripple: ready` in the VS Code status bar
-4. Open any `.ts`, `.tsx`, `.js`, or `.jsx` file
-5. Use the Ripple sidebar to inspect imports and dependents
-6. Right-click a file and run `↯ Ripple: Copy Agent Prompt`
+3. Wait for:
 
-To reopen the setup panel:
+```txt
+↯ Ripple: ready
+```
+
+4. Open a `.ts`, `.tsx`, `.js`, or `.jsx` file
+5. Use the Ripple sidebar to inspect impact and dependencies
+6. Right-click a file and run:
+
+```txt
+↯ Ripple: Copy Agent Prompt
+```
+
+To reopen setup:
 
 ```txt
 Ctrl+Shift+P → Ripple: Show AI Setup Panel
@@ -156,32 +230,11 @@ Ctrl+Shift+P → Ripple: Show AI Setup Panel
 
 ---
 
-## How AI Agents Use Ripple
+# Main Features
 
-Ripple is intentionally file-based first.
+## ↯ Impact Lens
 
-Agents can read:
-
-- `.ripple/WORKFLOW.md` for project-level workflow guidance
-- `.ripple/.cache/context.json` for compact project context
-- `.ripple/.cache/context.files.json` for file-level dependency context
-- `.ripple/.cache/context.symbols.json` for symbol and caller context
-- `.ripple/.cache/focus/*.json` for per-file risk, importers, symbols, and suggested checks
-- `.ripple/history.json` for local architectural change history
-
-A typical agent instruction is:
-
-> Before editing a file, read its Ripple focus file. If risk is `dangerous`, stop and ask for confirmation before code changes. Use importers, callers, and verification targets to explain the likely impact.
-
-Future versions may add MCP / CLI access so agents can query Ripple directly instead of only reading generated files.
-
----
-
-## Main Features
-
-### 1. ↯ Impact Lens
-
-Open a file and Ripple shows the local blast radius.
+Ripple shows the local blast radius of the current file.
 
 Example:
 
@@ -203,29 +256,29 @@ Depends on (3):
   auditLog.ts
 ```
 
-This helps you see whether a file is isolated or shared before asking an agent to refactor it.
+This helps agents and developers understand whether a file is isolated or deeply shared before refactoring it.
 
 ---
 
-### 2. ↯ CodeLens Caller Counts
+## ↯ CodeLens Caller Counts
 
 Ripple adds caller-count hints above supported functions and components.
 
 ```typescript
-↯ 28 callers — click to see details
+↯ 28 callers — click to inspect
 export function verifySession(token: string): UserSession | null {
 
 ↯ no external callers
 export const PrivacyNoticePage = () => {
 ```
 
-This makes risky shared functions visible while you code.
+Shared functions become visible instantly.
 
 ---
 
-### 3. ↯ Safety Check
+## ↯ Safety Check
 
-When you stage files for a git commit, Ripple can warn when untested files may be affected.
+Ripple warns when staged changes may affect untested files.
 
 ```txt
 ↯ Ripple: orderService.ts → 4 untested files may be affected:
@@ -234,61 +287,118 @@ When you stage files for a git commit, Ripple can warn when untested files may b
 [View details]  [Understood]
 ```
 
-Ripple does not block your commit.
+Ripple does not block commits.
 
-It gives you impact awareness before you ship.
+It surfaces impact before shipping.
 
 ---
 
-### 4. ↯ Copy Agent Prompt
+## ↯ Copy Agent Prompt
 
-Right-click a supported file and run:
+Right-click a file:
 
 ```txt
 ↯ Ripple: Copy Agent Prompt
 ```
 
-Ripple creates a task-ready prompt for Claude Code, Cursor, GitHub Copilot Chat, Continue, or another AI coding agent.
+Ripple generates architecture-aware task context for:
+
+- Claude Code
+- Cursor
+- Copilot Chat
+- Continue
+- Codex
+- other AI coding agents
 
 Example:
 
 ```txt
-Refactor the order cancellation logic without changing its public API.
+Refactor the order cancellation flow without changing its public API.
 
 Before making changes:
-1. Read the focus file for this file:
+1. Read:
    .ripple/.cache/focus/orders-lib-cancelOrder.json
-2. STOP — 7 files import this. Confirm before proceeding.
-3. Check callers for every symbol you will modify.
-4. Only touch the requested layer: logic, UI, handler, state, or data.
+2. STOP — 7 files import this.
+3. Check callers before modifying symbols.
+4. Only touch the requested layer.
 
-File: cancelOrder.ts
 Risk: DANGEROUS
 Importers: 7
-Project rules: .ripple/WORKFLOW.md
+Workflow: .ripple/WORKFLOW.md
 ```
 
-You add the task. Ripple supplies the architecture context.
+You provide the task.
+
+Ripple provides the architecture context.
 
 ---
 
-### 5. `.ripple/WORKFLOW.md`
+## ↯ `.ripple/WORKFLOW.md`
 
-Ripple generates a workflow file that tells AI agents how to work safely inside your project.
+Ripple generates workflow instructions for AI agents automatically.
 
-You can connect it to:
+You can connect Ripple to:
 
 - `CLAUDE.md`
 - `.cursorrules`
 - `AGENTS.md`
 
-If one of those files contains Ripple's managed section, Ripple refreshes only that section.
+Ripple updates only its managed section.
 
-Your own notes outside the Ripple section stay yours.
+Your own notes stay untouched.
 
 ---
 
-## Language Support
+## ↯ Architectural History
+
+Ripple records architectural change locally.
+
+Example:
+
+```json
+{
+  "type": "symbol_modified",
+  "source": "source/utils/merge.ts::mergeHeaders",
+  "kind": "function",
+  "layer": "logic"
+}
+```
+
+Ripple is not only about current state.
+
+It also remembers how the architecture evolves over time.
+
+---
+
+# How AI Agents Use Ripple
+
+Ripple is intentionally file-first and local-first.
+
+Agents can read:
+
+```txt
+.ripple/WORKFLOW.md
+.ripple/history.json
+.ripple/.cache/context.json
+.ripple/.cache/context.files.json
+.ripple/.cache/context.symbols.json
+.ripple/.cache/focus/*.json
+```
+
+Typical workflow:
+
+> Before editing a file, read its Ripple focus file.
+> If risk is dangerous, stop and inspect callers first.
+
+Future versions may add:
+
+- MCP server support
+- CLI access
+- direct agent querying
+
+---
+
+# Language Support
 
 Ripple currently supports:
 
@@ -299,17 +409,27 @@ Ripple currently supports:
 .jsx
 ```
 
-Ripple is focused on JavaScript and TypeScript codebases first.
+Ripple is focused on JavaScript and TypeScript first.
 
-It works with ordinary `.ts`, `.tsx`, `.js`, and `.jsx` source files across React, Node.js, Next.js, Vite, React Router, Turborepo, and pnpm workspace projects.
+Works well with:
 
-Framework and package detection is heuristic. Ripple reads imports, symbols, config files, workspace layout, and dependency signals; it should not be treated as a full framework-specific analyzer yet.
+- React
+- Next.js
+- Node.js
+- Vite
+- React Router
+- Turborepo
+- pnpm workspaces
+
+Framework detection is heuristic in v1.
+
+Ripple should be treated as a strong safety signal — not mathematical proof.
 
 ---
 
-## Generated Files
+# Generated Files
 
-Ripple creates a local `.ripple/` folder inside your workspace.
+Ripple creates a local `.ripple/` directory:
 
 ```txt
 .ripple/
@@ -321,27 +441,27 @@ Ripple creates a local `.ripple/` folder inside your workspace.
     context.files.json
     context.symbols.json
     focus/
-      <focused-file-context>.json
+      <focused-file>.json
 ```
 
-Recommended `.gitignore`:
+Suggested `.gitignore`:
 
 ```gitignore
-# Ripple generated cache
 .ripple/.cache/
-
-# Usually keep these for project memory:
-# .ripple/history.json
-# .ripple/WORKFLOW.md
 ```
 
-`history.json` and `WORKFLOW.md` are project-relative and portable.
+Usually keep:
 
-The cache folder is regenerated automatically.
+```txt
+.ripple/history.json
+.ripple/WORKFLOW.md
+```
+
+These become portable project memory.
 
 ---
 
-## What Ripple Tracks
+# What Ripple Tracks
 
 Ripple currently tracks many common JavaScript and TypeScript patterns:
 
@@ -349,49 +469,33 @@ Ripple currently tracks many common JavaScript and TypeScript patterns:
 ✓ Named imports
 ✓ Default imports
 ✓ Relative imports
-✓ tsconfig path aliases
+✓ tsconfig aliases
 ✓ Monorepo workspace imports
-✓ Style imports
-✓ Barrel re-exports
-✓ Named function declarations
-✓ Arrow function declarations
+✓ Barrel exports
+✓ Named functions
+✓ Arrow functions
 ✓ Class declarations
-✓ JSX component usage
-✓ Common framework and package signals
+✓ JSX usage
+✓ Common framework signals
 ```
-
-Ripple v1 uses practical static analysis.
-
-It should be treated as a strong safety signal, not a mathematical proof.
 
 ---
 
-## Known Limitations
+# Known Limitations
 
-Ripple is useful, but it is not magic.
+Ripple v1 is practical static analysis — not a full semantic compiler.
 
-Ripple v1 is not a semantic compiler, a full TypeScript language server, or a replacement for tests.
-
-Current known limitations:
+Current limitations:
 
 ```txt
 ✗ Namespace imports
-  import * as Utils from './utils'
-
-✗ Aliased imports
-  import { CheckoutButton as PrimaryAction } from './ui'
-
 ✗ Dynamic imports
-  await import('./module')
-
-✗ CommonJS require calls
-  require('./config')
-
-✗ Constructor call edges
-  new ClassName() is not always tracked as a calledBy edge
+✗ CommonJS require
+✗ Some constructor call edges
+✗ Some aliased import resolution
 ```
 
-This is why Ripple uses careful language such as:
+Ripple intentionally uses language like:
 
 ```txt
 may affect
@@ -399,106 +503,67 @@ likely used by
 possible blast radius
 ```
 
-Full semantic resolution is planned for a later phase.
+because architectural analysis is probabilistic, not perfect.
 
 ---
 
-## Privacy
+# Who Ripple Is For
 
-Ripple is local-first.
+Ripple is for developers using AI coding tools on real codebases.
 
-- No account required
-- No telemetry
-- No cloud indexing
-- No code upload
-- No hidden remote analysis
+It becomes more valuable when:
 
-Your code stays on your machine.
+- the architecture grows
+- shared code spreads
+- AI edits become riskier
+- manual context becomes exhausting
 
-The `.ripple/` directory lives inside your workspace and belongs to you.
+Especially useful if you use:
 
-Saved history and generated context use project-relative paths, for example:
+- Claude Code
+- Cursor
+- Copilot
+- Continue
+- Codex
+- other AI coding agents
+
+Ripple is built for this moment:
+
+> The model is capable.
+> But the codebase context is incomplete.
+
+---
+
+# Roadmap
+
+- MCP server support
+- CLI tooling
+- richer TypeScript analysis
+- stronger framework intelligence
+- PR blast-radius summaries
+- post-edit verification guidance
+- deeper architectural memory
+
+---
+
+# Contributing
+
+Repository:
 
 ```txt
-src/graph.ts::updateFile
+https://github.com/raushankcode/ripple
 ```
 
-Ripple uses exact absolute paths internally only while running, so VS Code can open and update the correct files on your machine.
+Issues and pull requests are welcome.
+
+If Ripple misses an import, caller, or framework pattern, open an issue with a small reproduction.
 
 ---
 
-## Who Ripple Is For
-
-Ripple is for developers who use AI coding tools on real JavaScript or TypeScript projects.
-
-Modern AI coding feels powerful until one small change breaks five unrelated files.
-
-Ripple is built for that moment:
-
-> The model is capable, but the codebase context is incomplete.
-
-It is especially useful if you:
-
-- Use Claude Code, Cursor, Copilot, Continue, Codex, or another AI coding agent
-- Work in a codebase with shared components, services, utilities, hooks, or SDK code
-- Want safer AI-assisted refactors
-- Want agents to inspect dependencies before editing
-- Are tired of repeating project context in every prompt
-- Want a local, file-based context layer instead of another cloud index
-
-Ripple is not mainly for toy projects.
-
-It becomes more valuable as your codebase becomes harder to understand at a glance.
-
----
-
-## Roadmap
-
-### Agent Access
-
-- MCP server support so agents can query Ripple directly
-- `ripple_get_focus(filePath)`
-- `ripple_get_blast_radius(filePath)`
-- CLI guard for checking file risk before edits
-
-### Analysis Improvements
-
-- Improved monorepo intelligence
-- Better handling for aliased imports
-- Better handling for namespace imports
-- Better handling for dynamic imports
-- Richer framework-specific intelligence
-- Deeper symbol and contract detection
-- Stronger TypeScript language-service integration
-
-### Verification
-
-- Suggested test commands based on affected files
-- Git summaries that explain architectural impact
-- PR summaries that explain blast radius and residual risk
-- Post-edit review with changed files and affected callers
-
----
-
-## Contributing
-
-Project links:
-
-```txt
-Repository: https://github.com/raushankcode/ripple
-Issues:     https://github.com/raushankcode/ripple/issues
-```
-
-Issues, bug reports, feature requests, and pull requests are welcome.
-
-If Ripple misses an import, caller, framework convention, or risky dependency path, please open an issue with a small reproduction.
-
----
-
-## License
+# License
 
 MIT License
 
 ---
 
-_↯ Ripple gives AI coding agents fresh local codebase context before they edit._
+_↯ Ripple gives AI coding agents fresh local architectural context before they edit._

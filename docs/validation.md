@@ -1,9 +1,10 @@
 # Ripple Validation Report
 
-Validation date: May 13, 2026
+Validation date: May 19, 2026
 
 This report documents the real-project proof used for Ripple's launch materials.
-It is intended to be a clear, technical companion to the README demo GIF.
+It is intended to be a clear, technical companion to the landing-page demo video
+and README demo GIF.
 
 ## Summary
 
@@ -71,26 +72,31 @@ The temporary edit was restored after testing.
 
 ## Without Ripple
 
-Using normal manual signals:
+Using normal manual text search, the demo runs:
+
+```txt
+git grep -l "mergeHeaders" -- source test
+```
+
+That search surfaced the files that directly contain the edited symbol name:
 
 ```txt
 Changed files from simple diff: 1
-Direct text matches: 8
-Likely related files found by text search: 3
+Direct text-match files surfaced by git grep: 2
 ```
 
 Files surfaced by direct search:
 
 ```txt
 source/core/Ky.ts
-source/index.ts
-source/utils/options.ts
+source/utils/merge.ts
 ```
 
 Manual search did not provide:
 
 ```txt
 Exact downstream blast radius
+Caller context such as cloneShallow()
 Risk level
 Changed-symbol history
 Verification targets
@@ -109,6 +115,13 @@ Downstream files after update: 19
 Importer graph preserved: true
 Risk: dangerous
 History event: symbol_modified
+```
+
+The demo also shows caller context for nearby shared logic, including:
+
+```txt
+source/utils/merge.ts::cloneShallow
+High blast radius: 3 callers
 ```
 
 Sample downstream files surfaced by Ripple:
@@ -141,16 +154,16 @@ test/base-url.ts
 ## Value Shown
 
 ```txt
-Manual workflow found: 3 likely related files
+Manual git grep surfaced: 2 direct text-match files
 Ripple found: 19 impacted files
-Additional impacted files surfaced by Ripple: 16
+Additional impacted paths surfaced beyond direct text matches: 17
 ```
 
 This is the central proof:
 
-> A normal search found a few obvious references. Ripple exposed the hidden
-> downstream blast radius, the exact changed symbol, risk level, history event,
-> and verification route.
+> A normal search found the obvious text references. Ripple exposed broader
+> local blast-radius context, caller context, the exact changed symbol, risk
+> level, history event, and verification route.
 
 ## Issues Found During Validation
 
@@ -272,17 +285,24 @@ resources/ripple-value-demo.gif included
 
 ## README Proof Asset
 
+The landing page includes the demo video:
+
+```txt
+docs/demo-video.mp4
+```
+
 The README includes a visual proof GIF:
 
 ```txt
 resources/ripple-value-demo.gif
 ```
 
-The GIF summarizes the same Ky comparison:
+The demo assets summarize the same Ky comparison:
 
 ```txt
-Manual search: 3 likely files
+Manual search: 2 direct text-match files
 Ripple: 19 impacted files
+Caller context: cloneShallow()
 Risk: dangerous
 History: symbol_modified
 Verification targets generated

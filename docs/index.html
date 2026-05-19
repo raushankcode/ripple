@@ -7,7 +7,9 @@
     <meta
       name="description"
       content="Ripple helps AI coding agents understand JavaScript and TypeScript codebases before they change shared code." />
-    <meta property="og:title" content="Ripple — Live codebase context for AI agents." />
+    <meta
+      property="og:title"
+      content="Ripple — Live codebase context for AI agents." />
     <meta
       property="og:description"
       content="Local-first VS Code context for AI agents: dependency impact, caller counts, history, focus files, and safer prompts from your actual codebase." />
@@ -405,13 +407,59 @@
         margin-top: 10px;
       }
 
-      /* ══ LIVE GRAPH SVG ══════════════════════════════════════════ */
+      .hero-demo-preview {
+        display: block;
+        position: relative;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #050b12;
+        box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+        transition:
+          border-color 0.2s,
+          transform 0.2s;
+      }
+      .hero-demo-preview:hover {
+        border-color: rgba(0, 200, 255, 0.55);
+        transform: translateY(-3px);
+      }
+      .hero-demo-preview img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+      }
+      .hero-demo-caption {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        background: rgba(5, 11, 18, 0.82);
+        backdrop-filter: blur(10px);
+        color: var(--cream);
+        font-family: var(--font-code);
+        font-size: 11px;
+      }
+      .hero-demo-caption span:last-child {
+        color: var(--neon);
+        white-space: nowrap;
+      }
+
+      /* ══ HERO PROOF PREVIEW ══════════════════════════════════════ */
       .hero-right {
         position: relative;
         z-index: 2;
         animation: fade 0.8s 0.4s var(--ease) both;
       }
       .graph-wrap {
+        display: none;
         width: 100%;
         max-width: 520px;
         margin-left: auto;
@@ -1275,8 +1323,8 @@
         }
       }
       .rev {
-        opacity: 0;
-        transform: translateY(16px);
+        opacity: 1;
+        transform: translateY(0);
         transition:
           opacity 0.65s var(--ease),
           transform 0.65s var(--ease);
@@ -1559,7 +1607,7 @@
         target="_blank"
         rel="noopener noreferrer"
         class="nav-install">
-            ↯ Install
+        ↯ Install
       </a>
     </nav>
 
@@ -1603,8 +1651,8 @@
         <div class="rot-alert">
           <div class="rot-alert-label">Real project proof</div>
           <div class="rot-alert-text">
-            Validated on a local clone of <strong>sindresorhus/ky</strong>:
-            52 files, 103 symbols, 349 import edges, and 41 call edges.
+            Validated on a local clone of <strong>sindresorhus/ky</strong>: 52
+            files, 103 symbols, 349 import edges, and 41 call edges.
           </div>
         </div>
 
@@ -1612,18 +1660,30 @@
           <div class="proof-text-sm">
             Same temporary change to
             <strong>source/utils/merge.ts::mergeHeaders</strong>. Manual search
-            found <span class="hl">3</span> likely files. Ripple identified
-            <span class="hl">19</span> potentially impacted files, marked the
-            change dangerous, and generated verification targets.
+            surfaced <span class="hl">2</span> direct text-match files. Ripple
+            identified <span class="hl">19</span> potentially impacted files,
+            showed caller context, marked the change dangerous, and generated
+            verification targets.
           </div>
           <div class="proof-stat">
-            16 more potentially impacted files surfaced
+            17 more impacted paths surfaced beyond direct text matches
           </div>
         </div>
       </div>
 
-      <!-- Live dependency graph -->
+      <!-- Quick proof preview -->
       <div class="hero-right">
+        <a class="hero-demo-preview" href="#demo" aria-label="Watch the Ripple real-project demo">
+          <img
+            src="media/ripple-value-demo.gif"
+            alt="Ripple demo preview showing real project impact analysis in VS Code"
+            loading="eager" />
+          <div class="hero-demo-caption">
+            <span>Real Ky proof preview</span>
+            <span>Watch demo -></span>
+          </div>
+        </a>
+
         <div class="graph-wrap">
           <svg class="graph-svg" viewBox="0 0 520 390" fill="none">
             <rect width="520" height="390" fill="#050d15" rx="12" />
@@ -1996,8 +2056,8 @@
           <div class="rot-card-eyebrow">Without Ripple</div>
           <div class="rot-card-title">Text Search</div>
           <div class="rot-card-desc">
-            Normal diff and text search showed the edited file plus a small
-            set of direct references.
+            Normal diff and text search showed the edited file plus a small set
+            of direct references.
             <strong>It did not show the full downstream blast radius.</strong>
           </div>
           <div class="rot-items">
@@ -2007,11 +2067,11 @@
             </div>
             <div class="rot-item">
               <span class="ri">✗</span>
-              <span>Direct text matches: 8</span>
+              <span>Direct files surfaced by git grep: 2</span>
             </div>
             <div class="rot-item">
               <span class="ri">✗</span>
-              <span>Likely related files found: 3</span>
+              <span>No caller graph or importer count from search alone</span>
             </div>
             <div class="rot-item">
               <span class="ri">✗</span>
@@ -2042,12 +2102,94 @@
             </div>
             <div class="rot-item">
               <span class="ri">✓</span>
-              <span>Verification targets generated before treating the edit as safe</span>
+              <span
+                >Verification targets generated before treating the edit as
+                safe</span
+              >
             </div>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- ══ PROOF ══════════════════════════════════════════════════════ -->
+    <section class="proof-wrap" id="proof">
+      <div class="eye rev">Validation report</div>
+      <h2 class="sh2 rev">Real test numbers.<br />Careful claims.</h2>
+
+      <div class="proof-box rev">
+        <p class="proof-quote">
+          Ripple was tested on a local clone of
+          <strong>sindresorhus/ky</strong>. The same temporary edit to
+          <strong>source/utils/merge.ts::mergeHeaders</strong> was checked with
+          and without Ripple. The test was local, temporary, and does not imply
+          endorsement by the Ky project or its maintainers. <br /><br />
+          Manual search surfaced <span class="pn">2 direct text-match files</span>.
+          Ripple identified <span class="pn">19 potentially impacted files</span>,
+          showed caller context such as <span class="pn">cloneShallow()</span>,
+          recorded <span class="pn">symbol_modified</span>, marked the risk
+          <span class="pn">dangerous</span>, and generated verification targets.
+          <br /><br />
+          <strong
+            >This is the core value: know the blast radius before an AI agent
+            edits shared code.</strong
+          >
+        </p>
+        <div class="proof-big">19</div>
+        <div class="proof-sub-label">
+          potentially impacted files identified from one high-risk runtime file
+        </div>
+        <a
+          class="proof-link"
+          href="https://github.com/raushankcode/ripple/blob/main/docs/validation.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Read full technical validation →</a
+        >
+      </div>
+    </section>
+
+    <!-- ══ DEMO VIDEO ════════════════════════════════════════════════ -->
+    <section class="demo-wrap" id="demo">
+      <div class="eye rev">Demo video</div>
+      <h2 class="sh2 rev">See the proof flow<br />before installing.</h2>
+      <p class="sp3 rev">
+        A short demo built from the real Ky validation: manual search surfaces
+        direct text matches, then Ripple shows caller context, local
+        blast-radius context, focus files, dangerous risk, workflow guidance,
+        and symbol history.
+      </p>
+
+      <div class="demo-shell rev">
+        <video
+          class="demo-frame"
+          src="demo-video.mp4"
+          title="Ripple demo video"
+          autoplay
+          muted
+          controls
+          preload="metadata"
+          playsinline></video>
+      </div>
+
+      <div class="demo-links rev">
+        <a
+          class="demo-link"
+          href="demo-video.mp4"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Open full demo →</a
+        >
+        <a
+          class="demo-link"
+          href="https://github.com/raushankcode/ripple/blob/main/docs/validation.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Read validation →</a
+        >
+      </div>
+    </section>
+
 
     <!-- ══ HOW IT WORKS ═════════════════════════════════════════════ -->
     <section class="how-bg" id="how">
@@ -2064,10 +2206,12 @@
         <div class="pipe-step lit">
           <div class="pipe-node">1</div>
           <div class="pipe-body">
-            <div class="pipe-title">Open a TypeScript or JavaScript project</div>
+            <div class="pipe-title">
+              Open a TypeScript or JavaScript project
+            </div>
             <div class="pipe-desc">
-              Ripple starts with a local scan of supported `.ts`, `.tsx`,
-              `.js`, and `.jsx` files.
+              Ripple starts with a local scan of supported `.ts`, `.tsx`, `.js`,
+              and `.jsx` files.
             </div>
           </div>
         </div>
@@ -2086,14 +2230,12 @@
         <div class="pipe-step lit">
           <div class="pipe-node">3</div>
           <div class="pipe-body">
-            <div class="pipe-title">
-              Context files are generated locally
-            </div>
+            <div class="pipe-title">Context files are generated locally</div>
             <div class="pipe-desc">
               Project memory is written to
               <code style="color: var(--neon); font-size: 11px"
                 >.ripple/WORKFLOW.md</code
-               >, `.ripple/history.json`, and focused cache files for agents.
+              >, `.ripple/history.json`, and focused cache files for agents.
             </div>
             <div class="pipe-tag auto">local · project-relative</div>
           </div>
@@ -2101,9 +2243,7 @@
         <div class="pipe-step final">
           <div class="pipe-node">✓</div>
           <div class="pipe-body">
-            <div class="pipe-title">
-              Agent reads before it edits
-            </div>
+            <div class="pipe-title">Agent reads before it edits</div>
             <div class="pipe-desc">
               Copy Agent Prompt points the agent to the right focus file, risk,
               importers, and project workflow.
@@ -2149,17 +2289,15 @@
       <div class="eye rev">Features</div>
       <h2 class="sh2 rev">Practical signals.<br />No account required.</h2>
       <p class="sp3 rev">
-        Ripple turns the local graph into visible editor features and
-        AI-ready context files.
+        Ripple turns the local graph into visible editor features and AI-ready
+        context files.
       </p>
 
       <div class="feat-grid">
         <!-- Hero feature: WORKFLOW.md -->
         <div class="feat-card hero-feat rev">
           <div class="feat-ico">⟳</div>
-          <div class="feat-title">
-            ↯ `.ripple/WORKFLOW.md`
-          </div>
+          <div class="feat-title">↯ `.ripple/WORKFLOW.md`</div>
           <div class="feat-desc">
             Ripple generates a local workflow file that tells AI agents how to
             inspect focus files, check importers, respect risk labels, and avoid
@@ -2173,9 +2311,7 @@
               <div class="cwin-dot cwin-dot-r"></div>
               <div class="cwin-dot cwin-dot-y"></div>
               <div class="cwin-dot cwin-dot-g"></div>
-              <span class="cwin-name"
-                >AGENTS.md — Ripple-managed section</span
-              >
+              <span class="cwin-name">AGENTS.md — Ripple-managed section</span>
             </div>
             <div class="cwin-body">
               <span class="cc"># sindresorhus/ky — Ripple Workflow</span>
@@ -2183,15 +2319,16 @@
                 >*Auto-generated by Ripple — refreshed from project graph*</span
               >
 
-              <span class="ck">High-blast files</span> (verify before
-              touching): <span class="cr">source/types/options.ts</span>
+              <span class="ck">High-blast files</span> (verify before touching):
+              <span class="cr">source/types/options.ts</span>
               <span class="cc">— 27 importers</span>
               <span class="cr">source/errors/KyError.ts</span>
               <span class="cc">— 21 importers</span>
               <span class="cr">source/utils/merge.ts</span>
               <span class="cc">— 19 importers</span>
 
-              <span class="ck">Project:</span> <span class="ct">TypeScript library</span>
+              <span class="ck">Project:</span>
+              <span class="ct">TypeScript library</span>
               <span class="ck">History:</span>
               <span class="cs">source/utils/merge.ts::mergeHeaders</span>
             </div>
@@ -2218,9 +2355,9 @@
           <div class="feat-ico">◈</div>
           <div class="feat-title">↯ Impact Lens</div>
           <div class="feat-desc">
-            Open any file. The sidebar shows what imports it and what
-            it imports — across your entire project. Click any file in the list
-            to open it. Updates on every save without reloading VS Code.
+            Open any file. The sidebar shows what imports it and what it imports
+            — across your entire project. Click any file in the list to open it.
+            Updates on every save without reloading VS Code.
           </div>
           <span class="feat-pill">sidebar · always visible</span>
         </div>
@@ -2301,8 +2438,7 @@
         ><span class="jp">,</span><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jk">"calledBy"</span
         ><span class="jp">: [</span
-        ><span class="jv"
-          >"source/utils/merge.ts::mergeHeaderContainers"</span
+        ><span class="jv">"source/utils/merge.ts::mergeHeaderContainers"</span
         ><span class="jp">]</span><br />
         &nbsp;&nbsp;<span class="jp">}]</span><br />
         <span class="jp">}</span>
@@ -2381,73 +2517,6 @@
           imports, and some CommonJS patterns are part of the deeper semantic
           work planned after launch.
         </p>
-      </div>
-    </section>
-
-    <!-- ══ PROOF ══════════════════════════════════════════════════════ -->
-    <section class="proof-wrap" id="proof">
-      <div class="eye rev">Validation report</div>
-      <h2 class="sh2 rev">Real test numbers.<br />Careful claims.</h2>
-
-      <div class="proof-box rev">
-        <p class="proof-quote">
-          Ripple was tested on a local clone of
-          <strong>sindresorhus/ky</strong>. The same temporary edit to
-          <strong>source/utils/merge.ts::mergeHeaders</strong> was checked with
-          and without Ripple. The test was local, temporary, and does not imply
-          endorsement by the Ky project or its maintainers.
-          <br /><br />
-          Manual search found <span class="pn">3 likely files</span>. Ripple
-          identified <span class="pn">19 potentially impacted files</span>,
-          recorded <span class="pn">symbol_modified</span>, marked the risk
-          <span class="pn">dangerous</span>, and generated verification targets.
-          <br /><br />
-          <strong>This is the core value: know the blast radius before an AI
-          agent edits shared code.</strong>
-        </p>
-        <div class="proof-big">19</div>
-        <div class="proof-sub-label">
-          potentially impacted files identified from one high-risk runtime file
-        </div>
-        <a
-          class="proof-link"
-          href="https://github.com/raushankcode/ripple/blob/main/docs/validation.md"
-          target="_blank"
-          rel="noopener noreferrer"
-          >Read full technical validation →</a
-        >
-      </div>
-    </section>
-
-    <!-- ══ DEMO VIDEO ════════════════════════════════════════════════ -->
-    <section class="demo-wrap" id="demo">
-      <div class="eye rev">Demo video</div>
-      <h2 class="sh2 rev">See the proof flow<br />before installing.</h2>
-      <p class="sp3 rev">
-        A short demo built from the real Ky validation: manual search finds a
-        few likely files, then Ripple shows local blast-radius context, focus
-        files, dangerous risk, and the agent workflow.
-      </p>
-
-      <div class="demo-shell rev">
-        <iframe
-          class="demo-frame"
-          src="demo-video.html"
-          title="Ripple demo video"
-          loading="lazy"></iframe>
-      </div>
-
-      <div class="demo-links rev">
-        <a class="demo-link" href="demo-video.html" target="_blank" rel="noopener noreferrer"
-          >Open full demo →</a
-        >
-        <a
-          class="demo-link"
-          href="https://github.com/raushankcode/ripple/blob/main/docs/demo-video.md"
-          target="_blank"
-          rel="noopener noreferrer"
-          >Read demo script →</a
-        >
       </div>
     </section>
 
@@ -2550,7 +2619,11 @@
       );
       pipes.forEach((p) => pio.observe(p));
 
-      // Keep anchored links reliable after fonts, iframes, and the hero have settled.
+      const revealIn = (root) => {
+        root.querySelectorAll(".rev").forEach((el) => el.classList.add("in"));
+      };
+
+      // Keep anchored links reliable after fonts, video, and the hero have settled.
       window.addEventListener("load", () => {
         if (!window.location.hash) {
           return;
@@ -2558,8 +2631,10 @@
 
         const target = document.querySelector(window.location.hash);
         if (target) {
+          revealIn(target);
           window.setTimeout(() => {
             target.scrollIntoView({ block: "start" });
+            revealIn(target);
           }, 80);
         }
       });
