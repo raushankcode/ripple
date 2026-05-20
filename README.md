@@ -53,7 +53,7 @@ Ripple was validated on a local clone of the open-source `sindresorhus/ky` TypeS
 41 call edges
 ```
 
-For the same temporary change to:
+For a temporary edit around this symbol inside a shared file:
 
 ```txt
 source/utils/merge.ts::mergeHeaders
@@ -65,10 +65,10 @@ Manual search found:
 2 direct text-match files
 ```
 
-Ripple identified:
+Ripple identified from the containing file:
 
 ```txt
-19 potentially impacted files
+19 potentially impacted file-level paths
 ```
 
 Ripple also:

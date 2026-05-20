@@ -1658,12 +1658,13 @@
 
         <div class="proof-card">
           <div class="proof-text-sm">
-            Same temporary change to
-            <strong>source/utils/merge.ts::mergeHeaders</strong>. Manual search
-            surfaced <span class="hl">2</span> direct text-match files. Ripple
-            identified <span class="hl">19</span> potentially impacted files,
-            showed caller context, marked the change dangerous, and generated
-            verification targets.
+            Temporary edit around
+            <strong>mergeHeaders</strong> inside
+            <strong>source/utils/merge.ts</strong>. Manual search surfaced
+            <span class="hl">2</span> direct text-match files. Ripple showed the
+            containing file sits in a <span class="hl">19</span>-file impact
+            path, surfaced caller context, marked the change dangerous, and
+            generated verification targets.
           </div>
           <div class="proof-stat">
             17 more impacted paths surfaced beyond direct text matches
@@ -2120,14 +2121,16 @@
       <div class="proof-box rev">
         <p class="proof-quote">
           Ripple was tested on a local clone of
-          <strong>sindresorhus/ky</strong>. The same temporary edit to
-          <strong>source/utils/merge.ts::mergeHeaders</strong> was checked with
-          and without Ripple. The test was local, temporary, and does not imply
-          endorsement by the Ky project or its maintainers. <br /><br />
+          <strong>sindresorhus/ky</strong>. A temporary edit around
+          <strong>mergeHeaders</strong> inside
+          <strong>source/utils/merge.ts</strong> was checked with and without
+          Ripple. The test was local, temporary, and does not imply endorsement
+          by the Ky project or its maintainers. <br /><br />
           Manual search surfaced <span class="pn">2 direct text-match files</span>.
-          Ripple identified <span class="pn">19 potentially impacted files</span>,
-          showed caller context such as <span class="pn">cloneShallow()</span>,
-          recorded <span class="pn">symbol_modified</span>, marked the risk
+          Ripple showed the containing file sits in a
+          <span class="pn">19-file impact path</span>, surfaced caller context
+          such as <span class="pn">cloneShallow()</span>, recorded
+          <span class="pn">symbol_modified</span>, marked the risk
           <span class="pn">dangerous</span>, and generated verification targets.
           <br /><br />
           <strong
@@ -2422,7 +2425,7 @@
         &nbsp;&nbsp;<span class="jk">"instructions"</span
         ><span class="jp">: [</span><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jv"
-          >"DANGER: 19 potentially impacted files. Check verification targets
+          >"DANGER: 19 file-level impact paths. Check verification targets
           before treating this edit as safe."</span
         ><br />
         &nbsp;&nbsp;<span class="jp">],</span><br />

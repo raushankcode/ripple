@@ -78,6 +78,8 @@ Using normal manual text search, the demo runs:
 git grep -l "mergeHeaders" -- source test
 ```
 
+This command searches literal text only. It is not a full impact-analysis command.
+
 That search surfaced the files that directly contain the edited symbol name:
 
 ```txt
@@ -110,8 +112,8 @@ For the same temporary change, Ripple reported:
 ```txt
 Changed file: source/utils/merge.ts
 Changed symbol: mergeHeaders
-Downstream files before update: 19
-Downstream files after update: 19
+File-level downstream paths before update: 19
+File-level downstream paths after update: 19
 Importer graph preserved: true
 Risk: dangerous
 History event: symbol_modified
@@ -155,8 +157,8 @@ test/base-url.ts
 
 ```txt
 Manual git grep surfaced: 2 direct text-match files
-Ripple found: 19 impacted files
-Additional impacted paths surfaced beyond direct text matches: 17
+Ripple file graph surfaced: 19 potentially impacted paths for source/utils/merge.ts
+Additional file-level paths surfaced beyond direct text matches: 17
 ```
 
 This is the central proof:
@@ -301,7 +303,7 @@ The demo assets summarize the same Ky comparison:
 
 ```txt
 Manual search: 2 direct text-match files
-Ripple: 19 impacted files
+Ripple: 19 file-level impact paths for source/utils/merge.ts
 Caller context: cloneShallow()
 Risk: dangerous
 History: symbol_modified
