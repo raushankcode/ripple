@@ -18,4 +18,5 @@ package-lock.json
 *.ts
 **/*.map
 *.map
+*.log
 Marketplace.md
