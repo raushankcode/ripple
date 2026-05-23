@@ -274,7 +274,7 @@ export async function activate(
       );
 
       const riskLine = risk === "DANGEROUS"
-        ? `2. STOP — ${blastSize} files import this. Ask user: "This affects ${blastSize} other files. Confirm before I proceed."`
+        ? `2. High blast radius — ${blastSize} files import this. Announce risk, keep the edit single-file and contract-preserving, and stop before public contract, behavior, caller, or multi-file changes.`
         : risk === "caution"
         ? `2. Caution — ${blastSize} importer${blastSize !== 1 ? "s" : ""}. Verify all callers work after your change.`
         : "2. Low-risk signal — low blast radius. Still run the relevant checks.";

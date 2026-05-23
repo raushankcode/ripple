@@ -2303,8 +2303,8 @@
           <div class="feat-title">↯ `.ripple/WORKFLOW.md`</div>
           <div class="feat-desc">
             Ripple generates a local workflow file that tells AI agents how to
-            inspect focus files, check importers, respect risk labels, and avoid
-            unrelated edits.
+            resolve exact paths, inspect focus files, check importers, respect
+            risk labels, and avoid unrelated edits.
             <br /><br />
             You can connect it to AGENTS.md, CLAUDE.md, or .cursorrules without
             replacing your own notes.
@@ -2330,6 +2330,10 @@
               <span class="cr">source/utils/merge.ts</span>
               <span class="cc">— 19 importers</span>
 
+              <span class="ck">Ambiguous names</span> (ask before editing):
+              <span class="cr">options.ts</span>
+              <span class="cc">-> source/types/options.ts or source/utils/options.ts</span>
+
               <span class="ck">Project:</span>
               <span class="ct">TypeScript library</span>
               <span class="ck">History:</span>
@@ -2347,8 +2351,8 @@
           <div class="feat-desc">
             Right-click any supported file. Copy a ready-to-paste prompt
             containing the file's risk level, importers, symbols, project rules,
-            and the path to its focused context file. Works with Claude Code,
-            Cursor, Copilot, Continue, or another local-file-aware agent.
+            and the path to its focused context file. High-blast prompts now
+            call for contract-preserving edits instead of blanket stops.
           </div>
           <span class="feat-pill">one right-click · ~400 tokens</span>
         </div>
@@ -2425,8 +2429,8 @@
         &nbsp;&nbsp;<span class="jk">"instructions"</span
         ><span class="jp">: [</span><br />
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="jv"
-          >"DANGER: 19 file-level impact paths. Check verification targets
-          before treating this edit as safe."</span
+          >"DANGER: 19 importers. Announce blast radius, keep the edit
+          contract-preserving, and stop before public contract changes."</span
         ><br />
         &nbsp;&nbsp;<span class="jp">],</span><br />
         &nbsp;&nbsp;<span class="jk">"symbols"</span><span class="jp">: [{</span
@@ -2463,7 +2467,9 @@
           <div class="risk-pill">● Dangerous</div>
           <div class="risk-body">
             <strong>5+ importers or 15+ saves.</strong> Agent is instructed to
-            stop and ask for explicit confirmation before changing shared code.
+            announce blast radius, keep exact-path edits contract-preserving,
+            and stop before public contract, behavior, caller, or multi-file
+            changes.
           </div>
         </div>
         <div class="risk-c risk-warn rev" style="transition-delay: 0.1s">

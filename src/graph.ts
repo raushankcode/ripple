@@ -47,6 +47,19 @@ import {
 
 import { normalizeImportPath } from "./normalizer";
 
+type FocusRisk = "dangerous" | "caution" | "safe";
+
+type FocusLookupMatch = {
+  path: string;
+  focus: string;
+  risk: FocusRisk;
+  importers: number;
+};
+
+type FocusFileByBasename =
+  | ({ status: "unique" } & FocusLookupMatch)
+  | { status: "ambiguous"; matches: FocusLookupMatch[] };
+
 // ────────────────────────────────────────────────────────────────────────────
 // PERSISTENCE AND GENERATED CONTEXT
 // ────────────────────────────────────────────────────────────────────────────
@@ -335,7 +348,7 @@ class GraphPersistence {
    * Converts dependency fan-out, edit churn, and parse quality into the risk
    * vocabulary used consistently by focus files, WORKFLOW.md, and Safety Check.
    */
-  private modificationRiskFor(node: FileNode): "dangerous" | "caution" | "safe" {
+  private modificationRiskFor(node: FileNode): FocusRisk {
     const blastSize = node.importedBy.size;
     if (blastSize >= DANGEROUS_BLAST_RADIUS || node.changeCount > DANGEROUS_CHURN) {
       return "dangerous";
@@ -377,13 +390,16 @@ class GraphPersistence {
   private buildFocusLookup(graph: SystemGraph): {
     availableFocusFiles: Record<string, string>;
     availableFocusFilesByPath: Record<string, string>;
+    availableFocusFilesByBasename: Record<string, FocusFileByBasename>;
     ambiguousFocusFileNames: Record<string, string[]>;
+    ambiguousFocusFileMatches: Record<string, FocusLookupMatch[]>;
   } {
     const candidates: Array<{
       basename: string;
       relativePath: string;
       focusPath: string;
-      risk: "dangerous" | "caution" | "safe";
+      risk: FocusRisk;
+      importers: number;
     }> = [];
 
     graph.files.forEach((node, filePath) => {
@@ -398,10 +414,12 @@ class GraphPersistence {
         relativePath: this.toProjectPath(filePath),
         focusPath: this.focusPathFor(filePath, graph),
         risk: this.modificationRiskFor(node),
+        importers: node.importedBy.size,
       });
     });
 
     candidates.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    const candidatesByPath = new Map(candidates.map((candidate) => [candidate.relativePath, candidate]));
 
     const basenameBuckets = new Map<string, string[]>();
     candidates.forEach((candidate) => {
@@ -412,7 +430,9 @@ class GraphPersistence {
 
     const availableFocusFiles: Record<string, string> = {};
     const availableFocusFilesByPath: Record<string, string> = {};
+    const availableFocusFilesByBasename: Record<string, FocusFileByBasename> = {};
     const ambiguousFocusFileNames: Record<string, string[]> = {};
+    const ambiguousFocusFileMatches: Record<string, FocusLookupMatch[]> = {};
 
     candidates.forEach((candidate) => {
       const value = `${candidate.focusPath} [${candidate.risk}]`;
@@ -421,18 +441,43 @@ class GraphPersistence {
       const bucket = basenameBuckets.get(candidate.basename) ?? [];
       if (bucket.length === 1) {
         availableFocusFiles[candidate.basename] = value;
-      } else {
-        availableFocusFiles[candidate.relativePath] = value;
       }
     });
 
     basenameBuckets.forEach((relativePaths, basename) => {
+      const sortedPaths = relativePaths.sort();
+      const matches = sortedPaths.map((relativePath) => {
+        const candidate = candidatesByPath.get(relativePath)!;
+        return {
+          path: candidate.relativePath,
+          focus: candidate.focusPath,
+          risk: candidate.risk,
+          importers: candidate.importers,
+        };
+      });
+
       if (relativePaths.length > 1) {
-        ambiguousFocusFileNames[basename] = relativePaths.sort();
+        ambiguousFocusFileNames[basename] = sortedPaths;
+        ambiguousFocusFileMatches[basename] = matches;
+        availableFocusFilesByBasename[basename] = {
+          status: "ambiguous",
+          matches,
+        };
+      } else if (matches[0]) {
+        availableFocusFilesByBasename[basename] = {
+          status: "unique",
+          ...matches[0],
+        };
       }
     });
 
-    return { availableFocusFiles, availableFocusFilesByPath, ambiguousFocusFileNames };
+    return {
+      availableFocusFiles,
+      availableFocusFilesByPath,
+      availableFocusFilesByBasename,
+      ambiguousFocusFileNames,
+      ambiguousFocusFileMatches,
+    };
   }
 
   /**
@@ -532,7 +577,7 @@ class GraphPersistence {
     const topImporterNames = importedBy.slice(0, 3).map((i: any) => i.file).join(", ");
     const decision =
       modificationRisk === "dangerous"
-        ? "stop_and_confirm_before_editing"
+        ? "announce_risk_then_proceed_with_contract_guardrails"
         : modificationRisk === "caution"
         ? "proceed_only_after_callers_are_checked"
         : "proceed_with_targeted_checks";
@@ -566,7 +611,7 @@ class GraphPersistence {
       agentPreflight: [
         "Read this focus file before editing this file.",
         modificationRisk === "dangerous"
-          ? `DANGER: ${blastSize} importers. Stop and ask the user before code changes. Top importers: ${topImporterNames || "none listed"}.`
+          ? `DANGER: ${blastSize} importers. Announce the blast radius, keep the edit single-file and contract-preserving, and stop before public contract, behavior, or caller changes. Top importers: ${topImporterNames || "none listed"}.`
           : modificationRisk === "caution"
           ? `CAUTION: ${blastSize} importers. Inspect affected callers before editing.`
           : "Safe: low direct blast radius. Still preserve exports and symbol contracts.",
@@ -581,14 +626,15 @@ class GraphPersistence {
           "Existing import style",
         ],
         askFirstWhen: [
-          "modificationRisk is dangerous",
+          "A public export, function/type signature, return shape, type structure, or runtime behavior would change",
           "A symbol layer is mixed and the task targets only one layer",
-          "A change requires touching callers outside the requested scope",
+          "A change requires touching callers or files outside the requested scope",
+          "The needed focus file is missing or dataQuality is partial for the target",
         ],
         afterChange: [
           "Run the narrowest relevant test or compile check",
           "Verify listed importedBy files still satisfy the changed contract",
-          "If behavior changed, mention which callers were checked",
+          "If verification is missing or incomplete, report the residual risk",
         ],
       },
       importedBy,
@@ -1092,7 +1138,13 @@ class GraphPersistence {
       });
 
       const focusLookup = this.buildFocusLookup(graph);
-      const { availableFocusFiles, availableFocusFilesByPath, ambiguousFocusFileNames } = focusLookup;
+      const {
+        availableFocusFiles,
+        availableFocusFilesByPath,
+        availableFocusFilesByBasename,
+        ambiguousFocusFileNames,
+        ambiguousFocusFileMatches,
+      } = focusLookup;
       const focusExamplesForContext = Object.entries(availableFocusFilesByPath)
         .slice(0, 3)
         .map(([file, focus]) => `${file} -> ${focus}`);
@@ -1110,6 +1162,8 @@ class GraphPersistence {
           focusExamplesForContext.length > 0
             ? `Real examples: ${focusExamplesForContext.join(" | ")}`
             : "Focus files generated after first scan.",
+          "If the user gives only a basename, check availableFocusFilesByBasename. If status is 'ambiguous', ask which path they mean before reading or editing.",
+          "Never choose among ambiguous basenames using top focus files, risk, recency, or perceived importance.",
           "Do not guess focus file names. Collision-safe focus keys may include a hash suffix.",
           "Check criticalFiles and warnings before touching any file.",
           "Use safeToCreateIn to know where to put new files.",
@@ -1126,6 +1180,7 @@ class GraphPersistence {
           summary: "Read the smallest file that answers your question. Start with the target file's focus file.",
           decisionTree: {
             "I know which file to modify": "Look up relative path in availableFocusFilesByPath -> read that focus file",
+            "I only know a filename like options.ts": "Check availableFocusFilesByBasename -> if ambiguous, ask user which path",
             "I need to add a new file": "Check safeToCreateIn and publicApi in this file",
             "I need to understand file connections": "Read .ripple/.cache/context.files.json",
             "I need to trace a call chain": "Read .ripple/.cache/context.symbols.json",
@@ -1153,7 +1208,8 @@ class GraphPersistence {
             "For debugging, inspect lastChangeGroup, warnings, then symbol call chains.",
           ],
           stopConditions: [
-            "modificationRisk is dangerous",
+            "The user named only a basename that is listed as ambiguous",
+            "A dangerous file change would modify public exports, signatures, type structures, runtime behavior, callers, or multiple files",
             "calledBy shows callers outside the requested scope",
             "A mixed-layer symbol would require changing more layers than the user asked for",
             "The needed focus file is missing or dataQuality is partial for the target",
@@ -1167,7 +1223,7 @@ class GraphPersistence {
         riskPolicy: {
           safe: "Proceed with normal focused checks.",
           caution: "Inspect callers and imports before editing; mention verification.",
-          dangerous: "Stop and ask user before code changes.",
+          dangerous: "Announce high blast radius. For exact paths, proceed only with single-file contract-preserving edits; stop before public contract, behavior, caller, or multi-file changes.",
         },
         queryHints: { mostConnectedFiles, recentlyChangedFiles, highRiskSymbols },
         entryPoints,
@@ -1179,7 +1235,9 @@ class GraphPersistence {
         orphanedSymbols: orphanedSymbols.slice(0, 20),
         availableFocusFiles,
         availableFocusFilesByPath,
+        availableFocusFilesByBasename,
         ambiguousFocusFileNames,
+        ambiguousFocusFileMatches,
         agentTasks: {
           addNewComponent: [
             "1. Check safeToCreateIn for the correct directory",
@@ -1187,10 +1245,13 @@ class GraphPersistence {
             "3. Check publicApi and orphanedSymbols — reuse before creating new",
           ],
           modifyExistingFile: [
-            "1. Look up relative path in availableFocusFilesByPath — read that focus file",
-            "2. Check modificationRisk — stop and confirm with user if 'dangerous'",
-            "3. Check each symbol's layer — only touch the layer the user requested",
-            "4. Check calledBy — every caller must still work",
+            "1. Resolve the target: relative path -> availableFocusFilesByPath; basename -> availableFocusFilesByBasename",
+            "2. If basename resolution is ambiguous, ask which listed path the user means",
+            "3. Read the resolved focus file",
+            "4. If modificationRisk is dangerous, announce the importer count and proceed only within single-file contract-preserving bounds",
+            "5. Stop and ask before public contract, behavior, caller, or multi-file changes",
+            "6. Check each symbol's layer — only touch the layer the user requested",
+            "7. Check calledBy — every caller must still work",
           ],
           debugBug: [
             "1. Check lastChangeGroup.changedAt — what changed and when",
@@ -1367,6 +1428,14 @@ class GraphPersistence {
         )
         .slice(0, 10)
         .map((entry) => entry.line);
+      const workflowFocusLookup = this.buildFocusLookup(graph);
+      const ambiguousBasenameExamples = Object.entries(workflowFocusLookup.ambiguousFocusFileMatches)
+        .slice(0, 6)
+        .map(([basename, matches]) =>
+          `${basename}: ${matches
+            .map((match) => `${match.path} [${match.risk}, ${match.importers} importers]`)
+            .join(", ")}`
+        );
 
       const createDirs = safeToCreateIn.slice(0, 4).join(", ") ||
         "existing source directories after checking project structure";
@@ -1383,16 +1452,37 @@ class GraphPersistence {
 Run this before every task — automatically:
 
 **Step 1:** Classify the task: targeted edit, new file, debugging, or broad refactor.
-**Step 2:** If a file is involved, open \`.ripple/.cache/context.json\` and look up its relative path in \`availableFocusFilesByPath\`.
+**Step 2:** If a file is involved, open \`.ripple/.cache/context.json\` and resolve the target before reading or editing:
+  - If the user gave a relative path, look it up in \`availableFocusFilesByPath\`.
+  - If the user gave only a basename such as \`options.ts\`, check \`availableFocusFilesByBasename\`.
+  - If that basename is \`"ambiguous"\`, STOP and ask which listed path they mean.
+  - Do not choose among ambiguous basenames using top focus files, risk, recency, or project importance.
   - Do not guess focus filenames. Collision-safe keys can include a hash suffix.
-  - Use \`availableFocusFiles\` only when the basename is unique.
+  - Use \`availableFocusFiles\` only for unique basename shortcuts.
 **Step 3:** Read the target focus file before editing.
 **Step 4:** Check \`risk.modificationRisk\`:
   - \`"safe"\` -> proceed with targeted checks
   - \`"caution"\` -> inspect callers/importers first
-  - \`"dangerous"\` -> STOP. Tell user: "This file has [N] importers. Shall I proceed?"
+  - \`"dangerous"\` -> announce importer count and proceed only if the target path is exact, the edit stays single-file, and public contracts are preserved
 **Step 5:** For every edited symbol, check \`calledBy\`, \`layer\`, and \`containsLayers\`.
 **Step 6:** Preserve public exports, function signatures, return shapes, and import style unless the user explicitly asks for a contract change.
+
+---
+
+## DANGEROUS FILE PROTOCOL
+
+Dangerous files need informed autonomy, not a blanket permission stop:
+
+1. **Ambiguous path** — if the user gave only a basename and multiple files match, STOP and ask which listed path they mean.
+2. **Exact path, dangerous file** — announce the blast radius, then proceed without waiting only when the edit is single-file and contract-preserving:
+   - No public export changes
+   - No function or type signature changes
+   - No return-shape or type-structure changes
+   - No runtime behavior changes
+   - No caller updates required
+3. **Contract change required** — STOP before editing. Tell the user exactly which contract, behavior, caller, or multi-file change is required and ask whether to proceed.
+
+After any dangerous-file edit, run the narrowest relevant compile/test check, verify the listed importedBy files still satisfy the contract, and report residual risk when verification is missing or incomplete.
 
 ---
 
@@ -1421,7 +1511,7 @@ Shall I proceed?
 | Modify one file | Target focus file | Verify \`calledBy\` and importedBy |
 | Add a file | \`.ripple/.cache/context.json\` | Check \`safeToCreateIn\`, \`publicApi\`, existing patterns |
 | Debug behavior | \`lastChangeGroup\` and warnings | Trace \`.ripple/.cache/context.symbols.json\` |
-| Refactor shared code | Focus file + neighbor focus files | Stop for confirmation if risk is caution/dangerous |
+| Refactor shared code | Focus file + neighbor focus files | Announce danger; stop only for ambiguity, contract, behavior, caller, or multi-file changes |
 
 ---
 
@@ -1435,7 +1525,7 @@ ${projectDescription ? `**What this project does:** ${projectDescription}\n` : "
 **Styling:** ${stylingApproach.join(", ") || "see .ripple/.cache/context.files.json"}
 **Testing:** ${testingFramework.length > 0 ? testingFramework.join(", ") : "none detected"}
 **New files go in:** ${createDirs}${dangerousFiles.length > 0 ? `
-**Top high-blast files (STOP + confirm):** ${dangerousFiles.slice(0, 10).join(", ")}` : ""}
+**Top high-blast files (announce + guard contracts):** ${dangerousFiles.slice(0, 10).join(", ")}` : ""}
 
 ---
 
@@ -1444,6 +1534,11 @@ ${projectDescription ? `**What this project does:** ${projectDescription}\n` : "
 ${focusExamples.length > 0
   ? focusExamples.map(e => `- ${e}`).join("\n")
   : "- Save any file to generate focus files"}
+
+${ambiguousBasenameExamples.length > 0 ? `## AMBIGUOUS FILE NAMES
+
+If the user names only one of these basenames, ask which path they mean before reading or editing:
+${ambiguousBasenameExamples.map(e => `- ${e}`).join("\n")}` : ""}
 
 ---
 

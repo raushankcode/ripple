@@ -318,9 +318,9 @@ Refactor the order cancellation flow without changing its public API.
 Before making changes:
 1. Read:
    .ripple/.cache/focus/orders-lib-cancelOrder.json
-2. STOP — 7 files import this.
-3. Check callers before modifying symbols.
-4. Only touch the requested layer.
+2. High blast radius - 7 files import this.
+3. Keep exact-path edits single-file and contract-preserving.
+4. Stop before public contract, behavior, caller, or multi-file changes.
 
 Risk: DANGEROUS
 Importers: 7
@@ -388,7 +388,8 @@ Agents can read:
 Typical workflow:
 
 > Before editing a file, read its Ripple focus file.
-> If risk is dangerous, stop and inspect callers first.
+> If risk is dangerous, announce the blast radius and inspect callers first.
+> Stop before public contract, behavior, caller, or multi-file changes.
 
 Future versions may add:
 

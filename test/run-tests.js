@@ -617,7 +617,24 @@ test("Graph engine generates dependency, focus, and agent context", async ({ Gra
 
   const lookup = duplicateEngine.persistence.buildFocusLookup(duplicateEngine.graph);
   assert(lookup.ambiguousFocusFileNames["index.ts"]?.length === 2, "Ambiguous index.ts files were not reported");
+  assert(
+    lookup.availableFocusFilesByBasename["index.ts"]?.status === "ambiguous",
+    "Structured basename lookup should mark duplicate index.ts as ambiguous"
+  );
+  assertIncludes(
+    lookup.ambiguousFocusFileMatches["index.ts"].map((match) => match.path),
+    "apps/web/src/index.ts",
+    "Ambiguous matches missed apps/web index.ts"
+  );
+  assert(
+    lookup.ambiguousFocusFileMatches["index.ts"].every((match) => match.focus && typeof match.importers === "number"),
+    "Ambiguous matches should include focus paths and importer counts"
+  );
   assert(!lookup.availableFocusFiles["index.ts"], "Ambiguous basename should not be a direct lookup key");
+  assert(
+    !lookup.availableFocusFiles["apps/web/src/index.ts"],
+    "availableFocusFiles should not expose relative-path fallbacks for ambiguous basenames"
+  );
   assert(
     Object.values(lookup.availableFocusFilesByPath).every((value) => /-[a-f0-9]{6}\.json/.test(value)),
     "Collision-safe focus keys should include hash suffixes"
@@ -824,19 +841,21 @@ export function dangerConsumer${index}(): string {
   );
   assert(dangerousFocus.risk.modificationRisk === "dangerous", "Dangerous fixture should be dangerous risk");
   assert(
-    dangerousFocus.risk.decision === "stop_and_confirm_before_editing",
-    "Dangerous focus should require confirmation before editing"
+    dangerousFocus.risk.decision === "announce_risk_then_proceed_with_contract_guardrails",
+    "Dangerous focus should require risk announcement and contract guardrails"
   );
   assert(
     dangerousFocus.agentPreflight.some((line) =>
-      line.includes("DANGER: 5 importers") && line.includes("Stop and ask the user before code changes")
+      line.includes("DANGER: 5 importers") &&
+      line.includes("contract-preserving") &&
+      line.includes("stop before public contract")
     ),
-    "Dangerous focus should tell agents to stop and ask before code changes"
+    "Dangerous focus should tell agents to announce risk and stop before contract changes"
   );
   assertIncludes(
     dangerousFocus.changeContract.askFirstWhen,
-    "modificationRisk is dangerous",
-    "Dangerous focus missed ask-first contract"
+    "A public export, function/type signature, return shape, type structure, or runtime behavior would change",
+    "Dangerous focus missed contract-change ask-first rule"
   );
   assertIncludes(
     dangerousFocus.verificationTargets.files,
@@ -844,24 +863,29 @@ export function dangerConsumer${index}(): string {
     "Dangerous focus missed verification target"
   );
   assert(
-    generatedContext.riskPolicy.dangerous === "Stop and ask user before code changes.",
+    generatedContext.riskPolicy.dangerous === "Announce high blast radius. For exact paths, proceed only with single-file contract-preserving edits; stop before public contract, behavior, caller, or multi-file changes.",
     "Project context dangerous policy is not explicit"
   );
   assert(
     generatedContext.agentTasks.modifyExistingFile.some((step) =>
-      step.includes("stop and confirm with user if 'dangerous'")
+      step.includes("announce the importer count")
     ),
-    "Modify-file task instructions missed dangerous confirmation gate"
+    "Modify-file task instructions missed dangerous risk announcement"
   );
   assert(
     workflow.includes("AGENTS.md, CLAUDE.md, or .cursorrules"),
     "WORKFLOW.md should name supported agent instruction files"
   );
   assert(
-    workflow.includes('"dangerous"` -> STOP') ||
-      workflow.includes('"dangerous" -> STOP') ||
-      workflow.includes('`"dangerous"` -> STOP'),
-    "WORKFLOW.md should tell agents to stop on dangerous files"
+    workflow.includes("If the user gave only a basename") &&
+    workflow.includes("availableFocusFilesByBasename"),
+    "WORKFLOW.md should require basename ambiguity checks"
+  );
+  assert(
+    workflow.includes("DANGEROUS FILE PROTOCOL") &&
+      workflow.includes("Exact path, dangerous file") &&
+      workflow.includes("Contract change required"),
+    "WORKFLOW.md should include the three-case dangerous file protocol"
   );
   assert(
     workflow.includes("Wait for confirmation before writing any code."),
@@ -935,8 +959,10 @@ export function dangerConsumer${index}(): string {
     "Dangerous Copy Prompt missed risk summary"
   );
   assert(
-    captured.clipboard.includes("STOP") && captured.clipboard.includes("Confirm before I proceed"),
-    "Dangerous Copy Prompt did not require confirmation"
+    captured.clipboard.includes("High blast radius") &&
+      captured.clipboard.includes("contract-preserving") &&
+      captured.clipboard.includes("stop before public contract"),
+    "Dangerous Copy Prompt missed contract-guarded risk guidance"
   );
   assert(
     captured.clipboard.includes("Project rules: .ripple/WORKFLOW.md"),
@@ -1115,6 +1141,19 @@ export function bootBeta(): string {
     context.ambiguousFocusFileNames["index.ts"],
     "packages/beta/src/index.ts",
     "Focus lookup missed beta duplicate basename"
+  );
+  assert(
+    context.availableFocusFilesByBasename["index.ts"]?.status === "ambiguous",
+    "Context should mark duplicate basename lookup as ambiguous"
+  );
+  assertIncludes(
+    context.ambiguousFocusFileMatches["index.ts"].map((match) => match.path),
+    "packages/alpha/src/index.ts",
+    "Structured ambiguous lookup missed alpha duplicate basename"
+  );
+  assert(
+    !context.availableFocusFiles["packages/alpha/src/index.ts"],
+    "availableFocusFiles should only contain unique basename shortcuts"
   );
 
   engine.dispose();
