@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ripple — Live codebase context for AI agents.</title>
+    <title>Ripple — Local drift control for AI coding agents.</title>
     <meta
       name="description"
-      content="Ripple helps AI coding agents understand JavaScript and TypeScript codebases before they change shared code." />
+      content="Ripple is a local AI-agent workflow engine that plans before edit, checks after edit, catches drift, and tells agents when to continue or stop." />
     <meta
       property="og:title"
-      content="Ripple — Live codebase context for AI agents." />
+      content="Ripple — Local drift control for AI coding agents." />
     <meta
       property="og:description"
-      content="Local-first VS Code context for AI agents: dependency impact, caller counts, history, focus files, and safer prompts from your actual codebase." />
+      content="Local-first CLI, MCP, CI, and VS Code workflow gates for AI agents: plan before edit, check after edit, catch drift, and require human review when needed." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://raushankcode.github.io/ripple/" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -162,7 +162,7 @@
 
       /* ══ HERO ═════════════════════════════════════════════════════ */
       .hero {
-        min-height: 100vh;
+        min-height: min(980px, 92vh);
         display: grid;
         grid-template-columns: 55fr 45fr;
         align-items: center;
@@ -407,6 +407,31 @@
         margin-top: 10px;
       }
 
+      .hero-proof-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 18px;
+        animation: up 0.6s 0.28s var(--ease) both;
+      }
+      .proof-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border: 1px solid var(--line-dim);
+        border-radius: 100px;
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--muted-2);
+        font-family: var(--font-code);
+        font-size: 10.5px;
+        line-height: 1.3;
+      }
+      .proof-chip strong {
+        color: var(--neon);
+        font-weight: 700;
+      }
+
       .hero-demo-preview {
         display: block;
         position: relative;
@@ -616,6 +641,111 @@
         color: var(--red);
       }
       .rot-good .ri {
+        color: var(--neon-2);
+      }
+
+      /* ══ PUBLIC INTERFACES ════════════════════════════════════════ */
+      .entry-section {
+        background: linear-gradient(180deg, #07101a 0%, var(--ink-2) 100%);
+        border-top: 1px solid var(--line-dim);
+        border-bottom: 1px solid var(--line-dim);
+      }
+      .entry-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 48px;
+      }
+      .entry-card {
+        background: var(--ink-card);
+        border: 1px solid var(--line-dim);
+        border-top: 3px solid var(--neon);
+        border-radius: 10px;
+        padding: 28px;
+        min-width: 0;
+      }
+      .entry-card.agent {
+        border-top-color: var(--neon-2);
+      }
+      .entry-card.editor {
+        border-top-color: var(--amber);
+      }
+      .entry-kicker {
+        font-family: var(--font-code);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--neon);
+        margin-bottom: 12px;
+      }
+      .entry-card.agent .entry-kicker {
+        color: var(--neon-2);
+      }
+      .entry-card.editor .entry-kicker {
+        color: var(--amber);
+      }
+      .entry-title {
+        font-family: var(--font-code);
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--cream);
+        margin-bottom: 10px;
+      }
+      .entry-desc {
+        font-size: 13.5px;
+        color: var(--muted-2);
+        line-height: 1.7;
+        margin-bottom: 18px;
+      }
+      .entry-command {
+        background: #060e16;
+        border: 1px solid var(--line-dim);
+        border-radius: 8px;
+        padding: 13px 14px;
+        font-family: var(--font-code);
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: var(--cream);
+        overflow-x: auto;
+      }
+      .entry-command code {
+        color: var(--cream);
+        white-space: nowrap;
+      }
+      .entry-link {
+        display: inline-flex;
+        margin-top: 16px;
+        color: var(--neon);
+        font-family: var(--font-code);
+        font-size: 12px;
+        font-weight: 700;
+        border-bottom: 1px solid rgba(0, 200, 255, 0.35);
+      }
+      .entry-link:hover {
+        color: var(--cream);
+        border-color: var(--cream);
+      }
+      .release-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 26px;
+        padding: 18px;
+        border: 1px solid rgba(0, 255, 200, 0.18);
+        border-radius: 10px;
+        background: rgba(0, 255, 200, 0.035);
+      }
+      .release-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-family: var(--font-code);
+        font-size: 11px;
+        color: var(--muted-2);
+        line-height: 1.4;
+      }
+      .release-pill strong {
         color: var(--neon-2);
       }
 
@@ -1362,6 +1492,7 @@
           margin: 0 auto;
         }
         .rot-compare,
+        .entry-grid,
         .steps-row,
         .feat-grid,
         .risk-cards {
@@ -1437,7 +1568,7 @@
           white-space: normal;
         }
         .hero-h1 {
-          font-size: 40px;
+          font-size: 38px;
           line-height: 1.08;
           margin-bottom: 22px;
         }
@@ -1472,6 +1603,7 @@
           overflow-wrap: anywhere;
         }
         .rot-compare,
+        .entry-grid,
         .pipeline,
         .steps-row,
         .feat-grid,
@@ -1488,6 +1620,8 @@
         section > .sh2,
         section > .eye,
         section > .rot-compare,
+        section > .entry-grid,
+        section > .release-strip,
         section > .pipeline,
         section > .steps-row,
         section > .feat-grid,
@@ -1505,6 +1639,7 @@
           margin-right: 0 !important;
         }
         .rot-card,
+        .entry-card,
         .step-card,
         .feat-card,
         .risk-c {
@@ -1513,6 +1648,9 @@
           overflow-wrap: anywhere;
         }
         .sp3,
+        .entry-desc,
+        .entry-command,
+        .release-pill,
         .rot-card-desc,
         .step-dsc,
         .feat-desc,
@@ -1524,6 +1662,14 @@
         }
         .focus-demo {
           overflow-x: hidden;
+        }
+        .entry-command {
+          overflow-x: hidden;
+        }
+        .entry-command code {
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
         .focus-demo span,
         .cwin-body span {
@@ -1587,11 +1733,11 @@
         <div class="logo-word"><span>Ripple</span></div>
       </div>
       <ul class="nav-mid">
-        <li><a href="#problem">Problem</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#how">Workflow</a></li>
         <li><a href="#proof">Proof</a></li>
         <li><a href="#demo">Demo</a></li>
         <li><a href="#features">Features</a></li>
-        <li><a href="#how">How it works</a></li>
         <li><a href="#stack">Stack</a></li>
         <li>
           <a
@@ -1602,12 +1748,8 @@
           >
         </li>
       </ul>
-      <a
-        href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="nav-install">
-        ↯ Install
+      <a href="#install" class="nav-install">
+        ↯ Use Ripple
       </a>
     </nav>
 
@@ -1616,58 +1758,54 @@
       <div class="hero-left">
         <div class="badge">
           <div class="badge-dot"></div>
-          VS Code Extension · JS/TS
+          CLI · MCP · VS Code · Local-first
         </div>
 
         <h1 class="hero-h1">
-          Live codebase<br />context for<br />
-          <span class="accent">AI agents.</span>
+          Local drift control<br />for AI coding<br />
+          <span class="accent">agents.</span>
         </h1>
 
         <p class="hero-sub">
-          Ripple scans your JavaScript or TypeScript workspace locally, builds a
-          dependency and symbol map, and turns that map into editor signals and
-          AI-ready context.
+          Ripple plans before edit, checks after edit, catches intent and
+          boundary drift, and gives agents a clear
+          <strong>continue or stop</strong> handoff before risky work moves
+          forward.
         </p>
 
         <div class="hero-ctas">
-          <a
-            href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="cta-main">
-            ↯ Install for VS Code — Free
-          </a>
-          <a
-            href="https://github.com/raushankcode/ripple"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="cta-sec">
-            View on GitHub →
-          </a>
+          <a href="#install" class="cta-main">↯ Run from npm</a>
+          <a href="#how" class="cta-sec">See workflow →</a>
           <a href="#demo" class="cta-sec">Watch demo →</a>
         </div>
 
+        <div class="hero-proof-row">
+          <span class="proof-chip"><strong>npm</strong> @getripple/cli</span>
+          <span class="proof-chip"><strong>agent</strong> @getripple/mcp</span>
+          <span class="proof-chip"><strong>editor</strong> rippleai.ripple</span>
+        </div>
+
         <div class="rot-alert">
-          <div class="rot-alert-label">Real project proof</div>
+          <div class="rot-alert-label">Published release proof</div>
           <div class="rot-alert-text">
-            Validated on a local clone of <strong>sindresorhus/ky</strong>: 52
-            files, 103 symbols, 349 import edges, and 41 call edges.
+            Ripple 1.0.4 is live on npm as <strong>@getripple/core</strong>,
+            <strong>@getripple/cli</strong>, and
+            <strong>@getripple/mcp</strong>. GitHub Actions and post-publish
+            smoke tests passed.
           </div>
         </div>
 
         <div class="proof-card">
           <div class="proof-text-sm">
-            Temporary edit around
-            <strong>mergeHeaders</strong> inside
-            <strong>source/utils/merge.ts</strong>. Manual search surfaced
-            <span class="hl">2</span> direct text-match files. Ripple showed the
-            containing file sits in a <span class="hl">19</span>-file impact
-            path, surfaced caller context, marked the change dangerous, and
-            generated verification targets.
+            Core loop:
+            <strong>plan before edit</strong> →
+            <strong>check after edit</strong> →
+            <strong>catch drift</strong> →
+            <strong>continue or stop</strong>. The same contract now appears in
+            CLI output, CI gates, MCP tool results, and the VS Code extension.
           </div>
           <div class="proof-stat">
-            17 more impacted paths surfaced beyond direct text matches
+            One local engine powering human, terminal, CI, and agent workflows
           </div>
         </div>
       </div>
@@ -2041,6 +2179,83 @@
       </div>
     </section>
 
+    <!-- ══ PUBLIC INTERFACES ════════════════════════════════════════ -->
+    <section class="entry-section" id="install">
+      <div class="eye rev">Use it today</div>
+      <h2 class="sh2 rev">One engine.<br />Three public interfaces.</h2>
+      <p class="sp3 rev">
+        Start with the CLI, connect an MCP-compatible agent, or install the VS
+        Code extension for live editor context. All three call the same local
+        Ripple engine.
+      </p>
+
+      <div class="entry-grid">
+        <div class="entry-card rev">
+          <div class="entry-kicker">Terminal and CI</div>
+          <div class="entry-title">@getripple/cli</div>
+          <div class="entry-desc">
+            Plan context, save intent, check staged changes, detect drift, and
+            return a compact continue/stop gate from any repo.
+          </div>
+          <div class="entry-command">
+            <code>npx -y @getripple/cli@1.0.4 init</code>
+          </div>
+          <a
+            class="entry-link"
+            href="https://www.npmjs.com/package/@getripple/cli"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Open npm package →</a
+          >
+        </div>
+
+        <div class="entry-card agent rev" style="transition-delay: 0.1s">
+          <div class="entry-kicker">Agent native</div>
+          <div class="entry-title">@getripple/mcp</div>
+          <div class="entry-desc">
+            Give MCP-compatible agents structured tools for planning, staged
+            checks, audit reports, repair guidance, and handoff decisions.
+          </div>
+          <div class="entry-command">
+            <code>npx -y @getripple/mcp@1.0.4 --workspace /path/to/repo</code>
+          </div>
+          <a
+            class="entry-link"
+            href="https://www.npmjs.com/package/@getripple/mcp"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Open npm package →</a
+          >
+        </div>
+
+        <div class="entry-card editor rev" style="transition-delay: 0.2s">
+          <div class="entry-kicker">Human interface</div>
+          <div class="entry-title">VS Code extension</div>
+          <div class="entry-desc">
+            See Impact Lens, CodeLens caller counts, copy agent prompts, and
+            local workflow files while working inside the editor.
+          </div>
+          <div class="entry-command">
+            <code>code --install-extension rippleai.ripple</code>
+          </div>
+          <a
+            class="entry-link"
+            href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Open Marketplace →</a
+          >
+        </div>
+      </div>
+
+      <div class="release-strip rev">
+        <span class="release-pill"><strong>npm</strong> packages live</span>
+        <span class="release-pill"><strong>release</strong> v1.0.4 tagged</span>
+        <span class="release-pill"><strong>CI</strong> engine regression passed</span>
+        <span class="release-pill"><strong>smoke</strong> CLI and MCP npx paths passed</span>
+      </div>
+    </section>
+
     <!-- ══ CONTEXT ROT PROOF ═══════════════════════════════════════ -->
     <section class="rot-section" id="problem">
       <div class="eye rev">The problem: Context Rot</div>
@@ -2197,11 +2412,11 @@
     <!-- ══ HOW IT WORKS ═════════════════════════════════════════════ -->
     <section class="how-bg" id="how">
       <div class="eye rev">How it works</div>
-      <h2 class="sh2 rev">Open a project.<br />Ripple maps the risk.</h2>
+      <h2 class="sh2 rev">Plan before edit.<br />Check after edit.</h2>
       <p class="sp3 rev">
-        Ripple scans supported JavaScript and TypeScript files locally, updates
-        the graph as files change, and writes project-relative context that an
-        AI agent can read before editing.
+        Ripple scans the repo locally, creates a saved change intent, checks
+        what actually changed, and returns the same continue/stop language to
+        CLI, CI, MCP, and VS Code.
       </p>
 
       <!-- Local context pipeline -->
@@ -2210,11 +2425,12 @@
           <div class="pipe-node">1</div>
           <div class="pipe-body">
             <div class="pipe-title">
-              Open a TypeScript or JavaScript project
+              Initialize the repo once
             </div>
             <div class="pipe-desc">
-              Ripple starts with a local scan of supported `.ts`, `.tsx`, `.js`,
-              and `.jsx` files.
+              Run <code style="color: var(--neon); font-size: 11px">ripple init</code>
+              or start the MCP server. Ripple creates local workflow files and
+              reads the repo policy if one exists.
             </div>
           </div>
         </div>
@@ -2222,36 +2438,38 @@
           <div class="pipe-node">2</div>
           <div class="pipe-body">
             <div class="pipe-title">
-              Dependency graph and symbols are mapped
+              Plan context and trust boundary
             </div>
             <div class="pipe-desc">
-              Import edges, caller counts, risk labels, and focus-file context
-              are derived from the codebase in front of you.
+              <code style="color: var(--neon); font-size: 11px">ripple plan</code>
+              returns read-first files, risk, allowed files or symbols, human
+              gates, and verification targets before the agent edits.
             </div>
           </div>
         </div>
         <div class="pipe-step lit">
           <div class="pipe-node">3</div>
           <div class="pipe-body">
-            <div class="pipe-title">Context files are generated locally</div>
+            <div class="pipe-title">Agent works against saved intent</div>
             <div class="pipe-desc">
-              Project memory is written to
-              <code style="color: var(--neon); font-size: 11px"
-                >.ripple/WORKFLOW.md</code
-              >, `.ripple/history.json`, and focused cache files for agents.
+              The task, mode, allowed boundary, policy explanation, and context
+              files are stored locally so the later check can compare intent to
+              reality.
             </div>
-            <div class="pipe-tag auto">local · project-relative</div>
+            <div class="pipe-tag auto">saved intent · local memory</div>
           </div>
         </div>
         <div class="pipe-step final">
           <div class="pipe-node">✓</div>
           <div class="pipe-body">
-            <div class="pipe-title">Agent reads before it edits</div>
+            <div class="pipe-title">Ripple checks and hands off</div>
             <div class="pipe-desc">
-              Copy Agent Prompt points the agent to the right focus file, risk,
-              importers, and project workflow.
+              <code style="color: var(--neon); font-size: 11px">ripple check</code>
+              and <code style="color: var(--neon); font-size: 11px">ripple gate</code>
+              report intent drift, boundary drift, policy drift, and whether to
+              continue or stop for human review.
             </div>
-            <div class="pipe-tag once">copy prompt · verify first</div>
+            <div class="pipe-tag once">continue/stop · human gate</div>
           </div>
         </div>
       </div>
@@ -2260,28 +2478,28 @@
         <div class="step-card rev">
           <div class="step-n">01</div>
           <div class="step-ico">⚡</div>
-          <div class="step-ttl">Scan locally</div>
+          <div class="step-ttl">Plan locally</div>
           <div class="step-dsc">
-            The scan runs inside your workspace. No account, no telemetry, no
-            cloud indexing, no code upload.
+            The repo scan and context plan run inside the workspace. No account,
+            no telemetry, no cloud indexing, no code upload.
           </div>
         </div>
         <div class="step-card rev" style="transition-delay: 0.1s">
           <div class="step-n">02</div>
           <div class="step-ico">↯</div>
-          <div class="step-ttl">Update graph</div>
+          <div class="step-ttl">Check drift</div>
           <div class="step-dsc">
-            Impact Lens, CodeLens, history, and focus files stay aligned with
-            recent file changes.
+            Staged changes are compared against the saved task, boundary,
+            policy, risky files, and expected verification targets.
           </div>
         </div>
         <div class="step-card rev" style="transition-delay: 0.2s">
           <div class="step-n">03</div>
           <div class="step-ico">◎</div>
-          <div class="step-ttl">Agent verifies</div>
+          <div class="step-ttl">Handoff clearly</div>
           <div class="step-dsc">
-            The prompt and focus file give the agent a smaller, safer starting
-            point than blind editing.
+            Agents get one compact decision: continue, audit, repair, restore
+            readiness, or ask the human before moving forward.
           </div>
         </div>
       </div>
@@ -2290,10 +2508,10 @@
     <!-- ══ FEATURES ══════════════════════════════════════════════════ -->
     <section id="features">
       <div class="eye rev">Features</div>
-      <h2 class="sh2 rev">Practical signals.<br />No account required.</h2>
+      <h2 class="sh2 rev">Workflow gates.<br />No account required.</h2>
       <p class="sp3 rev">
-        Ripple turns the local graph into visible editor features and AI-ready
-        context files.
+        Ripple turns the local graph, saved intent, policy, and staged diff into
+        signals that humans and AI agents can both understand.
       </p>
 
       <div class="feat-grid">
@@ -2304,7 +2522,7 @@
           <div class="feat-desc">
             Ripple generates a local workflow file that tells AI agents how to
             resolve exact paths, inspect focus files, check importers, respect
-            risk labels, and avoid unrelated edits.
+            risk labels, obey the saved boundary, and avoid unrelated edits.
             <br /><br />
             You can connect it to AGENTS.md, CLAUDE.md, or .cursorrules without
             replacing your own notes.
@@ -2354,7 +2572,7 @@
             and the path to its focused context file. High-blast prompts now
             call for contract-preserving edits instead of blanket stops.
           </div>
-          <span class="feat-pill">one right-click · ~400 tokens</span>
+          <span class="feat-pill">one right-click · plan before edit</span>
         </div>
 
         <!-- Impact Lens -->
@@ -2387,20 +2605,21 @@
           <div class="feat-title">↯ Safety Check</div>
           <div class="feat-desc">
             When you stage files for a git commit, Ripple can warn when untested
-            files may be affected. It does not block the commit; it gives you
-            impact awareness before you ship.
+            files may be affected or when the staged diff crosses the saved
+            intent. It does not sandbox the agent; it gives a reviewable gate.
           </div>
-          <span class="feat-pill">staged changes · review before ship</span>
+          <span class="feat-pill">staged changes · continue/stop gate</span>
         </div>
       </div>
     </section>
 
     <!-- ══ FOCUS FILE ════════════════════════════════════════════════ -->
     <section style="padding-top: 0">
-      <div class="eye rev">Focus files</div>
-      <h2 class="sh2 rev">Focused context.<br />Small enough to read first.</h2>
+      <div class="eye rev">Agent context</div>
+      <h2 class="sh2 rev">Small context.<br />Strong enough to act on.</h2>
       <p class="sp3 rev">
-        Supported source files with useful graph data get a focus file in
+        Plans, MCP tool results, and supported source files all use focused
+        graph context. File-level context is also written under
         <code
           style="
             color: var(--neon);
@@ -2408,7 +2627,7 @@
             font-size: 13px;
           "
           >.ripple/.cache/focus/</code
-        >. Agents read this first: targeted graph data instead of a giant prompt
+        >, so agents can read targeted graph data instead of a giant prompt
         dump.
       </p>
 
@@ -2454,38 +2673,37 @@
 
     <!-- ══ RISK ══════════════════════════════════════════════════════ -->
     <section class="risk-bg">
-      <div class="eye rev">Risk classification</div>
-      <h2 class="sh2 rev">Agents know before<br />they touch anything.</h2>
+      <div class="eye rev">Risk and handoff</div>
+      <h2 class="sh2 rev">Agents know when<br />to continue or stop.</h2>
       <p class="sp3 rev">
-        Files are classified by blast radius from importers, churn, and usage
-        signals. These labels are practical safety signals, not mathematical
-        proof or a replacement for tests and code review.
+        Files are classified by blast radius, churn, usage signals, policy, and
+        saved trust boundaries. These labels are practical safety signals, not a
+        sandbox, mathematical proof, or replacement for tests and code review.
       </p>
 
       <div class="risk-cards">
         <div class="risk-c risk-danger rev">
           <div class="risk-pill">● Dangerous</div>
           <div class="risk-body">
-            <strong>5+ importers or 15+ saves.</strong> Agent is instructed to
-            announce blast radius, keep exact-path edits contract-preserving,
-            and stop before public contract, behavior, caller, or multi-file
-            changes.
+            <strong>High blast radius, risky paths, or boundary drift.</strong>
+            Agent is instructed to stop, explain what crossed the line, and ask
+            for human review before widening scope.
           </div>
         </div>
         <div class="risk-c risk-warn rev" style="transition-delay: 0.1s">
           <div class="risk-pill">● Caution</div>
           <div class="risk-body">
-            <strong>2–4 importers or 8+ saves.</strong> Agent proceeds but
-            verifies every caller still works after each change. Reports every
-            file it touched.
+            <strong>Moderate importers, churn, or uncertain adapter signals.</strong>
+            Agent can proceed only with listed verification targets and a clear
+            audit trail of touched files.
           </div>
         </div>
         <div class="risk-c risk-safe rev" style="transition-delay: 0.2s">
           <div class="risk-pill">● Safe</div>
           <div class="risk-body">
-            <strong>0–1 importers, low churn.</strong> Agent proceeds directly.
-            Low blast radius means changes are usually more contained, but
-            callers and tests still matter.
+            <strong>Low blast radius and inside the saved boundary.</strong>
+            Agent can continue after required checks pass. Low risk still means
+            verify, not guess.
           </div>
         </div>
       </div>
@@ -2498,10 +2716,9 @@
         Works with your stack.<br />Detected heuristically.
       </h2>
       <p class="sp3 rev">
-        Ripple is focused on JavaScript and TypeScript codebases first. It works
-        with ordinary .ts, .tsx, .js, and .jsx source files across React,
-        Node.js, Next.js, Vite, React Router, Turborepo, and pnpm workspace
-        projects. Framework and package detection is heuristic.
+        Ripple is strongest on JavaScript and TypeScript codebases. It also has
+        basic Python support for imports, symbols, direct call hints, and
+        file-level staged checks. Framework and package detection is heuristic.
       </p>
 
       <div class="stack-pills rev">
@@ -2512,10 +2729,12 @@
         <span class="sp hi">React Router</span>
         <span class="sp hi">Turborepo</span>
         <span class="sp hi">pnpm workspaces</span>
+        <span class="sp">Python basic</span>
         <span class="sp">.ts</span>
         <span class="sp">.tsx</span>
         <span class="sp">.js</span>
         <span class="sp">.jsx</span>
+        <span class="sp">.py</span>
       </div>
 
       <div class="scope-note rev">
@@ -2523,41 +2742,32 @@
         <p class="scope-copy">
           Ripple uses practical static analysis. It is a strong safety signal,
           not a mathematical proof. Namespace imports, aliased imports, dynamic
-          imports, and some CommonJS patterns are part of the deeper semantic
-          work planned after launch.
+          imports, some CommonJS patterns, and dynamic Python behavior require
+          manual verification. Ripple tells agents what to trust and what to
+          verify.
         </p>
       </div>
     </section>
 
     <!-- ══ CTA ════════════════════════════════════════════════════════ -->
     <section class="cta-wrap">
-      <div class="eye">Free · Local-first · No account</div>
-      <h2 class="sh2">Start every AI task<br />with real project context.</h2>
+      <div class="eye">Public alpha · Local-first · No account</div>
+      <h2 class="sh2">Start every AI task<br />with a real gate.</h2>
       <p class="sp3" style="margin: 0 auto; text-align: center">
-        Open VS Code. Search Ripple in Extensions. Install. Open any TypeScript
-        or JavaScript project. Use Impact Lens, CodeLens, Copy Agent Prompt, and
-        <code
-          style="
-            color: var(--neon);
-            font-family: var(--font-code);
-            font-size: 12px;
-          "
-          >.ripple/WORKFLOW.md</code
-        >
-        to help agents inspect before editing.
+        Run Ripple in a clean repo, connect it to an MCP-compatible agent, or
+        install the VS Code extension. The important habit is the same: plan
+        before edit, check after edit, obey the continue/stop handoff.
       </p>
 
       <div class="cta-row">
-        <a
-          href="https://marketplace.visualstudio.com/items?itemName=rippleai.ripple"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="cta-main"
-          style="font-size: 15px; padding: 15px 32px">
-          ↯ Install for VS Code — Free
+        <a href="#install" class="cta-main" style="font-size: 15px; padding: 15px 32px">
+          ↯ Choose an interface
         </a>
         <div class="cmd-box">
-          <code>code --install-extension rippleai.ripple</code>
+          <code>npx -y @getripple/cli@1.0.4 init</code>
+        </div>
+        <div class="cmd-box">
+          <code>npx -y @getripple/mcp@1.0.4 --workspace /path/to/repo</code>
         </div>
       </div>
     </section>
@@ -2584,6 +2794,22 @@
             target="_blank"
             rel="noopener noreferrer"
             >Marketplace</a
+          >
+        </li>
+        <li>
+          <a
+            href="https://www.npmjs.com/package/@getripple/cli"
+            target="_blank"
+            rel="noopener noreferrer"
+            >npm CLI</a
+          >
+        </li>
+        <li>
+          <a
+            href="https://github.com/raushankcode/ripple/releases/tag/v1.0.4"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Release</a
           >
         </li>
         <li>
