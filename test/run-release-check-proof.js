@@ -42,8 +42,8 @@ function assertRootReleaseScripts() {
 
   assert.strictEqual(
     scripts["release:check"],
-    "npm run proof:agent-control && npm run release:identity && npm run release:npm-preflight && npm run test:release-check",
-    "release:check should run the product proof, identity review, npm preflight, and release proof",
+    "npm run proof:agent-control && npm run test:persona && npm run release:identity && npm run release:npm-preflight && npm run test:release-check",
+    "release:check should run the product proof, persona proof, identity review, npm preflight, and release proof",
   );
   assert.strictEqual(
     scripts["proof:release-check"],
@@ -54,6 +54,11 @@ function assertRootReleaseScripts() {
     scripts["test:release-check"],
     "node test/run-release-check-proof.js",
     "test:release-check should run this proof",
+  );
+  assert.strictEqual(
+    scripts["test:persona"],
+    "node test/run-product-persona-proof.js",
+    "test:persona should run the product persona proof",
   );
   assert.strictEqual(
     scripts["release:identity"],
@@ -76,6 +81,7 @@ function assertRootReleaseScripts() {
     "proof:package-install",
     "proof:mcp-package-install",
     "proof:publish-readiness",
+    "test:persona",
   ]) {
     assert(scripts[requiredScript], `Missing required release script: ${requiredScript}`);
   }
@@ -142,6 +148,7 @@ function assertReleaseChecklist() {
     "Release Identity Review",
     "NPM Registry Preflight",
     "Do not publish if",
+    "docs/product-persona.md",
     `npm view @getripple/core@${rootPackage.version} version --json`,
   ]) {
     assertIncludes(release, requiredText, "RELEASE.md");

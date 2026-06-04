@@ -34,12 +34,14 @@ It proves:
 - npm package metadata, entry points, bins, README install commands, and `npm pack --dry-run` contents are valid
 - public package versions match the root version
 - release scripts and this checklist are wired together
+- public docs match the product persona and avoid forbidden overclaims
 
 ## Manual Gates
 
 These checks cannot be automated safely:
 
 - Review the final diff and make sure it matches the intended release.
+- Review `docs/product-persona.md` if the product promise, audience, or claims changed.
 - Run `npm run release:identity` and consciously review the public product identity.
 - Run `npm run release:npm-preflight -- --live` and review npm registry readiness.
 - Confirm npm account access with `npm whoami`.
