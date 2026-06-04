@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ripple": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@getripple/mcp",
+        "--workspace",
+        "/absolute/path/to/your/repo"
+      ]
+    }
+  }
+}

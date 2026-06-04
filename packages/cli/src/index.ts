@@ -1,0 +1,3799 @@
+#!/usr/bin/env node
+
+import * as fs from "fs";
+import * as path from "path";
+import {
+  buildChangeIntent,
+  buildChangeIntentReadinessSnapshot,
+  buildIntentDriftRepairPlan,
+  buildRippleAuditSummary,
+  buildRippleGateSummary,
+  buildRippleReadinessSummary,
+  buildStagedCheckSummary,
+  ChangeIntent,
+  ChangeIntentValidationSummary,
+  ControlMode,
+  defaultChangeIntentPath,
+  DriftVerdictSummary,
+  FileBlastRadiusSummary,
+  FileDependencyLink,
+  FileDependencySummary,
+  FileFocusSummary,
+  FileSymbolsSummary,
+  GraphEngine,
+  getAgentWorkflowSummary,
+  ContextPlanAdapterSignal,
+  ContextPlanFile,
+  ContextPlanSummary,
+  ContextPlanSymbol,
+  IntentDriftRepairAction,
+  IntentDriftRepairPlan,
+  listGitChangedFiles,
+  listGitStagedFiles,
+  loadChangeIntent,
+  loadRipplePolicy,
+  RecentHistorySummary,
+  recordRippleApproval,
+  RippleApprovalGate,
+  RippleApprovalRecord,
+  RippleApprovalStatus,
+  RippleAuditSummary,
+  RippleGateSummary,
+  RippleAgentHandoffVerdict,
+  RipplePolicyExplanation,
+  RippleReadinessSummary,
+  RIPPLE_CI_WORKFLOW_PATH,
+  RIPPLE_POLICY_PATH,
+  defaultRipplePolicy,
+  explainRipplePolicyForTarget,
+  explainRipplePolicyForIntent,
+  formatRipplePolicy,
+  ripplePolicyPath,
+  resolveRippleApprovalStatus,
+  resolveRipplePolicyForTarget,
+  saveChangeIntent,
+  StagedCheckSummary,
+  StagedCheckWithIntentSummary,
+  SymbolCallersSummary,
+  SymbolGraphSummary,
+  SymbolLinkSummary,
+  validateStagedCheckAgainstIntent,
+} from "@getripple/core";
+
+// The CLI makes Ripple's plan/check/repair loop readable for both humans and agents.
+type CliOptions = {
+  json: boolean;
+  agent: boolean;
+  last: number;
+  file?: string;
+  task?: string;
+  mode?: ControlMode;
+  symbol?: string;
+  gate?: RippleApprovalGate;
+  reason?: string;
+  approvedBy?: string;
+  intent?: string;
+  base?: string;
+  budget: number;
+  staged: boolean;
+  changed: boolean;
+  save: boolean;
+  strict: boolean;
+  githubAnnotations: boolean;
+  force: boolean;
+  print: boolean;
+};
+
+type ParsedCliArgs = {
+  command: string | undefined;
+  args: string[];
+  options: CliOptions;
+};
+
+type ScanSummary = {
+  workspace: string;
+  files: number;
+  symbols: number;
+  callEdges: number;
+  contextGenerated: boolean;
+  contextPath: string;
+};
+
+type RippleInitFileSummary = {
+  path: string;
+  status: "written" | "overwritten" | "exists" | "printed";
+  written: boolean;
+  overwritten: boolean;
+  content?: string;
+};
+
+type RippleInitSummary = {
+  protocol: "ripple-init";
+  version: 1;
+  workspace: string;
+  files: RippleInitFileSummary[];
+  readiness?: RippleReadinessSummary;
+  nextSteps: string[];
+};
+
+type SavedChangeIntent = {
+  intent: ChangeIntent;
+  path: string;
+};
+
+type PlanJsonOutput = ContextPlanSummary & {
+  policyExplanation: RipplePolicyExplanation;
+  changeIntent?: ChangeIntent;
+  changeIntentPath?: string;
+};
+
+type ApprovalStatusOutput = RippleApprovalStatus & {
+  intent: {
+    id: string;
+    task: string;
+    targetFile: string;
+    controlMode: ControlMode;
+    humanGate: ChangeIntent["humanGate"];
+    boundaryRisk: ChangeIntent["boundaryRisk"];
+  };
+};
+
+const CONTROL_MODES: ControlMode[] = ["brainstorm", "function", "file", "task", "pr"];
+
+function usage(): string {
+  return [
+    "Ripple CLI",
+    "",
+    "Usage:",
+    "  ripple init [--force] [--json]",
+    "  ripple doctor [--strict] [--agent]",
+    "  ripple scan [path]",
+    "  ripple focus <file>",
+    "  ripple blast <file>",
+    "  ripple imports <file>",
+    "  ripple importers <file>",
+    "  ripple symbols <file>",
+    "  ripple callers <file>::<symbol>",
+    "  ripple history [--last N]",
+    "  ripple plan --file <file> --task <task> [--mode file|function|brainstorm|task|pr] [--symbol name] [--budget N] [--save]",
+    "  ripple check --staged [--intent latest|path] [--strict]",
+    "  ripple check --changed --base <ref> [--intent latest|path] [--strict]",
+    "  ripple audit [--intent latest|path] [--changed --base <ref>] [--strict]",
+    "  ripple gate [--intent latest|path] [--changed --base <ref>] [--strict]",
+    "  ripple approval [--intent latest|path] [--gate before-risky-edit|before-merge]",
+    "  ripple approve [--intent latest|path] [--gate before-risky-edit|before-merge] [--reason text]",
+    "  ripple repair [--intent latest|path] [--strict]",
+    "  ripple ci [--base <ref>] [--intent latest|path] [--github-annotations]",
+    "  ripple init-ci [--print] [--force]",
+    "  ripple policy init [--print] [--force]",
+    "  ripple policy explain --file <file>",
+    "  ripple agent",
+    "",
+    "Options:",
+    "  --json, -j    Print machine-readable JSON",
+    "  --agent       Print compact agent handoff for ripple doctor/plan/check/audit/gate/repair",
+    "  --last N      Limit history groups (default: 10)",
+    "  --file PATH   Target file for plan",
+    "  --task TEXT   Task description for plan",
+    "  --mode MODE   Agent control boundary for saved plans (default: file)",
+    "  --symbol NAME Allowed symbol for --mode function",
+    "  --gate GATE   Human approval gate for approve (before-risky-edit or before-merge)",
+    "  --reason TEXT Human approval reason",
+    "  --approved-by NAME  Human approver name for approval records",
+    "  --budget N    Token budget for plan (default: 4000)",
+    "  --staged      Check currently staged JS/TS files",
+    "  --changed     Check JS/TS files changed against --base",
+    "  --base REF    Base git ref for --changed checks (default: HEAD)",
+    "  --save        Save a change intent from ripple plan",
+    "  --intent REF  Validate changes against saved intent (latest, id, or path; ci default: latest)",
+    "  --strict      Exit non-zero when check/repair detects missing intent, drift, or contract danger",
+    "  --github-annotations  Emit GitHub Actions annotations for CI findings",
+    "  --print       Print generated setup content instead of writing files",
+    "  --force       Overwrite existing generated setup files",
+    "",
+    "Examples:",
+    "  ripple init",
+    "  ripple doctor",
+    "  ripple doctor --agent",
+    "  ripple agent",
+    "  ripple agent --json",
+    "  ripple plan --file src/auth.ts --task \"change token refresh behavior\" --mode file --agent --save",
+    "  ripple plan --file src/auth.ts --symbol refreshToken --task \"fix retry behavior\" --mode function --agent --save",
+    "  ripple check --staged --agent --intent latest",
+    "  ripple audit --agent --intent latest",
+    "  ripple gate --agent --intent latest",
+    "  ripple approval --intent latest --agent",
+    "  ripple approve --intent latest --gate before-risky-edit --reason \"plan reviewed\"",
+    "  ripple repair --agent --intent latest",
+    "  ripple check --staged --intent latest --strict",
+    "  ripple check --changed --base origin/main --strict",
+    "  ripple ci --base origin/main --intent latest --github-annotations",
+    "  ripple init",
+    "  ripple init-ci",
+    "  ripple policy init",
+    "  ripple policy explain --file src/auth.ts",
+    "",
+    "  ripple --help",
+    "  ripple --version",
+  ].join("\n");
+}
+
+function agentWorkflowGuide(): string {
+  const workflow = getAgentWorkflowSummary();
+
+  return [
+    "Ripple Agent Workflow",
+    "",
+    "Setup readiness:",
+    `  ${workflow.commands.initializeRepo}`,
+    `  ${workflow.commands.checkReadiness}`,
+    `  ${workflow.commands.installCi} (CI-only repair path)`,
+    "",
+    "Before editing:",
+    `  ${workflow.commands.planBeforeEditing}`,
+    `  ${workflow.policyWorkflow.defaultAgentPath}`,
+    "",
+    "If human gate is required:",
+    `  ${workflow.commands.checkApproval}`,
+    `  ${workflow.commands.approveHumanGate}`,
+    "",
+    "Policy-only check:",
+    `  ${workflow.commands.explainPolicy}`,
+    `  ${workflow.policyWorkflow.policyOnlyPath}`,
+    "",
+    "Policy drift:",
+    `  ${workflow.policyWorkflow.policyDriftPath}`,
+    "",
+    "After staging changes:",
+    `  ${workflow.commands.checkAfterStaging}`,
+    "",
+    "Audit current change:",
+    `  ${workflow.commands.auditCurrentChange}`,
+    `  ${workflow.commands.gateCurrentChange}`,
+    "",
+    "If staged changes drift:",
+    `  ${workflow.commands.repairIntentDrift}`,
+    "",
+    "CI gate:",
+    `  ${workflow.commands.ciGate}`,
+    "",
+    "Loop:",
+    `  ${workflow.loop.join(" -> ")}`,
+    "",
+    "Runtime contract:",
+    ...workflow.runtimeContract.phases.map(
+      (phase) => `  ${phase.order}. ${phase.id}: ${phase.agentAction}`
+    ),
+    "",
+    "Stop if:",
+    ...workflow.runtimeContract.stopConditions.map((condition) => `  - ${condition}`),
+    "",
+    "Example:",
+    ...workflow.example.map((command) => `  ${command}`),
+  ].join("\n");
+}
+
+function parseCliArgs(argv: string[]): ParsedCliArgs {
+  let command: string | undefined;
+  const args: string[] = [];
+  const options: CliOptions = {
+    json: false,
+    agent: false,
+    last: 10,
+    budget: 4000,
+    staged: false,
+    changed: false,
+    save: false,
+    strict: false,
+    githubAnnotations: false,
+    force: false,
+    print: false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === "--json" || token === "-j") {
+      options.json = true;
+      continue;
+    }
+    if (token === "--agent") {
+      options.agent = true;
+      continue;
+    }
+    if (token === "--staged") {
+      options.staged = true;
+      continue;
+    }
+    if (token === "--changed") {
+      options.changed = true;
+      continue;
+    }
+    if (token === "--save") {
+      options.save = true;
+      continue;
+    }
+    if (token === "--strict") {
+      options.strict = true;
+      continue;
+    }
+    if (token === "--github-annotations") {
+      options.githubAnnotations = true;
+      continue;
+    }
+    if (token === "--force") {
+      options.force = true;
+      continue;
+    }
+    if (token === "--print") {
+      options.print = true;
+      continue;
+    }
+    if (token === "--last") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --last");
+      }
+      options.last = parsePositiveInteger(value, "--last");
+      i++;
+      continue;
+    }
+    if (token.startsWith("--last=")) {
+      options.last = parsePositiveInteger(token.slice("--last=".length), "--last");
+      continue;
+    }
+    if (token === "--file") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --file");
+      }
+      options.file = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--file=")) {
+      options.file = token.slice("--file=".length);
+      continue;
+    }
+    if (token === "--task") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --task");
+      }
+      options.task = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--task=")) {
+      options.task = token.slice("--task=".length);
+      continue;
+    }
+    if (token === "--mode") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --mode");
+      }
+      options.mode = parseControlMode(value);
+      i++;
+      continue;
+    }
+    if (token.startsWith("--mode=")) {
+      options.mode = parseControlMode(token.slice("--mode=".length));
+      continue;
+    }
+    if (token === "--symbol") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --symbol");
+      }
+      options.symbol = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--symbol=")) {
+      options.symbol = token.slice("--symbol=".length);
+      continue;
+    }
+    if (token === "--gate") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --gate");
+      }
+      options.gate = parseApprovalGate(value);
+      i++;
+      continue;
+    }
+    if (token.startsWith("--gate=")) {
+      options.gate = parseApprovalGate(token.slice("--gate=".length));
+      continue;
+    }
+    if (token === "--reason") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --reason");
+      }
+      options.reason = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--reason=")) {
+      options.reason = token.slice("--reason=".length);
+      continue;
+    }
+    if (token === "--approved-by") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --approved-by");
+      }
+      options.approvedBy = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--approved-by=")) {
+      options.approvedBy = token.slice("--approved-by=".length);
+      continue;
+    }
+    if (token === "--intent") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --intent");
+      }
+      options.intent = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--intent=")) {
+      options.intent = token.slice("--intent=".length);
+      continue;
+    }
+    if (token === "--base") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --base");
+      }
+      options.base = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--base=")) {
+      options.base = token.slice("--base=".length);
+      continue;
+    }
+    if (token === "--budget") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --budget");
+      }
+      options.budget = parsePositiveInteger(value, "--budget");
+      i++;
+      continue;
+    }
+    if (token.startsWith("--budget=")) {
+      options.budget = parsePositiveInteger(token.slice("--budget=".length), "--budget");
+      continue;
+    }
+    if (!command) {
+      command = token;
+      continue;
+    }
+    args.push(token);
+  }
+
+  return { command, args, options };
+}
+
+function parsePositiveInteger(value: string, optionName: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${optionName} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function parseControlMode(value: string): ControlMode {
+  if (CONTROL_MODES.includes(value as ControlMode)) {
+    return value as ControlMode;
+  }
+  throw new Error(`--mode must be one of: ${CONTROL_MODES.join(", ")}`);
+}
+
+function parseApprovalGate(value: string): RippleApprovalGate {
+  if (value === "before-risky-edit" || value === "before-merge") {
+    return value;
+  }
+  throw new Error("--gate must be one of: before-risky-edit, before-merge");
+}
+
+function version(): string {
+  const pkgPath = path.resolve(__dirname, "..", "package.json");
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const GITHUB_ACTIONS_WORKFLOW_PATH = RIPPLE_CI_WORKFLOW_PATH;
+
+function githubActionsWorkflow(): string {
+  return [
+    "name: Ripple",
+    "",
+    "on:",
+    "  pull_request:",
+    "",
+    "permissions:",
+    "  contents: read",
+    "  pull-requests: read",
+    "",
+    "jobs:",
+    "  ripple:",
+    "    name: Ripple architecture gate",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: Checkout",
+    "        uses: actions/checkout@v4",
+    "        with:",
+    "          fetch-depth: 0",
+    "      - name: Setup Node",
+    "        uses: actions/setup-node@v4",
+    "        with:",
+    "          node-version: 20",
+    "      - name: Ripple CI",
+    "        run: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --intent latest --github-annotations",
+    "",
+  ].join("\n");
+}
+
+function defaultInitNextSteps(readiness?: RippleReadinessSummary): string[] {
+  return uniqueLines([
+    ...(readiness?.nextSteps ?? []),
+    "Run ripple plan --file <file> --task \"<task>\" --mode file --agent --save.",
+    "Run ripple doctor --agent --strict after saving the first intent.",
+    "Commit .ripple/policy.json, .github/workflows/ripple.yml, and the saved intent when you want CI to enforce the gate.",
+  ]);
+}
+
+function uniqueLines(lines: string[]): string[] {
+  const seen = new Set<string>();
+  return lines.filter((line) => {
+    if (seen.has(line)) {
+      return false;
+    }
+    seen.add(line);
+    return true;
+  });
+}
+
+function resolveWorkspaceRoot(inputPath: string | undefined): string {
+  const candidate = path.resolve(process.cwd(), inputPath ?? ".");
+  if (!fs.existsSync(candidate)) {
+    throw new Error(`Path does not exist: ${candidate}`);
+  }
+  const stat = fs.statSync(candidate);
+  if (!stat.isDirectory()) {
+    throw new Error(`Scan path must be a directory: ${candidate}`);
+  }
+  return candidate;
+}
+
+function countCallEdges(engine: GraphEngine): number {
+  let count = 0;
+  engine.graph.symbols.forEach((symbol) => {
+    count += symbol.calls.size;
+  });
+  return count;
+}
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+function applyStrictExit(shouldFail: boolean): void {
+  if (shouldFail) {
+    process.exitCode = 1;
+  }
+}
+
+function strictCheckShouldFail(summary: StagedCheckWithIntentSummary): boolean {
+  return !summary.intentValidation || summary.intentValidation.driftVerdict.status !== "pass";
+}
+
+function strictRepairShouldFail(plan: IntentDriftRepairPlan): boolean {
+  return plan.status !== "no-repair-needed";
+}
+
+function strictAuditShouldFail(summary: RippleAuditSummary): boolean {
+  return summary.status !== "pass";
+}
+
+const MISSING_INTENT_NEXT_REQUIRED_PHASE = "plan_before_edit";
+const MISSING_INTENT_NEXT_REQUIRED_ACTION =
+  "Create a saved Ripple plan with ripple plan --file <file> --task \"<task>\" --agent --save before relying on CI or drift checks.";
+
+function intentLoadFailureMessage(intentRef: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return [
+    `Could not load Ripple change intent '${intentRef}'.`,
+    "Run ripple plan --save and include .ripple/intents/latest.json in the PR, or pass a valid --intent path.",
+    detail,
+  ].join(" ");
+}
+
+function defaultCiBaseRef(): string {
+  const githubBaseRef = process.env.GITHUB_BASE_REF?.trim();
+  if (githubBaseRef) {
+    return `origin/${githubBaseRef}`;
+  }
+  return "HEAD";
+}
+
+function shouldEmitGithubAnnotations(options: CliOptions): boolean {
+  return options.githubAnnotations || process.env.GITHUB_ACTIONS === "true";
+}
+
+function printGithubIntentLoadError(message: string): void {
+  printGithubErrorAnnotation({
+    title: "Ripple intent required",
+    message: `next=${MISSING_INTENT_NEXT_REQUIRED_PHASE}. ${MISSING_INTENT_NEXT_REQUIRED_ACTION} ${message}`,
+  });
+}
+
+function writeGithubStepSummary(input: {
+  summary: StagedCheckWithIntentSummary;
+  intentLoadError?: string;
+}): void {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY?.trim();
+  if (!summaryPath) {
+    return;
+  }
+
+  try {
+    fs.appendFileSync(summaryPath, buildGithubStepSummary(input), "utf8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Ripple CLI warning: Could not write GitHub step summary: ${message}`);
+  }
+}
+
+function writeGithubAuditStepSummary(audit: RippleAuditSummary): void {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY?.trim();
+  if (!summaryPath) {
+    return;
+  }
+
+  try {
+    fs.appendFileSync(summaryPath, buildGithubAuditStepSummary(audit), "utf8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Ripple CLI warning: Could not write GitHub step summary: ${message}`);
+  }
+}
+
+function buildGithubStepSummary(input: {
+  summary: StagedCheckWithIntentSummary;
+  intentLoadError?: string;
+}): string {
+  const { summary, intentLoadError } = input;
+  const validation = summary.intentValidation;
+  const gateDecision = validation?.handoff.decision ?? "create-intent";
+  const canContinue = validation?.handoff.canContinue ?? false;
+  const mustStop = validation?.handoff.mustStop ?? true;
+  const needsHuman = validation?.handoff.needsHuman ?? true;
+  const status = intentLoadError || !validation || validation.driftVerdict.status !== "pass"
+    ? "failed"
+    : "passed";
+  const gateStatus = canContinue ? "open" : "closed";
+  const nextRequiredPhase = intentLoadError
+    ? MISSING_INTENT_NEXT_REQUIRED_PHASE
+    : validation?.nextRequiredPhase ?? MISSING_INTENT_NEXT_REQUIRED_PHASE;
+  const nextRequiredAction = intentLoadError
+    ? MISSING_INTENT_NEXT_REQUIRED_ACTION
+    : validation?.nextRequiredAction ?? MISSING_INTENT_NEXT_REQUIRED_ACTION;
+  const pushList = (lines: string[], title: string, items: string[], limit: number): void => {
+    lines.push(`#### ${title}`);
+    if (items.length === 0) {
+      lines.push("- none");
+      return;
+    }
+    items.slice(0, limit).forEach((item) => lines.push(`- ${item}`));
+    if (items.length > limit) {
+      lines.push(`- ...and ${items.length - limit} more`);
+    }
+  };
+  const lines = [
+    "## Ripple architecture gate",
+    "",
+    `Status: ${status}`,
+    `Gate status: ${gateStatus}`,
+    `Gate decision: ${gateDecision}`,
+    `Can continue: ${canContinue}`,
+    `Must stop: ${mustStop}`,
+    `Needs human: ${needsHuman}`,
+    `Next required phase: ${nextRequiredPhase}`,
+    `Next required action: ${nextRequiredAction}`,
+    `Mode: ${summary.mode}`,
+  ];
+
+  if (summary.baseRef) {
+    lines.push(`Base ref: ${summary.baseRef}`);
+  }
+
+  lines.push(
+    `Checked files: ${summary.checkedFiles}`,
+    `Highest risk: ${summary.highestRisk}`,
+    ""
+  );
+
+  if (intentLoadError) {
+    lines.push(
+      "### Intent",
+      "",
+      `- ${intentLoadError}`,
+      `- Next required phase: ${nextRequiredPhase}`,
+      `- Next required action: ${nextRequiredAction}`,
+      ""
+    );
+  } else if (validation) {
+    lines.push(
+      "### Intent",
+      "",
+      `- Intent: ${validation.intentId}`,
+      `- Verdict: ${validation.verdict}`,
+      `- Drift verdict: ${validation.driftVerdict.label}`,
+      `- Control mode: ${validation.controlMode}`,
+      `- Boundary verdict: ${validation.boundaryVerdict.label}`,
+      `- Policy drift: ${validation.policyDrift.label}`,
+      `- Readiness drift: ${validation.readinessDrift.label}`,
+      `- Planned scope: ${validation.plannedScope}`,
+      `- Next required phase: ${validation.nextRequiredPhase}`,
+      `- Recommended action: ${validation.recommendedAction}`,
+      ""
+    );
+  } else {
+    lines.push(
+      "### Intent",
+      "",
+      "- No saved change intent was provided.",
+      `- Next required phase: ${nextRequiredPhase}`,
+      `- Next required action: ${nextRequiredAction}`,
+      ""
+    );
+  }
+
+  const blockingReasons = validation?.blockingReasons ?? [];
+  if (blockingReasons.length > 0) {
+    lines.push("### Blocking reasons", "");
+    blockingReasons.forEach((reason) => lines.push(`- ${reason}`));
+    lines.push("");
+  }
+
+  if (validation?.policyDrift) {
+    lines.push(
+      "### Policy drift",
+      "",
+      `- Status: ${validation.policyDrift.status}`,
+      `- Decision: ${validation.policyDrift.decision}`,
+      `- Summary: ${validation.policyDrift.summary}`,
+      ""
+    );
+    pushList(lines, "Changed policy fields", validation.policyDrift.changedFields, 12);
+    lines.push("");
+    pushList(lines, "Policy drift fix", validation.policyDrift.fix, 8);
+    lines.push("");
+  }
+
+  if (validation?.readinessDrift) {
+    lines.push(
+      "### Readiness drift",
+      "",
+      `- Status: ${validation.readinessDrift.status}`,
+      `- Decision: ${validation.readinessDrift.decision}`,
+      `- Summary: ${validation.readinessDrift.summary}`,
+      `- Saved enforcement: ${validation.readinessDrift.savedReadiness.enforcementLevel}`,
+      `- Current enforcement: ${validation.readinessDrift.currentReadiness?.enforcementLevel ?? "unknown"}`,
+      ""
+    );
+    pushList(lines, "Weakened readiness fields", validation.readinessDrift.weakenedFields, 12);
+    lines.push("");
+    pushList(lines, "Readiness drift fix", validation.readinessDrift.fix, 8);
+    lines.push("");
+  }
+
+  if (summary.files.length > 0) {
+    lines.push("### Changed files", "");
+    summary.files.slice(0, 20).forEach((file) => {
+      lines.push(`- ${file.file} (${file.modificationRisk}, importers: ${file.importerCount})`);
+    });
+    if (summary.files.length > 20) {
+      lines.push(`- ...and ${summary.files.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  lines.push("### Agent actions", "");
+  pushList(lines, "Trusted findings", summary.agentActions.trustedFindings, 12);
+  lines.push("");
+  pushList(lines, "Verify before commit", summary.agentActions.verifyBeforeCommit, 12);
+  lines.push("");
+  pushList(lines, "Manual review required", summary.agentActions.manualReviewRequired, 12);
+  lines.push("");
+
+  const verificationTargets = uniqueItems(
+    summary.files.flatMap((file) => file.verificationTargets)
+  );
+  if (verificationTargets.length > 0) {
+    lines.push("### Verify", "");
+    verificationTargets.slice(0, 20).forEach((target) => lines.push(`- ${target}`));
+    if (verificationTargets.length > 20) {
+      lines.push(`- ...and ${verificationTargets.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function buildGithubAuditStepSummary(audit: RippleAuditSummary): string {
+  const summary = audit.stagedCheck;
+  const validation = summary.intentValidation;
+  const gate = buildRippleGateSummary(audit);
+  const status = gate.canContinue ? "passed" : "failed";
+  const pushList = (lines: string[], title: string, items: string[], limit: number): void => {
+    lines.push(`#### ${title}`);
+    if (items.length === 0) {
+      lines.push("- none");
+      return;
+    }
+    items.slice(0, limit).forEach((item) => lines.push(`- ${item}`));
+    if (items.length > limit) {
+      lines.push(`- ...and ${items.length - limit} more`);
+    }
+  };
+  const lines = [
+    "## Ripple architecture gate",
+    "",
+    `Status: ${status}`,
+    `Gate status: ${gate.status}`,
+    `Gate decision: ${gate.decision}`,
+    `Can continue: ${gate.canContinue}`,
+    `Must stop: ${gate.mustStop}`,
+    `Needs human: ${gate.needsHuman}`,
+    `Gate next required phase: ${gate.nextRequiredPhase}`,
+    `Gate next required action: ${gate.nextRequiredAction}`,
+    `Audit status: ${audit.status}`,
+    `Decision: ${audit.decision}`,
+    `Can proceed: ${audit.canProceed}`,
+    `Next required phase: ${audit.nextRequiredPhase}`,
+    `Next required action: ${audit.nextRequiredAction}`,
+    `Mode: ${audit.mode}`,
+  ];
+
+  if (audit.baseRef) {
+    lines.push(`Base ref: ${audit.baseRef}`);
+  }
+
+  lines.push(
+    `Checked files: ${summary.checkedFiles}`,
+    `Highest risk: ${summary.highestRisk}`,
+    ""
+  );
+
+  lines.push(
+    "### Intent",
+    "",
+    `- Intent: ${audit.intent.id}`,
+    `- Task: ${audit.intent.task}`,
+    `- Target: ${audit.intent.targetFile}`,
+    `- Verdict: ${validation?.verdict ?? "unknown"}`,
+    `- Drift verdict: ${validation?.driftVerdict.label ?? "UNKNOWN"}`,
+    `- Control mode: ${audit.intent.controlMode}`,
+    `- Boundary verdict: ${validation?.boundaryVerdict.label ?? "UNKNOWN"}`,
+    `- Human gate: ${audit.intent.humanGate}`,
+    `- Policy drift: ${validation?.policyDrift.label ?? "UNKNOWN"}`,
+    `- Readiness drift: ${validation?.readinessDrift.label ?? "UNKNOWN"}`,
+    `- Repair status: ${audit.repairPlan.status}`,
+    `- Next required phase: ${audit.nextRequiredPhase}`,
+    `- Recommended action: ${audit.recommendedAction}`,
+    ""
+  );
+
+  lines.push(
+    "### Approval",
+    "",
+    `- Status: ${audit.approvalStatus.status}`,
+    `- Decision: ${audit.approvalStatus.decision}`,
+    `- Required: ${audit.approvalStatus.required}`,
+    `- Approved: ${audit.approvalStatus.approved}`,
+    `- Gate: ${audit.approvalStatus.gate ?? "none"}`,
+    `- Summary: ${audit.approvalStatus.summary}`,
+    ""
+  );
+  if (audit.approvalStatus.approval) {
+    lines.push(
+      `- Approved by: ${audit.approvalStatus.approval.approvedBy}`,
+      `- Approved at: ${audit.approvalStatus.approval.approvedAt}`,
+      ""
+    );
+  }
+  pushList(lines, "Approval why", audit.approvalStatus.why, 8);
+  lines.push("");
+
+  if (audit.blockingReasons.length > 0) {
+    lines.push("### Blocking reasons", "");
+    audit.blockingReasons.forEach((reason) => lines.push(`- ${reason}`));
+    lines.push("");
+  }
+
+  lines.push(
+    "### Gate handoff",
+    "",
+    `- Summary: ${gate.summary}`,
+    `- Decision: ${gate.decision}`,
+    `- Can continue: ${gate.canContinue}`,
+    `- Must stop: ${gate.mustStop}`,
+    `- Needs human: ${gate.needsHuman}`,
+    ""
+  );
+  pushList(lines, "Gate why", gate.why, 8);
+  lines.push("");
+  pushList(lines, "Fix now", gate.fixNow, 12);
+  lines.push("");
+  pushList(lines, "Ask human", gate.askHuman, 8);
+  lines.push("");
+  pushList(
+    lines,
+    "Gate commands",
+    uniqueItems([
+      ...gate.commands.doctor,
+      ...gate.commands.check,
+      ...gate.commands.audit,
+      ...gate.commands.repair,
+      ...gate.commands.approve,
+      ...gate.commands.unstage,
+      ...gate.commands.verify,
+    ]),
+    16
+  );
+  lines.push("");
+
+  if (validation?.policyDrift) {
+    lines.push(
+      "### Policy drift",
+      "",
+      `- Status: ${validation.policyDrift.status}`,
+      `- Decision: ${validation.policyDrift.decision}`,
+      `- Summary: ${validation.policyDrift.summary}`,
+      ""
+    );
+    pushList(lines, "Changed policy fields", validation.policyDrift.changedFields, 12);
+    lines.push("");
+    pushList(lines, "Policy drift fix", validation.policyDrift.fix, 8);
+    lines.push("");
+  }
+
+  if (validation?.readinessDrift) {
+    lines.push(
+      "### Readiness drift",
+      "",
+      `- Status: ${validation.readinessDrift.status}`,
+      `- Decision: ${validation.readinessDrift.decision}`,
+      `- Summary: ${validation.readinessDrift.summary}`,
+      `- Saved enforcement: ${validation.readinessDrift.savedReadiness.enforcementLevel}`,
+      `- Current enforcement: ${validation.readinessDrift.currentReadiness?.enforcementLevel ?? "unknown"}`,
+      ""
+    );
+    pushList(lines, "Weakened readiness fields", validation.readinessDrift.weakenedFields, 12);
+    lines.push("");
+    pushList(lines, "Readiness drift fix", validation.readinessDrift.fix, 8);
+    lines.push("");
+  }
+
+  if (summary.files.length > 0) {
+    lines.push("### Changed files", "");
+    summary.files.slice(0, 20).forEach((file) => {
+      lines.push(`- ${file.file} (${file.modificationRisk}, importers: ${file.importerCount})`);
+    });
+    if (summary.files.length > 20) {
+      lines.push(`- ...and ${summary.files.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  lines.push("### Agent actions", "");
+  pushList(lines, "Trusted findings", summary.agentActions.trustedFindings, 12);
+  lines.push("");
+  pushList(lines, "Verify before commit", summary.agentActions.verifyBeforeCommit, 12);
+  lines.push("");
+  pushList(lines, "Manual review required", summary.agentActions.manualReviewRequired, 12);
+  lines.push("");
+  pushList(lines, "Fix actions", audit.repairPlan.fixActions.map(formatRepairActionForAgent), 12);
+  lines.push("");
+
+  if (audit.verificationTargets.length > 0) {
+    lines.push("### Verify", "");
+    audit.verificationTargets.slice(0, 20).forEach((target) => lines.push(`- ${target}`));
+    if (audit.verificationTargets.length > 20) {
+      lines.push(`- ...and ${audit.verificationTargets.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): void {
+  const validation = summary.intentValidation;
+  if (!validation) {
+    printGithubErrorAnnotation({
+      title: "Ripple intent required",
+      message: "Strict Ripple checks need --intent latest or another saved change intent.",
+    });
+    return;
+  }
+
+  if (validation.policyDrift.status === "changed") {
+    printGithubErrorAnnotation({
+      file: validation.targetFile,
+      title: "Ripple policy drift",
+      message: validation.policyDrift.summary,
+    });
+    validation.policyDrift.changedFields.slice(0, 8).forEach((field) => {
+      printGithubErrorAnnotation({
+        file: validation.targetFile,
+        title: "Ripple policy drift",
+        message: field,
+      });
+    });
+  }
+
+  if (validation.readinessDrift.status === "weakened") {
+    printGithubErrorAnnotation({
+      file: validation.targetFile,
+      title: "Ripple readiness drift",
+      message: validation.readinessDrift.summary,
+    });
+    validation.readinessDrift.weakenedFields.slice(0, 8).forEach((field) => {
+      printGithubErrorAnnotation({
+        file: validation.targetFile,
+        title: "Ripple readiness drift",
+        message: `Weakened readiness field: ${field}`,
+      });
+    });
+  }
+
+  validation.unplannedFiles.forEach((file) => {
+    printGithubErrorAnnotation({
+      file,
+      title: "Ripple intent drift",
+      message: `Unplanned file changed: ${file}`,
+    });
+  });
+
+  validation.unplannedSymbols.forEach((symbol) => {
+    const file = symbolFile(symbol);
+    printGithubErrorAnnotation({
+      file,
+      title: "Ripple symbol drift",
+      message: `Unplanned symbol changed: ${symbol}`,
+    });
+  });
+
+  validation.boundaryVerdict.changedOutsideBoundaryFiles.forEach((file) => {
+    printGithubErrorAnnotation({
+      file,
+      title: "Ripple boundary drift",
+      message: `File changed outside ${validation.controlMode} boundary: ${file}`,
+    });
+  });
+
+  validation.boundaryVerdict.changedOutsideBoundarySymbols.forEach((symbol) => {
+    printGithubErrorAnnotation({
+      file: symbolFile(symbol),
+      title: "Ripple boundary drift",
+      message: `Symbol changed outside ${validation.controlMode} boundary: ${symbol}`,
+    });
+  });
+
+  uniqueItems([
+    ...validation.protectedContractChanges,
+    ...validation.unplannedContractChanges,
+  ]).forEach((symbol) => {
+    const file = symbolFile(symbol);
+    printGithubErrorAnnotation({
+      file,
+      title: "Ripple contract drift",
+      message: `Contract review required: ${symbol}`,
+    });
+  });
+
+  validation.blockingReasons
+    .filter((reason) => !reason.startsWith("Unplanned file changed: "))
+    .forEach((reason) => {
+      printGithubErrorAnnotation({
+        title: "Ripple check blocked",
+        message: reason,
+      });
+    });
+
+  summary.agentActions.trustedFindings.slice(0, 12).forEach((action) => {
+    printGithubNoticeAnnotation({
+      file: actionFile(action),
+      title: "Ripple trusted finding",
+      message: action,
+    });
+  });
+
+  summary.agentActions.verifyBeforeCommit.slice(0, 12).forEach((action) => {
+    printGithubWarningAnnotation({
+      file: actionFile(action),
+      title: "Ripple verify before commit",
+      message: action,
+    });
+  });
+
+  summary.agentActions.manualReviewRequired.slice(0, 12).forEach((action) => {
+    printGithubErrorAnnotation({
+      file: actionFile(action),
+      title: "Ripple manual review required",
+      message: action,
+    });
+  });
+}
+
+function printGithubAuditAnnotations(audit: RippleAuditSummary): void {
+  const gate = buildRippleGateSummary(audit);
+  if (audit.status !== "pass") {
+    printGithubErrorAnnotation({
+      file: audit.intent.targetFile,
+      title: "Ripple gate closed",
+      message: `${gate.status}/${gate.decision}: next=${gate.nextRequiredPhase}. ${gate.nextRequiredAction}`,
+    });
+  }
+  if (audit.approvalStatus.required && !audit.approvalStatus.approved) {
+    printGithubErrorAnnotation({
+      file: audit.intent.targetFile,
+      title: "Ripple approval required",
+      message: audit.approvalStatus.summary,
+    });
+  }
+  printGithubCheckAnnotations(audit.stagedCheck);
+}
+
+function printGithubNoticeAnnotation(input: {
+  file?: string;
+  title: string;
+  message: string;
+}): void {
+  printGithubAnnotation("notice", input);
+}
+
+function printGithubWarningAnnotation(input: {
+  file?: string;
+  title: string;
+  message: string;
+}): void {
+  printGithubAnnotation("warning", input);
+}
+
+function printGithubErrorAnnotation(input: {
+  file?: string;
+  title: string;
+  message: string;
+}): void {
+  printGithubAnnotation("error", input);
+}
+
+function printGithubAnnotation(
+  kind: "notice" | "warning" | "error",
+  input: {
+    file?: string;
+    title: string;
+    message: string;
+  }
+): void {
+  const properties = [
+    input.file ? `file=${escapeGithubCommandProperty(input.file)}` : null,
+    `title=${escapeGithubCommandProperty(input.title)}`,
+  ].filter(Boolean).join(",");
+  console.log(`::${kind} ${properties}::${escapeGithubCommandData(input.message)}`);
+}
+
+function escapeGithubCommandData(value: string): string {
+  return value
+    .replace(/%/g, "%25")
+    .replace(/\r/g, "%0D")
+    .replace(/\n/g, "%0A");
+}
+
+function escapeGithubCommandProperty(value: string): string {
+  return escapeGithubCommandData(value)
+    .replace(/:/g, "%3A")
+    .replace(/,/g, "%2C");
+}
+
+function symbolFile(symbol: string): string | undefined {
+  const index = symbol.indexOf("::");
+  if (index <= 0) {
+    return undefined;
+  }
+  return symbol.slice(0, index);
+}
+
+function actionFile(action: string): string | undefined {
+  const subjectEnd = action.indexOf(":");
+  if (subjectEnd <= 0) {
+    return undefined;
+  }
+
+  const subject = action.slice(0, subjectEnd);
+  const fileFromSymbol = symbolFile(subject);
+  if (fileFromSymbol) {
+    return fileFromSymbol;
+  }
+
+  return /\.(ts|tsx|js|jsx)$/i.test(subject) ? subject : undefined;
+}
+
+function relativeToWorkspace(workspaceRoot: string, filePath: string): string {
+  return path.relative(workspaceRoot, filePath).split(path.sep).join("/");
+}
+
+function normalizeProjectPath(filePath: string): string {
+  return filePath.replace(/\\/g, "/").replace(/^\.\/+/, "");
+}
+
+function formatEventLine(event: RecentHistorySummary["groups"][number]["events"][number]): string {
+  const target = event.target ? ` -> ${event.target}` : "";
+  const details = [
+    event.kind ? `kind:${event.kind}` : null,
+    event.layer ? `layer:${event.layer}` : null,
+    event.metadata ?? null,
+  ].filter(Boolean).join(", ");
+  return `${event.type} ${event.source}${target}${details ? ` (${details})` : ""}`;
+}
+
+async function runWithQuietEngine<T>(task: () => Promise<T>): Promise<T> {
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    return await task();
+  } finally {
+    console.log = originalLog;
+  }
+}
+
+function printScanSummary(summary: ScanSummary): void {
+  console.log("Ripple scan complete");
+  console.log(`Workspace: ${summary.workspace}`);
+  console.log(`Files: ${summary.files}`);
+  console.log(`Symbols: ${summary.symbols}`);
+  console.log(`Call edges: ${summary.callEdges}`);
+  console.log(`Context: .ripple/ ${summary.contextGenerated ? "generated" : "not generated"}`);
+}
+
+function printDoctorSummary(summary: RippleReadinessSummary): void {
+  console.log("Ripple doctor");
+  console.log(`Workspace: ${summary.workspace}`);
+  console.log(`Status: ${summary.status}`);
+  console.log("");
+  console.log(
+    `Adapter: ${summary.adapterSupport.primaryAdapter.capabilities.displayName} (${summary.adapterSupport.supportLevel})`
+  );
+  console.log(`Adapter confidence: ${Math.round(summary.adapterSupport.primaryAdapter.confidence * 100)}%`);
+  console.log(`Agent trust: ${summary.adapterSupport.primaryAdapter.agentPolicy.canTrust.join(", ")}`);
+  console.log(`Graph: ${summary.checks.graph.ok ? "ok" : "missing"} - ${summary.checks.graph.detail}`);
+  console.log(`Git: ${summary.checks.git.ok ? "ok" : "missing"} - ${summary.checks.git.detail}`);
+  console.log(
+    `CI workflow: ${summary.checks.ciWorkflow.ok ? "ok" : "missing"} - ${summary.checks.ciWorkflow.detail}`
+  );
+  console.log(
+    `Latest intent: ${summary.checks.latestIntent.ok ? "ok" : "missing"} - ${summary.checks.latestIntent.detail}`
+  );
+  console.log("");
+  console.log("Enforcement:");
+  console.log(`  level: ${summary.enforcement.level}`);
+  console.log(`  can guide agents: ${summary.enforcement.canGuideAgents}`);
+  console.log(`  can detect drift: ${summary.enforcement.canDetectDrift}`);
+  console.log(`  can block in CI: ${summary.enforcement.canBlockInCi}`);
+  console.log(`  policy: ${summary.enforcement.explicitPolicy.detail}`);
+  console.log(`  summary: ${summary.enforcement.summary}`);
+  if (summary.enforcement.gaps.length > 0) {
+    console.log("  gaps:");
+    summary.enforcement.gaps.forEach((gap) => console.log(`    - ${gap}`));
+  }
+  console.log("");
+  console.log("Next steps:");
+  summary.nextSteps.forEach((step) => console.log(`  - ${step}`));
+}
+
+function printInitSummary(summary: RippleInitSummary): void {
+  console.log("Ripple init");
+  console.log(`Workspace: ${summary.workspace}`);
+  console.log("");
+  console.log("Setup files:");
+  summary.files.forEach((file) => {
+    console.log(`  - ${file.path}: ${file.status}`);
+  });
+  if (summary.readiness) {
+    console.log("");
+    console.log("Readiness after init:");
+    console.log(`  status: ${summary.readiness.status}`);
+    console.log(`  enforcement: ${summary.readiness.enforcement.level}`);
+    console.log(`  can guide agents: ${summary.readiness.enforcement.canGuideAgents}`);
+    console.log(`  can detect drift: ${summary.readiness.enforcement.canDetectDrift}`);
+    console.log(`  can block in CI: ${summary.readiness.enforcement.canBlockInCi}`);
+  }
+  console.log("");
+  console.log("Next steps:");
+  summary.nextSteps.forEach((step) => console.log(`  - ${step}`));
+}
+
+function printAgentDoctorSummary(summary: RippleReadinessSummary): void {
+  console.log("RIPPLE_DOCTOR");
+  console.log(`status: ${summary.status}`);
+  console.log(`readiness_decision: ${summary.status === "ready" ? "continue" : "setup-required"}`);
+  console.log(`workspace: ${summary.workspace}`);
+  console.log(`adapter: ${summary.adapterSupport.primaryAdapter.id}`);
+  console.log(`adapter_support: ${summary.adapterSupport.supportLevel}`);
+  console.log(`adapter_confidence: ${Math.round(summary.adapterSupport.primaryAdapter.confidence * 100)}%`);
+  console.log(`enforcement_level: ${summary.enforcement.level}`);
+  console.log(`can_guide_agents: ${summary.enforcement.canGuideAgents}`);
+  console.log(`can_detect_drift: ${summary.enforcement.canDetectDrift}`);
+  console.log(`can_block_in_ci: ${summary.enforcement.canBlockInCi}`);
+  console.log(`policy_explicit: ${summary.enforcement.explicitPolicy.ok}`);
+  console.log(`policy_detail: ${summary.enforcement.explicitPolicy.detail}`);
+  console.log(`graph: ${summary.checks.graph.ok ? "ok" : "missing"} - ${summary.checks.graph.detail}`);
+  console.log(`git: ${summary.checks.git.ok ? "ok" : "missing"} - ${summary.checks.git.detail}`);
+  console.log(`ci_workflow: ${summary.checks.ciWorkflow.ok ? "ok" : "missing"} - ${summary.checks.ciWorkflow.detail}`);
+  console.log(`latest_intent: ${summary.checks.latestIntent.ok ? "ok" : "missing"} - ${summary.checks.latestIntent.detail}`);
+  console.log("");
+  printAgentList("gaps", summary.enforcement.gaps);
+  console.log("");
+  printAgentList("next_steps", summary.nextSteps);
+}
+
+function printHistorySummary(summary: RecentHistorySummary): void {
+  console.log("Ripple history");
+  console.log(`Events: ${summary.totalEvents}`);
+  console.log(`Groups: ${summary.returnedGroups}`);
+
+  if (summary.groups.length === 0) {
+    console.log("");
+    console.log("No history events found.");
+    return;
+  }
+
+  summary.groups.forEach((group, index) => {
+    console.log("");
+    console.log(`${index + 1}. ${group.changedAt} ${group.id}`);
+    console.log(`   Events: ${group.eventCount}`);
+    if (group.filesChanged.length > 0) {
+      console.log(`   Files: ${group.filesChanged.join(", ")}`);
+    }
+    if (group.symbolsChanged.length > 0) {
+      console.log(`   Symbols: ${group.symbolsChanged.slice(0, 5).join(", ")}`);
+    }
+    if (group.relatedFiles.length > 0) {
+      console.log(`   Related: ${group.relatedFiles.join(", ")}`);
+    }
+    group.events.slice(0, 5).forEach((event) => {
+      console.log(`   - ${formatEventLine(event)}`);
+    });
+  });
+}
+
+function printPlanFiles(title: string, files: ContextPlanFile[]): void {
+  console.log(title);
+  if (files.length === 0) {
+    console.log("  none");
+    return;
+  }
+  files.forEach((file) => {
+    const role = file.role ?? "related";
+    const score = file.score === undefined ? "" : `, score: ${file.score}`;
+    const signals = file.signals && file.signals.length > 0
+      ? file.signals.join(", ")
+      : "none";
+
+    console.log(
+      `  - ${file.file} [${role}, ${file.modificationRisk}${score}, ~${file.estimatedTokens} tokens]`
+    );
+    console.log(`    signals: ${signals}`);
+    if (file.adapterSignals && file.adapterSignals.length > 0) {
+      console.log(`    adapter signals: ${formatAdapterSignalInline(file.adapterSignals)}`);
+    }
+    console.log(`    reason: ${file.reason}`);
+    console.log(`    focus: ${file.focus}`);
+  });
+}
+
+function formatAdapterSignalInline(signals: ContextPlanAdapterSignal[] | undefined): string {
+  if (!signals || signals.length === 0) {
+    return "none";
+  }
+  return signals
+    .map((signal) =>
+      `${signal.capability}:${signal.agentUse}/${Math.round(signal.confidence * 100)}%`
+    )
+    .join(", ");
+}
+
+function printSymbolFocus(symbols: ContextPlanSymbol[]): void {
+  console.log("Symbol focus:");
+  if (symbols.length === 0) {
+    console.log("  none");
+    return;
+  }
+
+  symbols.slice(0, 12).forEach((symbol) => {
+    const signals = symbol.signals.length > 0 ? symbol.signals.join(", ") : "none";
+    console.log(
+      `  - ${symbol.symbol} [${symbol.kind}, ${symbol.layer}, score: ${symbol.score}, callers: ${symbol.callers}, calls: ${symbol.calls}]`
+    );
+    console.log(`    signals: ${signals}`);
+    console.log(`    reason: ${symbol.reason}`);
+  });
+}
+
+function adapterConfidencePercent(summary: ContextPlanSummary): number {
+  return Math.round(summary.adapterSupport.primaryAdapter.confidence * 100);
+}
+
+function printPlanAdapterSupport(summary: ContextPlanSummary): void {
+  const adapter = summary.adapterSupport.primaryAdapter;
+  console.log(
+    `Adapter: ${adapter.capabilities.displayName} (${adapter.supportLevel}, ${adapterConfidencePercent(summary)}%)`
+  );
+  console.log(`Adapter language: ${adapter.capabilities.language}`);
+  console.log("Adapter trust:");
+  adapter.agentPolicy.canTrust.forEach((item) => console.log(`  - ${item}`));
+  console.log("Adapter verify:");
+  adapter.agentPolicy.beCarefulWith.forEach((item) => console.log(`  - ${item}`));
+  if (adapter.agentPolicy.mustFallbackToManual.length > 0) {
+    console.log("Adapter manual fallback:");
+    adapter.agentPolicy.mustFallbackToManual.forEach((item) => console.log(`  - ${item}`));
+  }
+}
+
+function printContextPlan(summary: ContextPlanSummary, savedIntent?: SavedChangeIntent): void {
+  console.log("Ripple context plan");
+  console.log(`Task: ${summary.task}`);
+  console.log(`Target: ${summary.targetFile}`);
+  console.log(`Risk: ${summary.risk}`);
+  console.log(`Budget: ${summary.tokenBudget}`);
+  console.log(`Estimated readFirst tokens: ${summary.estimatedTokens}`);
+  console.log(`Why: ${summary.why}`);
+  console.log("");
+  printPlanAdapterSupport(summary);
+  if (summary.planningSignals && summary.planningSignals.length > 0) {
+    console.log("");
+    console.log("Planning signals:");
+    summary.planningSignals.forEach((signal) => console.log(`  - ${signal}`));
+  }
+  console.log("");
+  printPlanFiles("Read first:", summary.readFirst);
+  console.log("");
+  printPlanFiles("Read if needed:", summary.readIfNeeded);
+  console.log("");
+  printSymbolFocus(summary.symbolFocus);
+  console.log("");
+  console.log("Avoid initially:");
+  summary.avoidInitially.forEach((item) => console.log(`  - ${item}`));
+  if (summary.doNotReadFirst && summary.doNotReadFirst.length > 0) {
+    console.log("");
+    console.log("Do not read first:");
+    summary.doNotReadFirst.forEach((item) => console.log(`  - ${item}`));
+  }
+  if (summary.verificationTargets.length > 0) {
+    console.log("");
+    console.log("Verification targets:");
+    summary.verificationTargets.slice(0, 12).forEach((item) => console.log(`  - ${item}`));
+  }
+  if (savedIntent) {
+    console.log("");
+    console.log(`Saved change intent: ${relativeToWorkspace(process.cwd(), savedIntent.path)}`);
+    console.log(`Intent id: ${savedIntent.intent.id}`);
+    console.log(`Control mode: ${savedIntent.intent.controlMode}`);
+    console.log(`Human gate: ${savedIntent.intent.humanGate}`);
+    console.log(`Boundary risk: ${savedIntent.intent.boundaryRisk}`);
+    console.log(`Policy source: ${savedIntent.intent.policySource}`);
+    console.log(`Enforcement at plan time: ${savedIntent.intent.readinessSnapshot.enforcementLevel}`);
+    console.log(
+      `Can detect drift: ${savedIntent.intent.readinessSnapshot.canDetectDrift ? "yes" : "no"}`
+    );
+    console.log(
+      `Can block in CI: ${savedIntent.intent.readinessSnapshot.canBlockInCi ? "yes" : "no"}`
+    );
+    console.log("Editable files:");
+    savedIntent.intent.editableFiles.forEach((file) => console.log(`  - ${file}`));
+    if (savedIntent.intent.allowedSymbols.length > 0) {
+      console.log("Allowed symbols:");
+      savedIntent.intent.allowedSymbols.forEach((symbol) => console.log(`  - ${symbol}`));
+    }
+    if (savedIntent.intent.policyMatches.length > 0) {
+      console.log("Policy matches:");
+      savedIntent.intent.policyMatches.forEach((match) => console.log(`  - ${match}`));
+    }
+    console.log("Context-only files:");
+    savedIntent.intent.contextFiles.slice(0, 12).forEach((file) => console.log(`  - ${file}`));
+    if (savedIntent.intent.humanGateReason.length > 0) {
+      console.log("Human gate reason:");
+      savedIntent.intent.humanGateReason.forEach((reason) => console.log(`  - ${reason}`));
+    }
+  }
+}
+
+function printAgentList(title: string, items: string[]): void {
+  console.log(`${title}:`);
+  if (items.length === 0) {
+    console.log("- none");
+    return;
+  }
+  items.forEach((item) => console.log(`- ${item}`));
+}
+
+function printAgentHandoffBlock(
+  title: string,
+  handoff: RippleAgentHandoffVerdict
+): void {
+  console.log(`${title}:`);
+  console.log(`can_continue: ${handoff.canContinue}`);
+  console.log(`must_stop: ${handoff.mustStop}`);
+  console.log(`needs_human: ${handoff.needsHuman}`);
+  console.log(`decision: ${handoff.decision}`);
+  console.log(`next_required_phase: ${handoff.nextRequiredPhase}`);
+  console.log(`next_required_action: ${handoff.nextRequiredAction}`);
+  console.log(`summary: ${handoff.summary}`);
+  console.log("");
+  printAgentList("handoff_why", handoff.why);
+  console.log("");
+  printAgentList("fix_now", handoff.fixNow);
+  console.log("");
+  printAgentList("ask_human", handoff.askHuman);
+  console.log("");
+  printAgentList("commands_doctor", handoff.commands.doctor);
+  console.log("");
+  printAgentList("commands_plan", handoff.commands.plan);
+  console.log("");
+  printAgentList("commands_check", handoff.commands.check);
+  console.log("");
+  printAgentList("commands_audit", handoff.commands.audit);
+  console.log("");
+  printAgentList("commands_repair", handoff.commands.repair);
+  console.log("");
+  printAgentList("commands_approve", handoff.commands.approve);
+  console.log("");
+  printAgentList("commands_unstage", handoff.commands.unstage);
+  console.log("");
+  printAgentList("commands_verify", handoff.commands.verify);
+}
+
+function printAgentPolicyExplanationBlock(
+  title: string,
+  explanation: RipplePolicyExplanation
+): void {
+  console.log(`${title}:`);
+  console.log(`effective_mode: ${explanation.effectiveMode}`);
+  console.log(`policy_risk: ${explanation.policyRisk}`);
+  console.log(`human_gate: ${explanation.humanGate}`);
+  console.log(`human_required: ${explanation.humanRequired}`);
+  console.log(`policy_source: ${explanation.policySource}`);
+  printAgentList("policy_matches", explanation.matchedRules);
+}
+
+function printPolicyExplanationSummary(
+  title: string,
+  explanation: RipplePolicyExplanation
+): void {
+  console.log(title);
+  console.log(`  effective mode: ${explanation.effectiveMode}`);
+  console.log(`  policy risk: ${explanation.policyRisk}`);
+  console.log(`  human gate: ${explanation.humanGate}`);
+  console.log(`  human required: ${explanation.humanRequired}`);
+  console.log(`  policy source: ${explanation.policySource}`);
+  console.log(
+    `  matched rules: ${explanation.matchedRules.length > 0 ? explanation.matchedRules.join("; ") : "none"}`
+  );
+}
+
+function printAgentPolicyDriftBlock(
+  title: string,
+  drift: ChangeIntentValidationSummary["policyDrift"]
+): void {
+  console.log(`${title}:`);
+  console.log(`label: ${drift.label}`);
+  console.log(`status: ${drift.status}`);
+  console.log(`decision: ${drift.decision}`);
+  console.log(`summary: ${drift.summary}`);
+  printAgentList("changed_policy_fields", drift.changedFields);
+  console.log("");
+  printAgentList("policy_drift_why", drift.why);
+  console.log("");
+  printAgentList("policy_drift_fix", drift.fix);
+}
+
+function printAgentReadinessDriftBlock(
+  title: string,
+  drift: ChangeIntentValidationSummary["readinessDrift"]
+): void {
+  console.log(`${title}:`);
+  console.log(`label: ${drift.label}`);
+  console.log(`status: ${drift.status}`);
+  console.log(`decision: ${drift.decision}`);
+  console.log(`summary: ${drift.summary}`);
+  console.log(`saved_enforcement_level: ${drift.savedReadiness.enforcementLevel}`);
+  if (drift.currentReadiness) {
+    console.log(`current_enforcement_level: ${drift.currentReadiness.enforcementLevel}`);
+  }
+  printAgentList("changed_readiness_fields", drift.changedFields);
+  console.log("");
+  printAgentList("weakened_readiness_fields", drift.weakenedFields);
+  console.log("");
+  printAgentList("readiness_drift_why", drift.why);
+  console.log("");
+  printAgentList("readiness_drift_fix", drift.fix);
+}
+
+function printPolicyDriftSummary(
+  title: string,
+  drift: ChangeIntentValidationSummary["policyDrift"]
+): void {
+  console.log(title);
+  console.log(`  verdict: ${drift.label}`);
+  console.log(`  status: ${drift.status}`);
+  console.log(`  decision: ${drift.decision}`);
+  console.log(`  summary: ${drift.summary}`);
+  if (drift.changedFields.length > 0) {
+    console.log("  changed fields:");
+    drift.changedFields.forEach((field) => console.log(`    - ${field}`));
+  }
+}
+
+function printReadinessDriftSummary(
+  title: string,
+  drift: ChangeIntentValidationSummary["readinessDrift"]
+): void {
+  console.log(title);
+  console.log(`  verdict: ${drift.label}`);
+  console.log(`  status: ${drift.status}`);
+  console.log(`  decision: ${drift.decision}`);
+  console.log(`  summary: ${drift.summary}`);
+  console.log(`  saved enforcement: ${drift.savedReadiness.enforcementLevel}`);
+  if (drift.currentReadiness) {
+    console.log(`  current enforcement: ${drift.currentReadiness.enforcementLevel}`);
+  }
+  if (drift.weakenedFields.length > 0) {
+    console.log("  weakened fields:");
+    drift.weakenedFields.forEach((field) => console.log(`    - ${field}`));
+  }
+}
+
+function printAgentContextPlan(summary: ContextPlanSummary, savedIntent?: SavedChangeIntent): void {
+  const adapter = summary.adapterSupport.primaryAdapter;
+  console.log("RIPPLE_AGENT_CONTEXT");
+  console.log(`task: ${summary.task}`);
+  console.log(`target: ${summary.targetFile}`);
+  console.log(`risk: ${summary.risk}`);
+  console.log(
+    `adapter: ${adapter.id} (${adapter.capabilities.displayName}, ${adapter.supportLevel}, ${adapterConfidencePercent(summary)}%)`
+  );
+  console.log(`adapter_language: ${adapter.capabilities.language}`);
+  console.log(`token_budget: ${summary.tokenBudget}`);
+  console.log(`estimated_read_first_tokens: ${summary.estimatedTokens}`);
+  if (savedIntent) {
+    console.log(`intent_id: ${savedIntent.intent.id}`);
+    console.log(`intent_path: ${relativeToWorkspace(process.cwd(), savedIntent.path)}`);
+    console.log(`control_mode: ${savedIntent.intent.controlMode}`);
+    console.log(`human_gate: ${savedIntent.intent.humanGate}`);
+    console.log(`human_required: ${savedIntent.intent.humanGate !== "none"}`);
+    console.log(`boundary_risk: ${savedIntent.intent.boundaryRisk}`);
+    console.log(`policy_source: ${savedIntent.intent.policySource}`);
+    console.log(`readiness_status: ${savedIntent.intent.readinessSnapshot.status}`);
+    console.log(`enforcement_level: ${savedIntent.intent.readinessSnapshot.enforcementLevel}`);
+    console.log(`can_guide_agents: ${savedIntent.intent.readinessSnapshot.canGuideAgents}`);
+    console.log(`can_detect_drift: ${savedIntent.intent.readinessSnapshot.canDetectDrift}`);
+    console.log(`can_block_in_ci: ${savedIntent.intent.readinessSnapshot.canBlockInCi}`);
+    console.log(`policy_explicit: ${savedIntent.intent.readinessSnapshot.policyExplicit}`);
+  }
+  console.log("");
+  if (savedIntent) {
+    printAgentPolicyExplanationBlock("policy_explanation", savedIntent.intent.policyExplanation);
+    console.log("");
+    printAgentList("readiness_gaps", savedIntent.intent.readinessSnapshot.gaps);
+    console.log("");
+    printAgentList("readiness_next_steps", savedIntent.intent.readinessSnapshot.nextSteps);
+    console.log("");
+    printAgentList("allowed_files", savedIntent.intent.editableFiles);
+    console.log("");
+    printAgentList("allowed_symbols", savedIntent.intent.allowedSymbols);
+    console.log("");
+    printAgentList("human_gate_reason", savedIntent.intent.humanGateReason);
+    console.log("");
+    printAgentList("editable_files", savedIntent.intent.editableFiles);
+    console.log("");
+    printAgentList("context_files", savedIntent.intent.contextFiles.slice(0, 16));
+    console.log("");
+  }
+  printAgentList("adapter_trust", adapter.agentPolicy.canTrust);
+  console.log("");
+  printAgentList("adapter_verify", adapter.agentPolicy.beCarefulWith);
+  console.log("");
+  printAgentList("adapter_manual_fallback", adapter.agentPolicy.mustFallbackToManual);
+  console.log("");
+  printAgentList("adapter_guidance", adapter.agentPolicy.planningGuidance);
+  console.log("");
+  printAgentList("read_first", summary.readFirst.map((file) => file.file));
+  if (summary.readIfNeeded.length > 0) {
+    console.log("");
+    printAgentList(
+      "read_if_needed",
+      summary.readIfNeeded.slice(0, 8).map((file) => file.file)
+    );
+  }
+  console.log("");
+  printAgentList(
+    "symbols_first",
+    summary.symbolFocus.slice(0, 8).map((symbol) => symbol.symbol)
+  );
+  console.log("");
+  printAgentList("verify", summary.verificationTargets.slice(0, 12));
+  console.log("");
+  printAgentList(
+    "avoid_first",
+    (summary.doNotReadFirst ?? summary.avoidInitially).slice(0, 6)
+  );
+}
+
+function uniqueItems(items: string[]): string[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item)) {
+      return false;
+    }
+    seen.add(item);
+    return true;
+  });
+}
+
+function printAgentIntentValidation(validation: ChangeIntentValidationSummary | undefined): void {
+  if (!validation) {
+    return;
+  }
+
+  console.log("");
+  console.log(`intent_id: ${validation.intentId}`);
+  console.log(`intent_verdict: ${validation.verdict}`);
+  console.log(`control_mode: ${validation.controlMode}`);
+  console.log(`human_gate: ${validation.humanGate}`);
+  console.log(`human_required: ${validation.boundaryVerdict.humanRequired}`);
+  console.log(`boundary_risk: ${validation.boundaryRisk}`);
+  console.log(`boundary_verdict: ${validation.boundaryVerdict.label}`);
+  console.log(`boundary_status: ${validation.boundaryVerdict.status}`);
+  console.log(`boundary_decision: ${validation.boundaryVerdict.decision}`);
+  console.log(`boundary_summary: ${validation.boundaryVerdict.summary}`);
+  console.log(`planned_scope: ${validation.plannedScope}`);
+  printAgentDriftVerdict(validation.driftVerdict);
+  console.log(`next_required_phase: ${validation.nextRequiredPhase}`);
+  console.log(`next_required_action: ${validation.nextRequiredAction}`);
+  console.log(`recommended_action: ${validation.recommendedAction}`);
+  console.log("");
+  printAgentHandoffBlock("handoff", validation.handoff);
+  console.log("");
+  printAgentPolicyExplanationBlock("saved_policy_explanation", validation.policyExplanation);
+  console.log("");
+  printAgentPolicyDriftBlock("policy_drift", validation.policyDrift);
+  console.log("");
+  printAgentReadinessDriftBlock("readiness_drift", validation.readinessDrift);
+  console.log("");
+  printAgentList("allowed_files", validation.allowedFiles);
+  console.log("");
+  printAgentList("allowed_symbols", validation.allowedSymbols);
+  console.log("");
+  printAgentList("boundary_why", validation.boundaryVerdict.why);
+  console.log("");
+  printAgentList("boundary_fix", validation.boundaryVerdict.fix);
+  console.log("");
+  printAgentList("changed_outside_boundary_files", validation.boundaryVerdict.changedOutsideBoundaryFiles);
+  console.log("");
+  printAgentList("changed_outside_boundary_symbols", validation.boundaryVerdict.changedOutsideBoundarySymbols);
+  console.log("");
+  printAgentList("blocking_reasons", validation.blockingReasons);
+  console.log("");
+  printAgentList("next_steps", validation.nextSteps);
+  console.log("");
+  printAgentList("editable_files", validation.editableFiles);
+  console.log("");
+  printAgentList("context_files_changed", validation.contextFilesChanged);
+  console.log("");
+  printAgentList("unplanned_files", validation.unplannedFiles);
+  console.log("");
+  printAgentList("unplanned_symbols", validation.unplannedSymbols);
+  console.log("");
+  printAgentList(
+    "contract_drift",
+    uniqueItems([
+      ...validation.protectedContractChanges,
+      ...validation.unplannedContractChanges,
+    ])
+  );
+}
+
+function printAgentDriftVerdict(verdict: DriftVerdictSummary): void {
+  console.log(`drift_verdict: ${verdict.label}`);
+  console.log(`drift_status: ${verdict.status}`);
+  console.log(`drift_decision: ${verdict.decision}`);
+  console.log(`drift_summary: ${verdict.summary}`);
+  console.log("");
+  printAgentList("drift_why", verdict.why);
+  console.log("");
+  printAgentList("drift_fix", verdict.fix);
+}
+
+function printAgentStagedCheckSummary(summary: StagedCheckWithIntentSummary): void {
+  const adapter = summary.adapterSupport.primaryAdapter;
+  console.log("RIPPLE_STAGED_CHECK");
+  console.log(`mode: ${summary.mode}`);
+  if (summary.baseRef) {
+    console.log(`base_ref: ${summary.baseRef}`);
+  }
+  console.log(`highest_risk: ${summary.highestRisk}`);
+  console.log(`requires_attention: ${summary.requiresAttention}`);
+  console.log(
+    `adapter: ${adapter.id} (${adapter.capabilities.displayName}, ${adapter.supportLevel}, ${Math.round(adapter.confidence * 100)}%)`
+  );
+  console.log(`adapter_language: ${adapter.capabilities.language}`);
+  console.log(`checked_js_ts_files: ${summary.stagedFiles}`);
+  console.log(`checked_files: ${summary.checkedFiles}`);
+  printAgentIntentValidation(summary.intentValidation);
+
+  console.log("");
+  printAgentList("trusted_findings", summary.agentActions.trustedFindings);
+  console.log("");
+  printAgentList("verify_before_commit", summary.agentActions.verifyBeforeCommit);
+  console.log("");
+  printAgentList("manual_review_required", summary.agentActions.manualReviewRequired);
+
+  console.log("");
+  console.log("changed_files:");
+  if (summary.files.length === 0) {
+    console.log("- none");
+  } else {
+    summary.files.forEach((file) => {
+      console.log(
+        `- ${file.file} [${file.modificationRisk}, importers: ${file.importerCount}, symbols: ${file.symbolCount}, adapter: ${formatAdapterSignalInline(file.adapterSignals)}]`
+      );
+    });
+  }
+
+  console.log("");
+  printAgentList(
+    "changed_symbols",
+    summary.changedSymbols.slice(0, 16).map((symbol) => {
+      return `${symbol.symbol} [${symbol.symbolStatus}, ${symbol.changeKind}, signature_changed: ${symbol.signatureChanged}, risk: ${symbol.contractRisk}, callers: ${symbol.callers}, adapter: ${formatAdapterSignalInline(symbol.adapterSignals)}]`;
+    })
+  );
+  console.log("");
+  printAgentList(
+    "contract_risk",
+    summary.contractRisks.slice(0, 16).map((risk) => {
+      return `${risk.symbol} [${risk.risk}, adapter: ${formatAdapterSignalInline(risk.adapterSignals)}] ${risk.reason}`;
+    })
+  );
+  console.log("");
+  printAgentList(
+    "read_first",
+    uniqueItems(summary.files.flatMap((file) => file.readFirst)).slice(0, 16)
+  );
+  console.log("");
+  printAgentList(
+    "symbols_first",
+    uniqueItems(summary.files.flatMap((file) => file.symbolFocus)).slice(0, 16)
+  );
+  console.log("");
+  printAgentList(
+    "verify",
+    uniqueItems(summary.files.flatMap((file) => file.verificationTargets)).slice(0, 16)
+  );
+
+  if (summary.skippedFiles.length > 0) {
+    console.log("");
+    printAgentList("skipped", summary.skippedFiles);
+  }
+  if (summary.missingFiles.length > 0) {
+    console.log("");
+    printAgentList("missing_from_graph", summary.missingFiles);
+  }
+}
+
+function printAgentIntentDriftRepairPlan(plan: IntentDriftRepairPlan): void {
+  console.log("RIPPLE_INTENT_DRIFT_REPAIR");
+  if (plan.intentId) {
+    console.log(`intent_id: ${plan.intentId}`);
+  }
+  console.log(`verdict: ${plan.verdict}`);
+  console.log(`status: ${plan.status}`);
+  console.log("");
+  printAgentHandoffBlock("handoff", plan.handoff);
+  console.log("");
+  printAgentDriftVerdict(plan.driftVerdict);
+  if (plan.boundaryVerdict) {
+    console.log(`boundary_verdict: ${plan.boundaryVerdict.label}`);
+    console.log(`boundary_decision: ${plan.boundaryVerdict.decision}`);
+    console.log(`control_mode: ${plan.boundaryVerdict.controlMode}`);
+    console.log(`human_required: ${plan.boundaryVerdict.humanRequired}`);
+  }
+  if (plan.policyExplanation) {
+    printAgentPolicyExplanationBlock("saved_policy_explanation", plan.policyExplanation);
+  }
+  if (plan.policyDrift) {
+    console.log("");
+    printAgentPolicyDriftBlock("policy_drift", plan.policyDrift);
+  }
+  if (plan.readinessDrift) {
+    console.log("");
+    printAgentReadinessDriftBlock("readiness_drift", plan.readinessDrift);
+  }
+  console.log(`create_new_intent: ${plan.createNewIntent}`);
+  console.log(`recommended_action: ${plan.recommendedAction}`);
+  console.log(`summary: ${plan.summary}`);
+  console.log("");
+  printAgentList("blocking_reasons", plan.blockingReasons);
+  console.log("");
+  if (plan.boundaryVerdict) {
+    printAgentList("boundary_why", plan.boundaryVerdict.why);
+    console.log("");
+    printAgentList("boundary_fix", plan.boundaryVerdict.fix);
+    console.log("");
+    printAgentList("changed_outside_boundary_files", plan.boundaryVerdict.changedOutsideBoundaryFiles);
+    console.log("");
+    printAgentList("changed_outside_boundary_symbols", plan.boundaryVerdict.changedOutsideBoundarySymbols);
+    console.log("");
+  }
+  printAgentList("unstage_files", plan.unstageFiles);
+  console.log("");
+  printAgentList("review_contracts", plan.reviewContracts);
+  console.log("");
+  printAgentList("fix_actions", plan.fixActions.map(formatRepairActionForAgent));
+  console.log("");
+  printAgentList("trusted_findings", plan.agentActions.trustedFindings);
+  console.log("");
+  printAgentList("verify_before_commit", plan.agentActions.verifyBeforeCommit);
+  console.log("");
+  printAgentList("manual_review_required", plan.agentActions.manualReviewRequired);
+  console.log("");
+  printAgentList("commands_unstage", plan.commands.unstage);
+  console.log("");
+  printAgentList("commands_replan", plan.commands.replan);
+  console.log("");
+  printAgentList("verify", plan.verificationTargets);
+  console.log("");
+  printAgentList("next_steps", plan.nextSteps);
+}
+
+function formatRepairActionForAgent(action: IntentDriftRepairAction): string {
+  const target = action.target ? ` target=${action.target}` : "";
+  const command = action.command ? ` command=${action.command}` : "";
+  return `${action.priority} ${action.type}${target}${command} :: ${action.instruction} Reason: ${action.reason}`;
+}
+
+function printIntentDriftRepairPlan(plan: IntentDriftRepairPlan): void {
+  console.log("Ripple intent drift repair");
+  if (plan.intentId) {
+    console.log(`Intent: ${plan.intentId}`);
+  }
+  console.log(`Verdict: ${plan.verdict}`);
+  console.log(`Status: ${plan.status}`);
+  console.log(`Drift verdict: ${plan.driftVerdict.label}`);
+  console.log(`Drift decision: ${plan.driftVerdict.decision}`);
+  console.log(`Drift summary: ${plan.driftVerdict.summary}`);
+  if (plan.boundaryVerdict) {
+    console.log(`Boundary verdict: ${plan.boundaryVerdict.label}`);
+    console.log(`Boundary decision: ${plan.boundaryVerdict.decision}`);
+    console.log(`Control mode: ${plan.boundaryVerdict.controlMode}`);
+    console.log(`Human required: ${plan.boundaryVerdict.humanRequired}`);
+  }
+  if (plan.policyExplanation) {
+    printPolicyExplanationSummary("Saved policy explanation:", plan.policyExplanation);
+  }
+  if (plan.policyDrift) {
+    printPolicyDriftSummary("Policy drift:", plan.policyDrift);
+  }
+  if (plan.readinessDrift) {
+    printReadinessDriftSummary("Readiness drift:", plan.readinessDrift);
+  }
+  console.log(`Create new intent: ${plan.createNewIntent}`);
+  console.log(`Recommended action: ${plan.recommendedAction}`);
+  console.log(`Summary: ${plan.summary}`);
+
+  if (plan.blockingReasons.length > 0) {
+    console.log("");
+    console.log("Blocking reasons:");
+    plan.blockingReasons.forEach((reason) => console.log(`  - ${reason}`));
+  }
+
+  console.log("");
+  console.log("Drift why:");
+  if (plan.driftVerdict.why.length === 0) {
+    console.log("  - none");
+  } else {
+    plan.driftVerdict.why.forEach((reason) => console.log(`  - ${reason}`));
+  }
+
+  console.log("");
+  console.log("Drift fix:");
+  if (plan.driftVerdict.fix.length === 0) {
+    console.log("  - none");
+  } else {
+    plan.driftVerdict.fix.forEach((fix) => console.log(`  - ${fix}`));
+  }
+
+  if (plan.boundaryVerdict) {
+    console.log("");
+    console.log("Boundary why:");
+    if (plan.boundaryVerdict.why.length === 0) {
+      console.log("  - none");
+    } else {
+      plan.boundaryVerdict.why.forEach((reason) => console.log(`  - ${reason}`));
+    }
+  }
+
+  console.log("");
+  console.log("Unstage files:");
+  if (plan.unstageFiles.length === 0) {
+    console.log("  none");
+  } else {
+    plan.unstageFiles.forEach((file) => console.log(`  - ${file}`));
+  }
+
+  if (plan.reviewContracts.length > 0) {
+    console.log("");
+    console.log("Review contracts:");
+    plan.reviewContracts.forEach((contract) => console.log(`  - ${contract}`));
+  }
+
+  if (plan.fixActions.length > 0) {
+    console.log("");
+    console.log("Fix actions:");
+    plan.fixActions.slice(0, 16).forEach((action) => {
+      const target = action.target ? ` ${action.target}` : "";
+      const command = action.command ? ` (${action.command})` : "";
+      console.log(
+        `  - [${action.priority}] ${action.type}${target}${command}: ${action.instruction}`
+      );
+    });
+  }
+
+  console.log("");
+  console.log("Agent actions:");
+  console.log("  trusted findings:");
+  if (plan.agentActions.trustedFindings.length === 0) {
+    console.log("    - none");
+  } else {
+    plan.agentActions.trustedFindings.slice(0, 12).forEach((item) => {
+      console.log(`    - ${item}`);
+    });
+  }
+  console.log("  verify before commit:");
+  if (plan.agentActions.verifyBeforeCommit.length === 0) {
+    console.log("    - none");
+  } else {
+    plan.agentActions.verifyBeforeCommit.slice(0, 12).forEach((item) => {
+      console.log(`    - ${item}`);
+    });
+  }
+  console.log("  manual review required:");
+  if (plan.agentActions.manualReviewRequired.length === 0) {
+    console.log("    - none");
+  } else {
+    plan.agentActions.manualReviewRequired.slice(0, 12).forEach((item) => {
+      console.log(`    - ${item}`);
+    });
+  }
+
+  if (plan.commands.unstage.length > 0 || plan.commands.replan.length > 0) {
+    console.log("");
+    console.log("Commands:");
+    [...plan.commands.unstage, ...plan.commands.replan].forEach((command) => {
+      console.log(`  - ${command}`);
+    });
+  }
+
+  if (plan.verificationTargets.length > 0) {
+    console.log("");
+    console.log("Verify:");
+    plan.verificationTargets.slice(0, 16).forEach((target) => console.log(`  - ${target}`));
+  }
+
+  if (plan.nextSteps.length > 0) {
+    console.log("");
+    console.log("Next steps:");
+    plan.nextSteps.forEach((step) => console.log(`  - ${step}`));
+  }
+}
+
+function printAgentAuditSummary(summary: RippleAuditSummary): void {
+  const validation = summary.stagedCheck.intentValidation;
+  console.log("RIPPLE_AUDIT");
+  console.log(`status: ${summary.status}`);
+  console.log(`decision: ${summary.decision}`);
+  console.log(`can_proceed: ${summary.canProceed}`);
+  console.log(`next_required_phase: ${summary.nextRequiredPhase}`);
+  console.log(`next_required_action: ${summary.nextRequiredAction}`);
+  console.log(`approval_status: ${summary.approvalStatus.status}`);
+  console.log(`approval_decision: ${summary.approvalStatus.decision}`);
+  console.log(`approval_required: ${summary.approvalStatus.required}`);
+  console.log(`approval_approved: ${summary.approvalStatus.approved}`);
+  if (summary.approvalStatus.gate) {
+    console.log(`approval_gate: ${summary.approvalStatus.gate}`);
+  }
+  console.log(`mode: ${summary.mode}`);
+  if (summary.baseRef) {
+    console.log(`base_ref: ${summary.baseRef}`);
+  }
+  console.log(`intent_id: ${summary.intent.id}`);
+  console.log(`task: ${summary.intent.task}`);
+  console.log(`target: ${summary.intent.targetFile}`);
+  console.log(`control_mode: ${summary.intent.controlMode}`);
+  console.log(`human_gate: ${summary.intent.humanGate}`);
+  console.log(`boundary_risk: ${summary.intent.boundaryRisk}`);
+  console.log(`drift_verdict: ${validation?.driftVerdict.label ?? "UNKNOWN"}`);
+  console.log(`boundary_verdict: ${validation?.boundaryVerdict.label ?? "UNKNOWN"}`);
+  console.log(`policy_drift: ${validation?.policyDrift.label ?? "UNKNOWN"}`);
+  console.log(`readiness_drift: ${validation?.readinessDrift.label ?? "UNKNOWN"}`);
+  console.log(`repair_status: ${summary.repairPlan.status}`);
+  console.log(`recommended_action: ${summary.recommendedAction}`);
+  console.log("");
+  printAgentHandoffBlock("handoff", summary.handoff);
+  if (summary.approvalStatus.approval) {
+    console.log(`approved_by: ${summary.approvalStatus.approval.approvedBy}`);
+    console.log(`approved_at: ${summary.approvalStatus.approval.approvedAt}`);
+  }
+  console.log("");
+  printAgentList("approval_why", summary.approvalStatus.why);
+  console.log("");
+  printAgentPolicyExplanationBlock("saved_policy_explanation", summary.savedPolicyExplanation);
+  console.log("");
+  if (summary.currentPolicyExplanation) {
+    printAgentPolicyExplanationBlock("current_policy_explanation", summary.currentPolicyExplanation);
+    console.log("");
+  }
+  if (validation) {
+    printAgentPolicyDriftBlock("policy_drift_detail", validation.policyDrift);
+    console.log("");
+    printAgentReadinessDriftBlock("readiness_drift_detail", validation.readinessDrift);
+    console.log("");
+  }
+  printAgentList("blocking_reasons", summary.blockingReasons);
+  console.log("");
+  printAgentList("next_steps", summary.nextSteps);
+  console.log("");
+  printAgentList("changed_files", summary.changedFiles);
+  console.log("");
+  printAgentList("verify", summary.verificationTargets);
+  console.log("");
+  printAgentList("fix_actions", summary.repairPlan.fixActions.map(formatRepairActionForAgent));
+}
+
+function printAgentGateSummary(summary: RippleGateSummary): void {
+  console.log("RIPPLE_GATE");
+  console.log(`status: ${summary.status}`);
+  console.log(`decision: ${summary.decision}`);
+  console.log(`can_continue: ${summary.canContinue}`);
+  console.log(`must_stop: ${summary.mustStop}`);
+  console.log(`needs_human: ${summary.needsHuman}`);
+  console.log(`next_required_phase: ${summary.nextRequiredPhase}`);
+  console.log(`next_required_action: ${summary.nextRequiredAction}`);
+  console.log(`summary: ${summary.summary}`);
+  console.log(`audit_status: ${summary.auditStatus}`);
+  console.log(`audit_decision: ${summary.auditDecision}`);
+  console.log(`approval_status: ${summary.approvalStatus}`);
+  console.log(`mode: ${summary.mode}`);
+  if (summary.baseRef) {
+    console.log(`base_ref: ${summary.baseRef}`);
+  }
+  console.log(`intent_id: ${summary.intent.id}`);
+  console.log(`task: ${summary.intent.task}`);
+  console.log(`target: ${summary.intent.targetFile}`);
+  console.log(`control_mode: ${summary.intent.controlMode}`);
+  console.log(`human_gate: ${summary.intent.humanGate}`);
+  console.log(`boundary_risk: ${summary.intent.boundaryRisk}`);
+  console.log("");
+  printAgentList("why", summary.why);
+  console.log("");
+  printAgentList("fix_now", summary.fixNow);
+  console.log("");
+  printAgentList("ask_human", summary.askHuman);
+  console.log("");
+  printAgentList("commands_doctor", summary.commands.doctor);
+  console.log("");
+  printAgentList("commands_plan", summary.commands.plan);
+  console.log("");
+  printAgentList("commands_check", summary.commands.check);
+  console.log("");
+  printAgentList("commands_audit", summary.commands.audit);
+  console.log("");
+  printAgentList("commands_repair", summary.commands.repair);
+  console.log("");
+  printAgentList("commands_approve", summary.commands.approve);
+  console.log("");
+  printAgentList("commands_unstage", summary.commands.unstage);
+  console.log("");
+  printAgentList("commands_verify", summary.commands.verify);
+}
+
+function printGateSummary(summary: RippleGateSummary): void {
+  console.log("Ripple gate");
+  console.log(`Status: ${summary.status}`);
+  console.log(`Decision: ${summary.decision}`);
+  console.log(`Can continue: ${summary.canContinue}`);
+  console.log(`Must stop: ${summary.mustStop}`);
+  console.log(`Needs human: ${summary.needsHuman}`);
+  console.log(`Next required phase: ${summary.nextRequiredPhase}`);
+  console.log(`Next required action: ${summary.nextRequiredAction}`);
+  console.log(`Summary: ${summary.summary}`);
+  console.log("");
+  console.log("Intent:");
+  console.log(`  id: ${summary.intent.id}`);
+  console.log(`  task: ${summary.intent.task}`);
+  console.log(`  target: ${summary.intent.targetFile}`);
+  console.log(`  control mode: ${summary.intent.controlMode}`);
+  console.log(`  human gate: ${summary.intent.humanGate}`);
+  console.log(`  boundary risk: ${summary.intent.boundaryRisk}`);
+  console.log("");
+  console.log("Audit:");
+  console.log(`  status: ${summary.auditStatus}`);
+  console.log(`  decision: ${summary.auditDecision}`);
+  console.log(`  approval status: ${summary.approvalStatus}`);
+  console.log("");
+  printHumanList("Why:", summary.why);
+  printHumanList("Fix now:", summary.fixNow);
+  printHumanList("Ask human:", summary.askHuman);
+  printHumanList("Changed files:", summary.changedFiles);
+  printHumanList("Verify:", summary.verificationTargets);
+  const commands = [
+    ...summary.commands.doctor,
+    ...summary.commands.check,
+    ...summary.commands.audit,
+    ...summary.commands.repair,
+    ...summary.commands.approve,
+    ...summary.commands.unstage,
+  ];
+  printHumanList("Commands:", commands);
+}
+
+function printAuditSummary(summary: RippleAuditSummary): void {
+  const validation = summary.stagedCheck.intentValidation;
+  const gate = buildRippleGateSummary(summary);
+  console.log("Ripple audit");
+  console.log(`Workspace: ${summary.workspace}`);
+  console.log(`Mode: ${summary.mode}`);
+  if (summary.baseRef) {
+    console.log(`Base ref: ${summary.baseRef}`);
+  }
+  console.log(`Status: ${summary.status}`);
+  console.log(`Decision: ${summary.decision}`);
+  console.log(`Can proceed: ${summary.canProceed}`);
+  console.log(`Next required phase: ${summary.nextRequiredPhase}`);
+  console.log(`Next required action: ${summary.nextRequiredAction}`);
+  console.log(`Recommended action: ${summary.recommendedAction}`);
+  console.log("");
+  console.log("Gate:");
+  console.log(`  status: ${gate.status}`);
+  console.log(`  decision: ${gate.decision}`);
+  console.log(`  can continue: ${gate.canContinue}`);
+  console.log(`  must stop: ${gate.mustStop}`);
+  console.log(`  needs human: ${gate.needsHuman}`);
+  console.log(`  next required phase: ${gate.nextRequiredPhase}`);
+  console.log(`  next required action: ${gate.nextRequiredAction}`);
+  console.log(`  summary: ${gate.summary}`);
+  console.log("");
+  console.log("Approval:");
+  console.log(`  status: ${summary.approvalStatus.status}`);
+  console.log(`  decision: ${summary.approvalStatus.decision}`);
+  console.log(`  required: ${summary.approvalStatus.required}`);
+  console.log(`  approved: ${summary.approvalStatus.approved}`);
+  if (summary.approvalStatus.gate) {
+    console.log(`  gate: ${summary.approvalStatus.gate}`);
+  }
+  if (summary.approvalStatus.approval) {
+    console.log(`  approved by: ${summary.approvalStatus.approval.approvedBy}`);
+    console.log(`  approved at: ${summary.approvalStatus.approval.approvedAt}`);
+  }
+  console.log(`  summary: ${summary.approvalStatus.summary}`);
+  console.log("");
+  console.log("Intent:");
+  console.log(`  id: ${summary.intent.id}`);
+  console.log(`  task: ${summary.intent.task}`);
+  console.log(`  target: ${summary.intent.targetFile}`);
+  console.log(`  control mode: ${summary.intent.controlMode}`);
+  console.log(`  human gate: ${summary.intent.humanGate}`);
+  console.log(`  boundary risk: ${summary.intent.boundaryRisk}`);
+  console.log("");
+  console.log("Verdicts:");
+  console.log(`  drift: ${validation?.driftVerdict.label ?? "UNKNOWN"}`);
+  console.log(`  boundary: ${validation?.boundaryVerdict.label ?? "UNKNOWN"}`);
+  console.log(`  policy drift: ${validation?.policyDrift.label ?? "UNKNOWN"}`);
+  console.log(`  readiness drift: ${validation?.readinessDrift.label ?? "UNKNOWN"}`);
+  console.log(`  repair status: ${summary.repairPlan.status}`);
+  console.log("");
+  printPolicyExplanationSummary("Saved policy explanation:", summary.savedPolicyExplanation);
+  if (summary.currentPolicyExplanation) {
+    printPolicyExplanationSummary("Current policy explanation:", summary.currentPolicyExplanation);
+  }
+  if (validation) {
+    printPolicyDriftSummary("Policy drift:", validation.policyDrift);
+    printReadinessDriftSummary("Readiness drift:", validation.readinessDrift);
+  }
+  console.log("");
+  console.log("Blocking reasons:");
+  if (summary.blockingReasons.length === 0) {
+    console.log("  - none");
+  } else {
+    summary.blockingReasons.forEach((reason) => console.log(`  - ${reason}`));
+  }
+  console.log("");
+  console.log("Changed files:");
+  if (summary.changedFiles.length === 0) {
+    console.log("  - none");
+  } else {
+    summary.changedFiles.forEach((file) => console.log(`  - ${file}`));
+  }
+  if (summary.verificationTargets.length > 0) {
+    console.log("");
+    console.log("Verify:");
+    summary.verificationTargets.slice(0, 16).forEach((target) => console.log(`  - ${target}`));
+  }
+  if (summary.nextSteps.length > 0) {
+    console.log("");
+    console.log("Next steps:");
+    summary.nextSteps.forEach((step) => console.log(`  - ${step}`));
+  }
+}
+
+function printAgentApprovalRecord(approval: RippleApprovalRecord): void {
+  console.log("RIPPLE_APPROVAL");
+  console.log(`approval_id: ${approval.id}`);
+  console.log(`intent_id: ${approval.intentId}`);
+  console.log(`gate: ${approval.gate}`);
+  console.log(`target: ${approval.targetFile}`);
+  console.log(`control_mode: ${approval.controlMode}`);
+  console.log(`human_gate: ${approval.humanGate}`);
+  console.log(`boundary_risk: ${approval.boundaryRisk}`);
+  console.log(`approved_by: ${approval.approvedBy}`);
+  console.log(`approved_at: ${approval.approvedAt}`);
+  if (approval.reason) {
+    console.log(`reason: ${approval.reason}`);
+  }
+}
+
+function printApprovalRecord(approval: RippleApprovalRecord): void {
+  console.log("Ripple approval recorded");
+  console.log(`Approval id: ${approval.id}`);
+  console.log(`Intent id: ${approval.intentId}`);
+  console.log(`Gate: ${approval.gate}`);
+  console.log(`Target: ${approval.targetFile}`);
+  console.log(`Control mode: ${approval.controlMode}`);
+  console.log(`Human gate: ${approval.humanGate}`);
+  console.log(`Boundary risk: ${approval.boundaryRisk}`);
+  console.log(`Approved by: ${approval.approvedBy}`);
+  console.log(`Approved at: ${approval.approvedAt}`);
+  if (approval.reason) {
+    console.log(`Reason: ${approval.reason}`);
+  }
+}
+
+function printAgentApprovalStatus(status: ApprovalStatusOutput): void {
+  console.log("RIPPLE_APPROVAL_STATUS");
+  console.log(`status: ${status.status}`);
+  console.log(`decision: ${status.decision}`);
+  console.log(`required: ${status.required}`);
+  console.log(`approved: ${status.approved}`);
+  if (status.gate) {
+    console.log(`gate: ${status.gate}`);
+  }
+  console.log(`intent_id: ${status.intent.id}`);
+  console.log(`task: ${status.intent.task}`);
+  console.log(`target: ${status.intent.targetFile}`);
+  console.log(`control_mode: ${status.intent.controlMode}`);
+  console.log(`human_gate: ${status.intent.humanGate}`);
+  console.log(`boundary_risk: ${status.intent.boundaryRisk}`);
+  if (status.approvalPath) {
+    console.log(`approval_path: ${status.approvalPath}`);
+  }
+  if (status.approval) {
+    console.log(`approved_by: ${status.approval.approvedBy}`);
+    console.log(`approved_at: ${status.approval.approvedAt}`);
+  }
+  console.log(`summary: ${status.summary}`);
+  console.log("");
+  printAgentList("why", status.why);
+  console.log("");
+  printAgentList("next_steps", status.nextSteps);
+}
+
+function printApprovalStatus(status: ApprovalStatusOutput): void {
+  console.log("Ripple approval status");
+  console.log(`Status: ${status.status}`);
+  console.log(`Decision: ${status.decision}`);
+  console.log(`Required: ${status.required}`);
+  console.log(`Approved: ${status.approved}`);
+  if (status.gate) {
+    console.log(`Gate: ${status.gate}`);
+  }
+  console.log("");
+  console.log("Intent:");
+  console.log(`  id: ${status.intent.id}`);
+  console.log(`  task: ${status.intent.task}`);
+  console.log(`  target: ${status.intent.targetFile}`);
+  console.log(`  control mode: ${status.intent.controlMode}`);
+  console.log(`  human gate: ${status.intent.humanGate}`);
+  console.log(`  boundary risk: ${status.intent.boundaryRisk}`);
+  if (status.approvalPath) {
+    console.log(`Approval path: ${status.approvalPath}`);
+  }
+  if (status.approval) {
+    console.log(`Approved by: ${status.approval.approvedBy}`);
+    console.log(`Approved at: ${status.approval.approvedAt}`);
+  }
+  console.log(`Summary: ${status.summary}`);
+  printHumanList("Why:", status.why);
+  printHumanList("Next steps:", status.nextSteps);
+}
+
+function printHumanList(title: string, items: string[]): void {
+  console.log(title);
+  if (items.length === 0) {
+    console.log("  - none");
+    return;
+  }
+  items.forEach((item) => console.log(`  - ${item}`));
+}
+
+function printStagedCheckSummary(summary: StagedCheckWithIntentSummary): void {
+  const adapter = summary.adapterSupport.primaryAdapter;
+  console.log(summary.mode === "changed" ? "Ripple changed-files check" : "Ripple staged check");
+  console.log(`Workspace: ${summary.workspace}`);
+  console.log(`Mode: ${summary.mode}`);
+  if (summary.baseRef) {
+    console.log(`Base ref: ${summary.baseRef}`);
+  }
+  console.log(`Checked JS/TS files: ${summary.stagedFiles}`);
+  console.log(`Checked files: ${summary.checkedFiles}`);
+  console.log(`Highest risk: ${summary.highestRisk}`);
+  console.log(
+    `Adapter: ${adapter.capabilities.displayName} (${adapter.supportLevel}, ${Math.round(adapter.confidence * 100)}%)`
+  );
+  if (summary.intentValidation) {
+    console.log(`Intent: ${summary.intentValidation.intentId}`);
+    console.log(`Intent verdict: ${summary.intentValidation.verdict}`);
+    console.log(`Drift verdict: ${summary.intentValidation.driftVerdict.label}`);
+    console.log(`Drift decision: ${summary.intentValidation.driftVerdict.decision}`);
+    console.log(`Control mode: ${summary.intentValidation.controlMode}`);
+    console.log(`Boundary verdict: ${summary.intentValidation.boundaryVerdict.label}`);
+    console.log(`Boundary decision: ${summary.intentValidation.boundaryVerdict.decision}`);
+    console.log(`Human required: ${summary.intentValidation.boundaryVerdict.humanRequired}`);
+    printPolicyExplanationSummary(
+      "Saved policy explanation:",
+      summary.intentValidation.policyExplanation
+    );
+    printPolicyDriftSummary("Policy drift:", summary.intentValidation.policyDrift);
+    printReadinessDriftSummary("Readiness drift:", summary.intentValidation.readinessDrift);
+    console.log(`Planned scope: ${summary.intentValidation.plannedScope}`);
+  }
+
+  if (summary.skippedFiles.length > 0) {
+    console.log(`Skipped non-source files: ${summary.skippedFiles.length}`);
+  }
+
+  if (summary.missingFiles.length > 0) {
+    console.log("");
+    console.log("Missing from graph:");
+    summary.missingFiles.forEach((file) => console.log(`  - ${file}`));
+  }
+
+  if (summary.files.length === 0) {
+    console.log("");
+    console.log(
+      summary.mode === "changed"
+        ? "No changed JS/TS files found."
+        : "No staged JS/TS files found."
+    );
+    return;
+  }
+
+  console.log("");
+  console.log("Agent actions:");
+  console.log("  trusted findings:");
+  if (summary.agentActions.trustedFindings.length === 0) {
+    console.log("    - none");
+  } else {
+    summary.agentActions.trustedFindings.slice(0, 12).forEach((item) => {
+      console.log(`    - ${item}`);
+    });
+  }
+  console.log("  verify before commit:");
+  if (summary.agentActions.verifyBeforeCommit.length === 0) {
+    console.log("    - none");
+  } else {
+    summary.agentActions.verifyBeforeCommit.slice(0, 12).forEach((item) => {
+      console.log(`    - ${item}`);
+    });
+  }
+  console.log("  manual review required:");
+  if (summary.agentActions.manualReviewRequired.length === 0) {
+    console.log("    - none");
+  } else {
+    summary.agentActions.manualReviewRequired.slice(0, 12).forEach((item) => {
+      console.log(`    - ${item}`);
+    });
+  }
+
+  console.log("");
+  console.log("Files:");
+  summary.files.forEach((file) => {
+    console.log(
+      `  - ${file.file} [${file.modificationRisk}, importers: ${file.importerCount}, symbols: ${file.symbolCount}]`
+    );
+    console.log(`    ${file.focus}`);
+    if (file.adapterSignals.length > 0) {
+      console.log(`    adapter signals: ${formatAdapterSignalInline(file.adapterSignals)}`);
+    }
+    if (file.readFirst.length > 0) {
+      console.log(`    read first: ${file.readFirst.join(", ")}`);
+    }
+    if (file.changedSymbols.length > 0) {
+      console.log(
+        `    changed symbols: ${file.changedSymbols.map((symbol) => `${symbol.symbol} [${symbol.symbolStatus}, ${symbol.changeKind}, signature_changed: ${symbol.signatureChanged}, adapter: ${formatAdapterSignalInline(symbol.adapterSignals)}]`).join(", ")}`
+      );
+    }
+    if (file.contractRisks.length > 0) {
+      console.log(
+        `    contract risk: ${file.contractRisks.map((risk) => `${risk.symbol} [${risk.risk}, adapter: ${formatAdapterSignalInline(risk.adapterSignals)}]`).join(", ")}`
+      );
+    }
+    if (file.verificationTargets.length > 0) {
+      console.log(`    verify: ${file.verificationTargets.join(", ")}`);
+    }
+  });
+
+  if (summary.intentValidation) {
+    console.log("");
+    console.log("Intent validation:");
+    summary.intentValidation.reasons.forEach((reason) => console.log(`  - ${reason}`));
+    console.log(`  recommended action: ${summary.intentValidation.recommendedAction}`);
+    console.log(`  drift summary: ${summary.intentValidation.driftVerdict.summary}`);
+    console.log("  drift why:");
+    summary.intentValidation.driftVerdict.why.forEach((reason) => {
+      console.log(`    - ${reason}`);
+    });
+    console.log("  drift fix:");
+    summary.intentValidation.driftVerdict.fix.forEach((fix) => {
+      console.log(`    - ${fix}`);
+    });
+    if (summary.intentValidation.blockingReasons.length > 0) {
+      console.log("  blocking reasons:");
+      summary.intentValidation.blockingReasons.forEach((reason) => {
+        console.log(`    - ${reason}`);
+      });
+    }
+    if (summary.intentValidation.nextSteps.length > 0) {
+      console.log("  next steps:");
+      summary.intentValidation.nextSteps.forEach((step) => {
+        console.log(`    - ${step}`);
+      });
+    }
+    if (summary.intentValidation.unplannedFiles.length > 0) {
+      console.log(`  unplanned files: ${summary.intentValidation.unplannedFiles.join(", ")}`);
+    }
+    if (summary.intentValidation.contextFilesChanged.length > 0) {
+      console.log(`  context-only files changed: ${summary.intentValidation.contextFilesChanged.join(", ")}`);
+    }
+    if (summary.intentValidation.unplannedSymbols.length > 0) {
+      console.log(`  unplanned symbols: ${summary.intentValidation.unplannedSymbols.join(", ")}`);
+    }
+  }
+}
+
+function printFocusSummary(summary: FileFocusSummary): void {
+  console.log("Ripple focus");
+  console.log(`File: ${summary.projectPath}`);
+  console.log(`Risk: ${summary.modificationRisk}`);
+  console.log(`Imports: ${summary.imports.length}`);
+  console.log(`Imported by: ${summary.importedBy.length}`);
+  console.log(`Symbols: ${summary.symbols.length}`);
+  console.log(`Focus file: ${summary.focusPath}`);
+
+  if (summary.importedBy.length > 0) {
+    console.log("");
+    console.log("Imported by:");
+    summary.importedBy.slice(0, 10).forEach((item) => {
+      console.log(`  - ${item.file} [${item.modificationRisk}]`);
+    });
+  }
+
+  if (summary.symbols.length > 0) {
+    console.log("");
+    console.log("Symbols:");
+    summary.symbols.slice(0, 10).forEach((symbol) => {
+      console.log(`  - ${symbol.name} (${symbol.kind}, ${symbol.layer}, callers: ${symbol.callerCount})`);
+    });
+  }
+}
+
+function printDependencyItems(items: FileDependencyLink[]): void {
+  items.slice(0, 25).forEach((item) => {
+    console.log(
+      `  - ${item.file} [${item.modificationRisk}, imports: ${item.importCount}, importers: ${item.importerCount}]`
+    );
+  });
+}
+
+function printDependencySummary(
+  summary: FileDependencySummary,
+  direction: "imports" | "importers"
+): void {
+  const items = direction === "imports" ? summary.imports : summary.importers;
+  const title = direction === "imports" ? "Ripple imports" : "Ripple importers";
+
+  console.log(title);
+  console.log(`File: ${summary.projectPath}`);
+  console.log(`Risk: ${summary.modificationRisk}`);
+  console.log(`${direction === "imports" ? "Imports" : "Importers"}: ${items.length}`);
+
+  if (items.length === 0) {
+    console.log("");
+    console.log(`No ${direction} found.`);
+    return;
+  }
+
+  console.log("");
+  console.log(direction === "imports" ? "Imports:" : "Importers:");
+  printDependencyItems(items);
+}
+
+function printSymbolLink(symbol: SymbolLinkSummary): void {
+  console.log(
+    `  - ${symbol.projectSymbolId} (${symbol.kind}, ${symbol.layer}, callers: ${symbol.callerCount}, calls: ${symbol.callCount})`
+  );
+}
+
+function printSymbolSummary(symbol: SymbolGraphSummary): void {
+  printSymbolLink(symbol);
+  if (symbol.calledBy.length > 0) {
+    console.log(`    called by: ${symbol.calledBy.slice(0, 5).map((caller) => caller.projectSymbolId).join(", ")}`);
+  }
+  if (symbol.calls.length > 0) {
+    console.log(`    calls: ${symbol.calls.slice(0, 5).map((call) => call.projectSymbolId).join(", ")}`);
+  }
+}
+
+function printFileSymbolsSummary(summary: FileSymbolsSummary): void {
+  console.log("Ripple symbols");
+  console.log(`File: ${summary.projectPath}`);
+  console.log(`Risk: ${summary.modificationRisk}`);
+  console.log(`Symbols: ${summary.symbols.length}`);
+
+  if (summary.symbols.length === 0) {
+    console.log("");
+    console.log("No symbols found.");
+    return;
+  }
+
+  console.log("");
+  console.log("Symbols:");
+  summary.symbols.slice(0, 25).forEach(printSymbolSummary);
+}
+
+function printSymbolCallersSummary(summary: SymbolCallersSummary): void {
+  console.log("Ripple callers");
+  console.log(`Symbol: ${summary.symbol.projectSymbolId}`);
+  console.log(`Kind: ${summary.symbol.kind}`);
+  console.log(`Layer: ${summary.symbol.layer}`);
+  console.log(`Callers: ${summary.callerCount}`);
+
+  if (summary.callers.length === 0) {
+    console.log("");
+    console.log("No callers found.");
+    return;
+  }
+
+  console.log("");
+  console.log("Callers:");
+  summary.callers.slice(0, 25).forEach(printSymbolLink);
+}
+
+function printBlastRadiusSummary(summary: FileBlastRadiusSummary): void {
+  console.log("Ripple blast radius");
+  console.log(`File: ${summary.projectPath}`);
+  console.log(`Risk: ${summary.modificationRisk}`);
+  console.log(`Direct importers: ${summary.affectedCount}`);
+
+  if (summary.directImporters.length === 0) {
+    console.log("");
+    console.log("No direct downstream files found.");
+    return;
+  }
+
+  console.log("");
+  console.log("Affected files:");
+  summary.directImporters.slice(0, 25).forEach((item) => {
+    console.log(`  - ${item.file} [${item.modificationRisk}, importers: ${item.importerCount}]`);
+  });
+}
+
+async function planCommand(options: CliOptions): Promise<void> {
+  if (!options.file) {
+    throw new Error("Missing target file. Usage: ripple plan --file <file> --task <task> [--budget N]");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.planContext(options.task ?? "", options.file, options.budget);
+
+    if (!summary) {
+      throw new Error(`File is not in the Ripple graph: ${options.file}`);
+    }
+
+    const policyExplanation = explainRipplePolicyForTarget(
+      loadRipplePolicy(workspaceRoot),
+      summary.targetFile,
+      { controlMode: options.mode }
+    );
+    const savedIntent = options.save
+      ? savePlanChangeIntent(workspaceRoot, engine, summary, options, policyExplanation)
+      : undefined;
+
+    if (options.json) {
+      const output: PlanJsonOutput = savedIntent
+        ? {
+            ...summary,
+            policyExplanation,
+            changeIntent: savedIntent.intent,
+            changeIntentPath: savedIntent.path,
+          }
+        : {
+            ...summary,
+            policyExplanation,
+          };
+      printJson(output);
+    } else if (options.agent) {
+      printAgentContextPlan(summary, savedIntent);
+    } else {
+      printContextPlan(summary, savedIntent);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+function savePlanChangeIntent(
+  workspaceRoot: string,
+  engine: GraphEngine,
+  summary: ContextPlanSummary,
+  options: CliOptions,
+  policyExplanation: RipplePolicyExplanation
+): SavedChangeIntent {
+  const loadedPolicy = loadRipplePolicy(workspaceRoot);
+  const policy = resolveRipplePolicyForTarget(loadedPolicy, summary.targetFile);
+  const intent = buildChangeIntent(summary, {
+    controlMode: options.mode,
+    allowedSymbols: options.symbol ? [options.symbol] : undefined,
+    policy,
+    policyExplanation,
+  });
+  const intentPath = saveChangeIntent(workspaceRoot, intent, defaultChangeIntentPath(workspaceRoot));
+  const readiness = buildRippleReadinessSummary(workspaceRoot, engine);
+  intent.readinessSnapshot = buildChangeIntentReadinessSnapshot(readiness);
+  saveChangeIntent(workspaceRoot, intent, intentPath);
+  return {
+    intent,
+    path: intentPath,
+  };
+}
+
+function currentPolicyExplanationForIntent(
+  workspaceRoot: string,
+  intent: ChangeIntent
+): RipplePolicyExplanation {
+  return explainRipplePolicyForIntent(loadRipplePolicy(workspaceRoot), intent);
+}
+
+function currentReadinessSnapshotForEngine(
+  workspaceRoot: string,
+  engine: GraphEngine
+): ChangeIntent["readinessSnapshot"] {
+  return buildChangeIntentReadinessSnapshot(
+    buildRippleReadinessSummary(workspaceRoot, engine)
+  );
+}
+
+function approvalStatusOutput(
+  intent: ChangeIntent,
+  status: RippleApprovalStatus
+): ApprovalStatusOutput {
+  return {
+    ...status,
+    intent: {
+      id: intent.id,
+      task: intent.task,
+      targetFile: intent.targetFile,
+      controlMode: intent.controlMode,
+      humanGate: intent.humanGate,
+      boundaryRisk: intent.boundaryRisk,
+    },
+  };
+}
+
+async function buildAuditForFiles(input: {
+  workspaceRoot: string;
+  files: string[];
+  mode: RippleAuditSummary["mode"];
+  baseRef?: string;
+  tokenBudget: number;
+  intent: ChangeIntent;
+  currentPolicyExplanation: RipplePolicyExplanation;
+}): Promise<RippleAuditSummary> {
+  const engine = new GraphEngine(input.workspaceRoot);
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const stagedCheck = buildStagedCheckSummary(engine, {
+      workspaceRoot: input.workspaceRoot,
+      stagedFiles: input.files,
+      mode: input.mode,
+      baseRef: input.baseRef,
+      tokenBudget: input.tokenBudget,
+    });
+    const validatedCheck = validateStagedCheckAgainstIntent(stagedCheck, input.intent, {
+      currentPolicyExplanation: input.currentPolicyExplanation,
+      currentReadinessSnapshot: currentReadinessSnapshotForEngine(input.workspaceRoot, engine),
+    });
+    const repairPlan = buildIntentDriftRepairPlan(validatedCheck);
+    return buildRippleAuditSummary({
+      workspaceRoot: input.workspaceRoot,
+      mode: input.mode,
+      baseRef: input.baseRef,
+      stagedCheck: validatedCheck,
+      repairPlan,
+      intent: input.intent,
+      currentPolicyExplanation: input.currentPolicyExplanation,
+    });
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function buildCheckSummaryForFiles(input: {
+  workspaceRoot: string;
+  files: string[];
+  mode: StagedCheckSummary["mode"];
+  baseRef?: string;
+  tokenBudget: number;
+}): Promise<StagedCheckWithIntentSummary> {
+  const engine = new GraphEngine(input.workspaceRoot);
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    return buildStagedCheckSummary(engine, {
+      workspaceRoot: input.workspaceRoot,
+      stagedFiles: input.files,
+      mode: input.mode,
+      baseRef: input.baseRef,
+      tokenBudget: input.tokenBudget,
+    });
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function checkCommand(options: CliOptions): Promise<void> {
+  if (!options.staged && !options.changed) {
+    throw new Error("Missing check mode. Usage: ripple check --staged or ripple check --changed --base <ref>");
+  }
+  if (options.staged && options.changed) {
+    throw new Error("Choose one check mode: --staged or --changed");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const baseRef = options.base ?? "HEAD";
+  const checkFiles = options.changed
+    ? listGitChangedFiles(workspaceRoot, baseRef)
+    : listGitStagedFiles(workspaceRoot);
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const stagedSummary = buildStagedCheckSummary(engine, {
+      workspaceRoot,
+      stagedFiles: checkFiles,
+      mode: options.changed ? "changed" : "staged",
+      baseRef: options.changed ? baseRef : undefined,
+      tokenBudget: options.budget,
+    });
+    let summary: StagedCheckWithIntentSummary = stagedSummary;
+    if (options.intent) {
+      try {
+        const intent = loadChangeIntent(workspaceRoot, options.intent);
+        summary = validateStagedCheckAgainstIntent(
+          stagedSummary,
+          intent,
+          {
+            currentPolicyExplanation: currentPolicyExplanationForIntent(workspaceRoot, intent),
+            currentReadinessSnapshot: currentReadinessSnapshotForEngine(workspaceRoot, engine),
+          }
+        );
+      } catch (err) {
+        if (!options.strict && !options.githubAnnotations) {
+          throw err;
+        }
+
+        const message = intentLoadFailureMessage(options.intent, err);
+        if (options.json) {
+          printJson({
+            ...summary,
+            nextRequiredPhase: MISSING_INTENT_NEXT_REQUIRED_PHASE,
+            nextRequiredAction: MISSING_INTENT_NEXT_REQUIRED_ACTION,
+            intentLoadError: {
+              intent: options.intent,
+              message,
+              nextRequiredPhase: MISSING_INTENT_NEXT_REQUIRED_PHASE,
+              nextRequiredAction: MISSING_INTENT_NEXT_REQUIRED_ACTION,
+            },
+          });
+        } else if (options.agent) {
+          printAgentStagedCheckSummary(summary);
+          console.log("");
+          console.log(`next_required_phase: ${MISSING_INTENT_NEXT_REQUIRED_PHASE}`);
+          console.log(`next_required_action: ${MISSING_INTENT_NEXT_REQUIRED_ACTION}`);
+          console.log("");
+          console.log("intent_error:");
+          console.log(`- ${message}`);
+        } else {
+          printStagedCheckSummary(summary);
+          console.log("");
+          console.log(`Next required phase: ${MISSING_INTENT_NEXT_REQUIRED_PHASE}`);
+          console.log(`Next required action: ${MISSING_INTENT_NEXT_REQUIRED_ACTION}`);
+          console.log(`Intent error: ${message}`);
+        }
+        if (options.githubAnnotations && !options.json) {
+          printGithubIntentLoadError(message);
+        }
+        writeGithubStepSummary({ summary, intentLoadError: message });
+        applyStrictExit(options.strict);
+        return;
+      }
+    }
+
+    if (options.json) {
+      printJson(summary);
+    } else if (options.agent) {
+      printAgentStagedCheckSummary(summary);
+    } else {
+      printStagedCheckSummary(summary);
+    }
+    if (options.githubAnnotations && !options.json) {
+      printGithubCheckAnnotations(summary);
+    }
+    writeGithubStepSummary({ summary });
+    applyStrictExit(options.strict && strictCheckShouldFail(summary));
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function buildAuditFromCliOptions(options: CliOptions): Promise<RippleAuditSummary> {
+  if (options.staged && options.changed) {
+    throw new Error("Choose one gate/audit mode: --staged or --changed");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const mode = options.changed ? "changed" : "staged";
+  const baseRef = options.base ?? "HEAD";
+  const files = mode === "changed"
+    ? listGitChangedFiles(workspaceRoot, baseRef)
+    : listGitStagedFiles(workspaceRoot);
+  const intent = loadChangeIntent(workspaceRoot, intentRef);
+  const currentPolicyExplanation = currentPolicyExplanationForIntent(workspaceRoot, intent);
+
+  return buildAuditForFiles({
+    workspaceRoot,
+    files,
+    mode,
+    baseRef: mode === "changed" ? baseRef : undefined,
+    tokenBudget: options.budget,
+    intent,
+    currentPolicyExplanation,
+  });
+}
+
+async function auditCommand(options: CliOptions): Promise<void> {
+  const audit = await buildAuditFromCliOptions(options);
+
+  if (options.json) {
+    printJson({
+      ...audit,
+      gate: buildRippleGateSummary(audit),
+    });
+  } else if (options.agent) {
+    printAgentAuditSummary(audit);
+  } else {
+    printAuditSummary(audit);
+  }
+  applyStrictExit(options.strict && strictAuditShouldFail(audit));
+}
+
+async function gateCommand(options: CliOptions): Promise<void> {
+  const audit = await buildAuditFromCliOptions(options);
+  const gate = buildRippleGateSummary(audit);
+
+  if (options.json) {
+    printJson(gate);
+  } else if (options.agent) {
+    printAgentGateSummary(gate);
+  } else {
+    printGateSummary(gate);
+  }
+  applyStrictExit(options.strict && !gate.canContinue);
+}
+
+function approveCommand(options: CliOptions): void {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const intent = loadChangeIntent(workspaceRoot, intentRef);
+  const approval = recordRippleApproval(workspaceRoot, intent, {
+    gate: options.gate,
+    approvedBy: options.approvedBy,
+    reason: options.reason,
+  });
+
+  if (options.json) {
+    printJson(approval);
+    return;
+  }
+  if (options.agent) {
+    printAgentApprovalRecord(approval);
+    return;
+  }
+  printApprovalRecord(approval);
+}
+
+function approvalCommand(options: CliOptions): void {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const intent = loadChangeIntent(workspaceRoot, intentRef);
+  const status = approvalStatusOutput(
+    intent,
+    resolveRippleApprovalStatus(workspaceRoot, intent, options.gate)
+  );
+
+  if (options.json) {
+    printJson(status);
+    return;
+  }
+  if (options.agent) {
+    printAgentApprovalStatus(status);
+    return;
+  }
+  printApprovalStatus(status);
+}
+
+async function ciCommand(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const baseRef = options.base ?? defaultCiBaseRef();
+  const intentRef = options.intent ?? "latest";
+  const files = listGitChangedFiles(workspaceRoot, baseRef);
+  const emitGithubAnnotations = shouldEmitGithubAnnotations(options);
+  let intent: ChangeIntent;
+
+  try {
+    intent = loadChangeIntent(workspaceRoot, intentRef);
+  } catch (err) {
+    const summary = await buildCheckSummaryForFiles({
+      workspaceRoot,
+      files,
+      mode: "changed",
+      baseRef,
+      tokenBudget: options.budget,
+    });
+    const message = intentLoadFailureMessage(intentRef, err);
+    if (options.json) {
+      printJson({
+        ...summary,
+        nextRequiredPhase: MISSING_INTENT_NEXT_REQUIRED_PHASE,
+        nextRequiredAction: MISSING_INTENT_NEXT_REQUIRED_ACTION,
+        intentLoadError: {
+          intent: intentRef,
+          message,
+          nextRequiredPhase: MISSING_INTENT_NEXT_REQUIRED_PHASE,
+          nextRequiredAction: MISSING_INTENT_NEXT_REQUIRED_ACTION,
+        },
+      });
+    } else if (options.agent) {
+      printAgentStagedCheckSummary(summary);
+      console.log("");
+      console.log(`next_required_phase: ${MISSING_INTENT_NEXT_REQUIRED_PHASE}`);
+      console.log(`next_required_action: ${MISSING_INTENT_NEXT_REQUIRED_ACTION}`);
+      console.log("");
+      console.log("intent_error:");
+      console.log(`- ${message}`);
+    } else {
+      printStagedCheckSummary(summary);
+      console.log("");
+      console.log(`Next required phase: ${MISSING_INTENT_NEXT_REQUIRED_PHASE}`);
+      console.log(`Next required action: ${MISSING_INTENT_NEXT_REQUIRED_ACTION}`);
+      console.log(`Intent error: ${message}`);
+    }
+    if (emitGithubAnnotations && !options.json) {
+      printGithubIntentLoadError(message);
+    }
+    writeGithubStepSummary({ summary, intentLoadError: message });
+    process.exitCode = 1;
+    return;
+  }
+
+  const audit = await buildAuditForFiles({
+    workspaceRoot,
+    files,
+    mode: "changed",
+    baseRef,
+    tokenBudget: options.budget,
+    intent,
+    currentPolicyExplanation: currentPolicyExplanationForIntent(workspaceRoot, intent),
+  });
+
+  if (options.json) {
+    printJson({
+      ...audit,
+      gate: buildRippleGateSummary(audit),
+    });
+  } else if (options.agent) {
+    printAgentAuditSummary(audit);
+  } else {
+    printAuditSummary(audit);
+  }
+  if (emitGithubAnnotations && !options.json) {
+    printGithubAuditAnnotations(audit);
+  }
+  writeGithubAuditStepSummary(audit);
+  applyStrictExit(strictAuditShouldFail(audit));
+}
+
+async function doctorCommand(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = buildRippleReadinessSummary(workspaceRoot, engine);
+
+    if (options.json) {
+      printJson(summary);
+    } else if (options.agent) {
+      printAgentDoctorSummary(summary);
+    } else {
+      printDoctorSummary(summary);
+    }
+    applyStrictExit(options.strict && summary.status !== "ready");
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function initCommand(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const policy = defaultRipplePolicy();
+  const policyContents = formatRipplePolicy(policy);
+  const workflow = githubActionsWorkflow();
+  const files = [
+    {
+      path: RIPPLE_POLICY_PATH.split(path.sep).join("/"),
+      absolutePath: ripplePolicyPath(workspaceRoot),
+      content: policyContents,
+    },
+    {
+      path: GITHUB_ACTIONS_WORKFLOW_PATH.split(path.sep).join("/"),
+      absolutePath: path.join(workspaceRoot, GITHUB_ACTIONS_WORKFLOW_PATH),
+      content: workflow,
+    },
+  ];
+
+  if (options.print) {
+    const summary: RippleInitSummary = {
+      protocol: "ripple-init",
+      version: 1,
+      workspace: workspaceRoot,
+      files: files.map((file) => ({
+        path: file.path,
+        status: "printed",
+        written: false,
+        overwritten: false,
+        content: file.content,
+      })),
+      nextSteps: defaultInitNextSteps(),
+    };
+    if (options.json) {
+      printJson(summary);
+      return;
+    }
+    process.stdout.write([
+      `# ${files[0].path}`,
+      files[0].content.trimEnd(),
+      "",
+      `# ${files[1].path}`,
+      files[1].content.trimEnd(),
+      "",
+    ].join("\n"));
+    return;
+  }
+
+  const writtenFiles = files.map((file) => writeInitFile(file, options.force));
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const readiness = buildRippleReadinessSummary(workspaceRoot, engine);
+    const summary: RippleInitSummary = {
+      protocol: "ripple-init",
+      version: 1,
+      workspace: workspaceRoot,
+      files: writtenFiles,
+      readiness,
+      nextSteps: defaultInitNextSteps(readiness),
+    };
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printInitSummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+function writeInitFile(
+  file: {
+    path: string;
+    absolutePath: string;
+    content: string;
+  },
+  force: boolean
+): RippleInitFileSummary {
+  const existed = fs.existsSync(file.absolutePath);
+  if (existed && !force) {
+    return {
+      path: file.path,
+      status: "exists",
+      written: false,
+      overwritten: false,
+    };
+  }
+
+  fs.mkdirSync(path.dirname(file.absolutePath), { recursive: true });
+  fs.writeFileSync(file.absolutePath, file.content, "utf8");
+
+  return {
+    path: file.path,
+    status: existed ? "overwritten" : "written",
+    written: true,
+    overwritten: existed,
+  };
+}
+
+function initCiCommand(options: CliOptions): void {
+  const workflow = githubActionsWorkflow();
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const targetPath = path.join(workspaceRoot, GITHUB_ACTIONS_WORKFLOW_PATH);
+  const relativeTargetPath = GITHUB_ACTIONS_WORKFLOW_PATH.split(path.sep).join("/");
+
+  if (options.print) {
+    if (options.json) {
+      printJson({
+        path: relativeTargetPath,
+        workflow,
+        written: false,
+      });
+    } else {
+      process.stdout.write(workflow);
+    }
+    return;
+  }
+
+  const existed = fs.existsSync(targetPath);
+  if (existed && !options.force) {
+    throw new Error(`${relativeTargetPath} already exists. Re-run with --force to overwrite it.`);
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, workflow, "utf8");
+
+  if (options.json) {
+    printJson({
+      path: relativeTargetPath,
+      written: true,
+      overwritten: existed,
+    });
+    return;
+  }
+
+  console.log(existed ? "Ripple CI workflow overwritten" : "Ripple CI workflow written");
+  console.log(`Path: ${relativeTargetPath}`);
+  console.log("Command: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --intent latest --github-annotations");
+}
+
+function policyCommand(args: string[], options: CliOptions): void {
+  const subcommand = args[0];
+  if (subcommand === "init") {
+    policyInitCommand(options);
+    return;
+  }
+  if (subcommand === "explain") {
+    policyExplainCommand(options);
+    return;
+  }
+  throw new Error("Usage: ripple policy init [--print] [--force] or ripple policy explain --file <file>");
+}
+
+function policyInitCommand(options: CliOptions): void {
+  const policy = defaultRipplePolicy();
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const targetPath = ripplePolicyPath(workspaceRoot);
+  const relativeTargetPath = RIPPLE_POLICY_PATH.split(path.sep).join("/");
+  const contents = formatRipplePolicy(policy);
+
+  if (options.print) {
+    if (options.json) {
+      printJson({
+        path: relativeTargetPath,
+        policy,
+        written: false,
+      });
+    } else {
+      process.stdout.write(contents);
+    }
+    return;
+  }
+
+  const existed = fs.existsSync(targetPath);
+  if (existed && !options.force) {
+    throw new Error(`${relativeTargetPath} already exists. Re-run with --force to overwrite it.`);
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, contents, "utf8");
+
+  if (options.json) {
+    printJson({
+      path: relativeTargetPath,
+      written: true,
+      overwritten: existed,
+      policy,
+    });
+    return;
+  }
+
+  console.log(existed ? "Ripple policy overwritten" : "Ripple policy written");
+  console.log(`Path: ${relativeTargetPath}`);
+  console.log(`Default mode: ${policy.defaultMode ?? "file"}`);
+  console.log(`Risk rules: ${policy.riskRules?.length ?? 0}`);
+}
+
+function policyExplainCommand(options: CliOptions): void {
+  if (!options.file) {
+    throw new Error("Missing target file. Usage: ripple policy explain --file <file>");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const loadedPolicy = loadRipplePolicy(workspaceRoot);
+  const explanation = explainRipplePolicyForTarget(loadedPolicy, normalizeProjectPath(options.file));
+
+  if (options.json) {
+    printJson(explanation);
+    return;
+  }
+
+  if (options.agent) {
+    printAgentPolicyExplanation(explanation);
+    return;
+  }
+
+  console.log("Ripple policy explanation");
+  console.log(`File: ${explanation.targetFile}`);
+  console.log(`Policy source: ${explanation.policySource}`);
+  console.log(`Policy exists: ${explanation.policyExists}`);
+  console.log(`Effective mode: ${explanation.effectiveMode}`);
+  console.log(`Policy risk: ${explanation.policyRisk}`);
+  console.log(`Human gate: ${explanation.humanGate}`);
+  console.log(`Human required: ${explanation.humanRequired}`);
+  console.log(`Allow PR mode: ${explanation.allowPrMode}`);
+  console.log("");
+  console.log("Matched rules:");
+  if (explanation.matchedRules.length === 0) {
+    console.log("  - none");
+  } else {
+    explanation.matchedRules.forEach((rule) => console.log(`  - ${rule}`));
+  }
+  console.log("");
+  console.log("Why:");
+  explanation.why.forEach((reason) => console.log(`  - ${reason}`));
+  console.log("");
+  console.log("Next steps:");
+  explanation.nextSteps.forEach((step) => console.log(`  - ${step}`));
+}
+
+function printAgentPolicyExplanation(
+  explanation: ReturnType<typeof explainRipplePolicyForTarget>
+): void {
+  console.log("RIPPLE_POLICY_EXPLAIN");
+  console.log(`target: ${explanation.targetFile}`);
+  console.log(`policy_source: ${explanation.policySource}`);
+  console.log(`policy_exists: ${explanation.policyExists}`);
+  console.log(`effective_mode: ${explanation.effectiveMode}`);
+  console.log(`policy_risk: ${explanation.policyRisk}`);
+  console.log(`human_gate: ${explanation.humanGate}`);
+  console.log(`human_required: ${explanation.humanRequired}`);
+  console.log(`allow_pr_mode: ${explanation.allowPrMode}`);
+  console.log("");
+  printAgentList("matched_rules", explanation.matchedRules);
+  console.log("");
+  printAgentList("why", explanation.why);
+  console.log("");
+  printAgentList("next_steps", explanation.nextSteps);
+}
+
+async function repairCommand(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const stagedFiles = listGitStagedFiles(workspaceRoot);
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const stagedSummary = buildStagedCheckSummary(engine, {
+      workspaceRoot,
+      stagedFiles,
+      tokenBudget: options.budget,
+    });
+    const intent = loadChangeIntent(workspaceRoot, options.intent ?? "latest");
+    const summary = validateStagedCheckAgainstIntent(
+      stagedSummary,
+      intent,
+      {
+        currentPolicyExplanation: currentPolicyExplanationForIntent(workspaceRoot, intent),
+        currentReadinessSnapshot: currentReadinessSnapshotForEngine(workspaceRoot, engine),
+      }
+    );
+    const repairPlan = buildIntentDriftRepairPlan(summary);
+
+    if (options.json) {
+      printJson(repairPlan);
+    } else if (options.agent) {
+      printAgentIntentDriftRepairPlan(repairPlan);
+    } else {
+      printIntentDriftRepairPlan(repairPlan);
+    }
+    applyStrictExit(options.strict && strictRepairShouldFail(repairPlan));
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function historyCommand(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.getRecentHistorySummary(options.last);
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printHistorySummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function callersCommand(symbolId: string | undefined, options: CliOptions): Promise<void> {
+  if (!symbolId) {
+    throw new Error("Missing symbol id. Usage: ripple callers <file>::<symbol>");
+  }
+  if (!symbolId.includes("::")) {
+    throw new Error("Symbol id must use <file>::<symbol>, for example src/auth.ts::validateToken");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.getSymbolCallersSummary(symbolId);
+
+    if (!summary) {
+      throw new Error(`Symbol is not in the Ripple graph: ${symbolId}`);
+    }
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printSymbolCallersSummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function scanCommand(targetPath: string | undefined, options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(targetPath);
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+
+    const workflowPath = path.join(workspaceRoot, ".ripple", "WORKFLOW.md");
+    const summary: ScanSummary = {
+      workspace: workspaceRoot,
+      files: engine.graph.files.size,
+      symbols: engine.graph.symbols.size,
+      callEdges: countCallEdges(engine),
+      contextGenerated: fs.existsSync(workflowPath),
+      contextPath: workflowPath,
+    };
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printScanSummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function symbolsCommand(filePath: string | undefined, options: CliOptions): Promise<void> {
+  if (!filePath) {
+    throw new Error("Missing file path. Usage: ripple symbols <file>");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.getFileSymbolsSummary(filePath);
+
+    if (!summary) {
+      throw new Error(`File is not in the Ripple graph: ${filePath}`);
+    }
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printFileSymbolsSummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function blastCommand(filePath: string | undefined, options: CliOptions): Promise<void> {
+  if (!filePath) {
+    throw new Error("Missing file path. Usage: ripple blast <file>");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.getBlastRadiusSummary(filePath);
+
+    if (!summary) {
+      throw new Error(`File is not in the Ripple graph: ${filePath}`);
+    }
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printBlastRadiusSummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function dependencyCommand(
+  filePath: string | undefined,
+  direction: "imports" | "importers",
+  options: CliOptions
+): Promise<void> {
+  if (!filePath) {
+    throw new Error(`Missing file path. Usage: ripple ${direction} <file>`);
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.getFileDependencySummary(filePath);
+
+    if (!summary) {
+      throw new Error(`File is not in the Ripple graph: ${filePath}`);
+    }
+
+    const output = direction === "imports"
+      ? { ...summary, importers: undefined }
+      : { ...summary, imports: undefined };
+
+    if (options.json) {
+      printJson(output);
+    } else {
+      printDependencySummary(summary, direction);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function focusCommand(filePath: string | undefined, options: CliOptions): Promise<void> {
+  if (!filePath) {
+    throw new Error("Missing file path. Usage: ripple focus <file>");
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const engine = new GraphEngine(workspaceRoot);
+
+  try {
+    await runWithQuietEngine(() => engine.initialScan());
+    const summary = engine.getFileFocusSummary(filePath);
+
+    if (!summary) {
+      throw new Error(`File is not in the Ripple graph: ${filePath}`);
+    }
+
+    if (options.json) {
+      printJson(summary);
+    } else {
+      printFocusSummary(summary);
+    }
+  } finally {
+    engine.dispose();
+  }
+}
+
+async function main(): Promise<void> {
+  const { command, args, options } = parseCliArgs(process.argv.slice(2));
+  const [arg] = args;
+
+  if (!command || command === "--help" || command === "-h") {
+    console.log(usage());
+    return;
+  }
+
+  if (command === "--version" || command === "-v") {
+    console.log(version());
+    return;
+  }
+
+  if (command === "agent") {
+    if (options.json) {
+      printJson(getAgentWorkflowSummary());
+    } else {
+      console.log(agentWorkflowGuide());
+    }
+    return;
+  }
+
+  if (command === "init") {
+    await initCommand(options);
+    return;
+  }
+
+  if (command === "scan") {
+    await scanCommand(arg, options);
+    return;
+  }
+
+  if (command === "doctor") {
+    await doctorCommand(options);
+    return;
+  }
+
+  if (command === "focus") {
+    await focusCommand(arg, options);
+    return;
+  }
+
+  if (command === "blast") {
+    await blastCommand(arg, options);
+    return;
+  }
+
+  if (command === "imports") {
+    await dependencyCommand(arg, "imports", options);
+    return;
+  }
+
+  if (command === "importers") {
+    await dependencyCommand(arg, "importers", options);
+    return;
+  }
+
+  if (command === "symbols") {
+    await symbolsCommand(arg, options);
+    return;
+  }
+
+  if (command === "callers") {
+    await callersCommand(arg, options);
+    return;
+  }
+
+  if (command === "history") {
+    await historyCommand(options);
+    return;
+  }
+
+  if (command === "plan") {
+    await planCommand(options);
+    return;
+  }
+
+  if (command === "check") {
+    await checkCommand(options);
+    return;
+  }
+
+  if (command === "audit") {
+    await auditCommand(options);
+    return;
+  }
+
+  if (command === "gate") {
+    await gateCommand(options);
+    return;
+  }
+
+  if (command === "approval") {
+    approvalCommand(options);
+    return;
+  }
+
+  if (command === "approve") {
+    approveCommand(options);
+    return;
+  }
+
+  if (command === "ci") {
+    await ciCommand(options);
+    return;
+  }
+
+  if (command === "init-ci") {
+    initCiCommand(options);
+    return;
+  }
+
+  if (command === "policy") {
+    policyCommand(args, options);
+    return;
+  }
+
+  if (command === "repair") {
+    await repairCommand(options);
+    return;
+  }
+
+  throw new Error(`Unknown command: ${command}\n\n${usage()}`);
+}
+
+main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`Ripple CLI error: ${message}`);
+  process.exitCode = 1;
+});

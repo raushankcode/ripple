@@ -1,0 +1,54 @@
+{
+  "name": "@getripple/mcp",
+  "version": "1.0.4",
+  "description": "MCP stdio server for Ripple's local AI-agent workflow engine.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raushankcode/ripple.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/raushankcode/ripple/issues"
+  },
+  "homepage": "https://raushankcode.github.io/ripple/",
+  "keywords": [
+    "ai-agent",
+    "agent-workflow",
+    "mcp",
+    "model-context-protocol",
+    "stdio",
+    "drift-control",
+    "trust-boundaries",
+    "codebase",
+    "typescript",
+    "javascript"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "ripple-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@getripple/core": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "typescript": "~5.3.3"
+  }
+}

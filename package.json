@@ -1,12 +1,17 @@
 {
   "name": "ripple",
-  "displayName": "Ripple — Live Architectural Intelligence",
-  "description": "Generate live WORKFLOW.md guidance, focus files, blast-radius signals, and safer AI-agent prompts from your JavaScript or TypeScript codebase.",
+  "displayName": "Ripple — Local AI-Agent Workflow Engine",
+  "description": "VS Code interface for Ripple's local drift-control engine: live context, focus files, blast-radius signals, and safer AI-agent workflow prompts.",
   "version": "1.0.4",
   "publisher": "rippleai",
   "author": {
     "name": "Raushan Soni"
   },
+  "workspaces": [
+    "packages/core",
+    "packages/cli",
+    "packages/mcp"
+  ],
   "license": "MIT",
   "icon": "resources/icon-marketplace.png",
   "galleryBanner": {
@@ -55,18 +60,18 @@
     "commands": [
       {
         "command": "ripple.showCallers",
-        "title": "↯ Ripple: Show Callers",
+        "title": "↯ Ripple: Show Symbol Callers",
         "category": "Ripple"
       },
       {
         "command": "ripple.copyPrompt",
-        "title": "↯ Ripple: Copy Agent Prompt",
+        "title": "↯ Ripple: Copy Pre-Edit Agent Prompt",
         "category": "Ripple",
         "icon": "$(clippy)"
       },
       {
         "command": "ripple.showSetupPanel",
-        "title": "↯ Ripple: Show AI Setup Panel",
+        "title": "↯ Ripple: Show Agent Workflow Setup",
         "category": "Ripple"
       }
     ],
@@ -114,7 +119,7 @@
     "viewsWelcome": [
       {
         "view": "ripple.impactLens",
-        "contents": "Open any TypeScript or JavaScript file.\n\nRipple will show exactly which files depend on it and which files it depends on — across your entire project.\n\nChange that file and you'll know what else might break.\n\n[Learn more](https://raushankcode.github.io/ripple/)"
+        "contents": "Open any TypeScript or JavaScript file.\n\nRipple is the VS Code interface for a local AI-agent workflow engine. It shows what depends on the current file, what it depends on, and the focus context an agent should read before editing.\n\nUse the CLI or MCP package for saved plans, staged drift checks, and repair verdicts.\n\n[Learn more](https://raushankcode.github.io/ripple/)"
       }
     ],
     "configuration": {
@@ -138,19 +143,56 @@
         "ripple.generateContext": {
           "type": "boolean",
           "default": true,
-          "description": "Generate AI agent context files in .ripple/ on every save."
+          "description": "Generate local Ripple workflow context files in .ripple/ for AI agents."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run bundle",
-    "compile": "tsc -p ./",
-    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --minify",
+    "compile": "tsc -p ./ && npm run bundle",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --minify --alias:@getripple/core=./packages/core/src/index.ts",
     "watch": "tsc -watch -p ./",
     "watch:bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --watch",
-    "lint": "eslint src",
+    "lint": "eslint src packages/core/src packages/cli/src packages/mcp/src",
     "test": "node test/run-tests.js",
+    "build:core": "npm run build --workspace @getripple/core",
+    "test:core": "npm run build:core && node packages/core/test/run-context-planner-tests.js && node packages/core/test/run-adapter-registry-tests.js",
+    "build:cli": "npm run build:core && npm run build --workspace @getripple/cli",
+    "build:mcp": "npm run build:core && npm run build --workspace @getripple/mcp",
+    "test:cli": "npm run build:cli && node packages/cli/test/run-cli-tests.js && node packages/cli/test/run-policy-tests.js && node packages/cli/test/run-golden-init-proof.js && node packages/cli/test/run-golden-drift-control-proof.js && node packages/cli/test/run-golden-approval-control-proof.js && node packages/cli/test/run-golden-handoff-proof.js && node packages/cli/test/run-golden-ci-gate-proof.js",
+    "test:agent-workflow": "npm run build:cli && node packages/cli/test/run-agent-workflow-tests.js",
+    "test:init": "npm run build:cli && node packages/cli/test/run-golden-init-proof.js",
+    "test:package-install": "npm run build:cli && node packages/cli/test/run-golden-package-install-proof.js",
+    "test:drift-control": "npm run build:cli && node packages/cli/test/run-golden-drift-control-proof.js",
+    "test:approval-control": "npm run build:cli && node packages/cli/test/run-golden-approval-control-proof.js",
+    "test:agent-handoff": "npm run build:cli && node packages/cli/test/run-golden-handoff-proof.js",
+    "test:ci-gate": "npm run build:cli && node packages/cli/test/run-golden-ci-gate-proof.js",
+    "proof:init": "npm run test:init",
+    "proof:package-install": "npm run test:package-install",
+    "proof:drift-control": "npm run test:drift-control",
+    "proof:approval-control": "npm run test:approval-control",
+    "proof:agent-handoff": "npm run test:agent-handoff",
+    "proof:ci-gate": "npm run test:ci-gate",
+    "test:mcp": "npm run build:mcp && node packages/mcp/test/run-mcp-tests.js && node packages/mcp/test/run-golden-mcp-gate-proof.js && node packages/mcp/test/run-golden-mcp-stdio-gate-proof.js",
+    "test:mcp-gate": "npm run build:mcp && node packages/mcp/test/run-golden-mcp-gate-proof.js",
+    "test:mcp-stdio-gate": "npm run build:mcp && node packages/mcp/test/run-golden-mcp-stdio-gate-proof.js",
+    "test:mcp-package-install": "npm run build:mcp && node packages/mcp/test/run-golden-mcp-package-install-proof.js",
+    "test:publish-readiness": "npm run build:cli && npm run build:mcp && node test/run-package-readiness-proof.js",
+    "smoke:mcp": "npm run build:mcp && node packages/mcp/test/smoke-mcp.js",
+    "proof:mcp-gate": "npm run test:mcp-gate",
+    "proof:mcp-stdio-gate": "npm run test:mcp-stdio-gate",
+    "proof:mcp-package-install": "npm run test:mcp-package-install",
+    "proof:publish-readiness": "npm run test:publish-readiness",
+    "test:agent-control": "npm run build:cli && node packages/cli/test/run-golden-init-proof.js && node packages/cli/test/run-golden-package-install-proof.js && node packages/cli/test/run-golden-drift-control-proof.js && node packages/cli/test/run-golden-approval-control-proof.js && node packages/cli/test/run-golden-handoff-proof.js && node packages/cli/test/run-golden-ci-gate-proof.js && npm run build:mcp && node packages/mcp/test/run-golden-mcp-gate-proof.js && node packages/mcp/test/run-golden-mcp-stdio-gate-proof.js && node packages/mcp/test/run-golden-mcp-package-install-proof.js && node test/run-package-readiness-proof.js",
+    "proof:agent-control": "npm run test:agent-control",
+    "test:release-check": "node test/run-release-check-proof.js",
+    "release:identity": "node test/run-release-identity-review.js",
+    "release:npm-preflight": "node test/run-npm-registry-preflight.js",
+    "release:check": "npm run proof:agent-control && npm run release:identity && npm run release:npm-preflight && npm run test:release-check",
+    "proof:release-check": "npm run release:check",
+    "smoke:post-publish": "node test/run-post-publish-smoke.js",
+    "test:engine": "npm run test:core && npm run test:cli && npm run test:agent-workflow && npm run test:mcp && npm run smoke:mcp",
     "package": "npx vsce package",
     "publish": "npx vsce publish",
     "pretest": "npm run compile"

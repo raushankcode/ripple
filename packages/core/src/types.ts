@@ -24,6 +24,83 @@
  */
 
 // ────────────────────────────────────────────────────────────────────────────
+// ADAPTER LAYER
+// ────────────────────────────────────────────────────────────────────────────
+
+export type RippleAdapterCapability =
+  | "files"
+  | "dependencies"
+  | "reverse-dependencies"
+  | "symbols"
+  | "call-edges"
+  | "tests"
+  | "configs";
+
+export type RippleAdapterLanguage =
+  | "javascript"
+  | "typescript"
+  | "python"
+  | "go"
+  | "rust"
+  | "java"
+  | "csharp"
+  | "php"
+  | "ruby"
+  | "generic";
+
+export interface RippleAdapterCapabilities {
+  language: RippleAdapterLanguage;
+  displayName: string;
+  extensions: string[];
+  capabilities: RippleAdapterCapability[];
+}
+
+export interface RippleAdapterDependency {
+  sourceFile: string;
+  targetFile?: string;
+  specifier: string;
+  kind: "import" | "require" | "export" | "package" | "module" | "unknown";
+  resolved: boolean;
+}
+
+export interface RippleAdapterSymbol {
+  file: string;
+  name: string;
+  kind: SymbolNode["kind"] | "interface" | "type" | "enum" | "module" | "unknown";
+  exported?: boolean;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface RippleAdapterCallEdge {
+  caller: string;
+  callee: string;
+  confidence: "exact" | "probable" | "heuristic";
+}
+
+export interface RippleAdapterTestHint {
+  testFile: string;
+  targetFile?: string;
+  kind: "direct" | "convention" | "package" | "unknown";
+}
+
+export interface RippleAdapterScanResult {
+  files: string[];
+  dependencies: RippleAdapterDependency[];
+  symbols: RippleAdapterSymbol[];
+  callEdges: RippleAdapterCallEdge[];
+  testHints: RippleAdapterTestHint[];
+  warnings: string[];
+}
+
+export interface RippleLanguageAdapter {
+  id: string;
+  capabilities: RippleAdapterCapabilities;
+  detect(workspaceRoot: string): Promise<boolean> | boolean;
+  scan(workspaceRoot: string): Promise<RippleAdapterScanResult> | RippleAdapterScanResult;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // GRAPH LAYER
 // ────────────────────────────────────────────────────────────────────────────
 

@@ -543,9 +543,19 @@ function installMocks() {
 }
 
 function clearCompiledModuleCache() {
-  ["extension.js", "graph.js", "normalizer.js", "types.js"].forEach((fileName) => {
-    const modulePath = path.join(repoRoot, "out", fileName);
-    delete require.cache[require.resolve(modulePath)];
+  [
+    path.join(repoRoot, "out", "extension.js"),
+    path.join(repoRoot, "out", "src", "extension.js"),
+    path.join(repoRoot, "out", "packages", "core", "src", "index.js"),
+    path.join(repoRoot, "out", "packages", "core", "src", "graph.js"),
+    path.join(repoRoot, "out", "packages", "core", "src", "normalizer.js"),
+    path.join(repoRoot, "out", "packages", "core", "src", "types.js"),
+  ].forEach((modulePath) => {
+    try {
+      delete require.cache[require.resolve(modulePath)];
+    } catch {
+      // Not every output path exists in every build mode.
+    }
   });
 }
 
@@ -1333,7 +1343,7 @@ async function main() {
 
   try {
     clearCompiledModuleCache();
-    const { GraphEngine } = require(path.join(repoRoot, "out", "graph.js"));
+    const { GraphEngine } = require(path.join(repoRoot, "out", "packages", "core", "src", "index.js"));
     const extension = require(path.join(repoRoot, "out", "extension.js"));
 
     const context = {

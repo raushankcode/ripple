@@ -4,6 +4,32 @@ All notable user-facing changes to Ripple are documented here.
 
 Ripple is a local-first VS Code extension for JavaScript and TypeScript projects. It builds practical codebase context for AI agents by mapping imports, callers, risky dependency paths, focus files, and persistent project history.
 
+## [1.0.4] - 2026-06-03
+
+### Added
+- Publishable npm package identities for `@getripple/core`, `@getripple/cli`, and `@getripple/mcp`.
+- Release readiness checks for package metadata, packed installs, MCP stdio wiring, npm registry preflight, and post-publish smoke testing.
+- Agent control gates that use the same continue/stop contract across CLI, CI, and MCP.
+
+### Changed
+- Position Ripple as a local AI-agent workflow engine: plan before edit, check after edit, catch drift, and tell the agent what to fix.
+- Ripple is now available as standalone npm packages. Install `@getripple/cli` to run architecture checks in your terminal and CI pipeline without VS Code. Install `@getripple/mcp` to give AI agents direct structured access to Ripple's architectural context.
+
+### Fixed
+- Add executable CLI and MCP package entry points for `ripple` and `ripple-mcp`.
+- Harden release proof coverage around package installs, trust-boundary checks, and MCP stdio behavior.
+
+## [1.0.3] - 2026-06-03
+
+### Added
+- Initial standalone core extraction for local graph scanning, context planning, risk signals, and focused file summaries.
+- CLI commands for initializing Ripple, planning context, checking staged or changed files, auditing saved intent, and producing CI gate decisions.
+- MCP tool host for agent-facing focus, blast radius, policy explanation, plan context, staged checks, drift repair, and gate summaries.
+
+### Changed
+- Use Ripple from more places: VS Code for visual discovery, the CLI for terminal and CI checks, and MCP for agent-native structured context.
+- Generate clearer release and product documentation for the local AI-agent workflow engine.
+
 ## [1.0.2] - 2026-05-14
 
 ### Changed

@@ -4,6 +4,7 @@
 .github/
 .vscode/
 src/
+packages/
 node_modules/
 docs/
 test/
@@ -11,6 +12,9 @@ out/**
 !out/extension.js
 .gitignore
 .vscodeignore
+AGENTS.md
+CLAUDE.md
+.cursorrules
 .eslintrc.json
 eslint.config.mjs
 tsconfig.json

@@ -24,10 +24,10 @@
  * - Use toGraphPath() before storing normalized import paths.
  */
 
-import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
+import { glob } from "glob";
 import {
   Project,
   SourceFile,
@@ -43,9 +43,15 @@ import {
   ChangeEvent,
   SystemGraph,
   HistoryLog,
+  RippleAdapterCapability,
 } from "./types";
 
 import { normalizeImportPath } from "./normalizer";
+import {
+  RippleAdapterAgentUse,
+  RippleAdapterDetectionSummary,
+  detectWorkspaceAdapters,
+} from "./adapters";
 
 type FocusRisk = "dangerous" | "caution" | "safe";
 
@@ -59,6 +65,206 @@ type FocusLookupMatch = {
 type FocusFileByBasename =
   | ({ status: "unique" } & FocusLookupMatch)
   | { status: "ambiguous"; matches: FocusLookupMatch[] };
+
+export type FileFocusSymbolSummary = {
+  name: string;
+  kind: SymbolNode["kind"];
+  layer: SymbolNode["layer"];
+  callerCount: number;
+};
+
+export type FileFocusSummary = {
+  filePath: string;
+  projectPath: string;
+  focusKey: string;
+  focusPath: string;
+  modificationRisk: FocusRisk;
+  imports: string[];
+  importedBy: Array<{
+    file: string;
+    focus: string;
+    modificationRisk: FocusRisk;
+  }>;
+  symbols: FileFocusSymbolSummary[];
+};
+
+export type BlastRadiusFileSummary = {
+  file: string;
+  focus: string;
+  modificationRisk: FocusRisk;
+  importerCount: number;
+};
+
+export type FileBlastRadiusSummary = {
+  filePath: string;
+  projectPath: string;
+  modificationRisk: FocusRisk;
+  directImporters: BlastRadiusFileSummary[];
+  affectedCount: number;
+};
+
+export type FileDependencyLink = {
+  file: string;
+  focus: string;
+  modificationRisk: FocusRisk;
+  importCount: number;
+  importerCount: number;
+};
+
+export type FileDependencySummary = {
+  filePath: string;
+  projectPath: string;
+  modificationRisk: FocusRisk;
+  imports: FileDependencyLink[];
+  importers: FileDependencyLink[];
+};
+
+export type SymbolLinkSummary = {
+  symbolId: string;
+  projectSymbolId: string;
+  file: string;
+  name: string;
+  kind: SymbolNode["kind"];
+  layer: SymbolNode["layer"];
+  focus: string;
+  callerCount: number;
+  callCount: number;
+};
+
+export type SymbolGraphSummary = SymbolLinkSummary & {
+  containsLayers: SymbolNode["containsLayers"];
+  calls: SymbolLinkSummary[];
+  calledBy: SymbolLinkSummary[];
+};
+
+export type FileSymbolsSummary = {
+  filePath: string;
+  projectPath: string;
+  modificationRisk: FocusRisk;
+  symbols: SymbolGraphSummary[];
+};
+
+export type SymbolCallersSummary = {
+  symbol: SymbolGraphSummary;
+  callers: SymbolLinkSummary[];
+  callerCount: number;
+};
+
+export type HistoryEventSummary = {
+  timestamp: number;
+  changedAt: string;
+  type: ChangeEvent["type"];
+  source: string;
+  target?: string;
+  changeGroup?: string;
+  kind?: string;
+  layer?: ChangeEvent["layer"];
+  metadata?: string;
+};
+
+export type HistoryGroupSummary = {
+  id: string;
+  changedAt: string;
+  eventCount: number;
+  filesChanged: string[];
+  symbolsChanged: string[];
+  relatedFiles: string[];
+  events: HistoryEventSummary[];
+};
+
+export type RecentHistorySummary = {
+  totalEvents: number;
+  returnedGroups: number;
+  groups: HistoryGroupSummary[];
+};
+
+export type ContextPlanFileRole =
+  | "target"
+  | "test"
+  | "importer"
+  | "entrypoint"
+  | "caller"
+  | "dependency"
+  | "related";
+
+export type ContextPlanSignal =
+  | "target"
+  | "direct-test"
+  | "test-for-importer"
+  | "direct-importer"
+  | "transitive-entrypoint"
+  | "symbol-caller"
+  | "direct-dependency"
+  | "recent-change"
+  | "task-match"
+  | "risk"
+  | "parse-warning";
+
+export type ContextPlanSymbolSignal =
+  | "target-file"
+  | "task-match"
+  | "calls-task-matched-file"
+  | "called-by-planned-file"
+  | "has-callers";
+
+export type ContextPlanAdapterSignal = {
+  capability: RippleAdapterCapability;
+  confidence: number;
+  agentUse: RippleAdapterAgentUse;
+  reason: string;
+};
+
+type ContextPlanCandidate = {
+  filePath: string;
+  role: ContextPlanFileRole;
+  score: number;
+  reasons: string[];
+  signals: Set<ContextPlanSignal>;
+  adapterSignals: Map<RippleAdapterCapability, ContextPlanAdapterSignal>;
+  order: number;
+};
+
+export type ContextPlanFile = {
+  file: string;
+  focus: string;
+  modificationRisk: FocusRisk;
+  reason: string;
+  estimatedTokens: number;
+  role?: ContextPlanFileRole;
+  score?: number;
+  signals?: ContextPlanSignal[];
+  adapterSignals?: ContextPlanAdapterSignal[];
+};
+
+export type ContextPlanSymbol = {
+  symbol: string;
+  file: string;
+  name: string;
+  kind: SymbolNode["kind"];
+  layer: SymbolNode["layer"];
+  reason: string;
+  score: number;
+  signals: ContextPlanSymbolSignal[];
+  callers: number;
+  calls: number;
+};
+
+export type ContextPlanSummary = {
+  task: string;
+  targetFile: string;
+  risk: FocusRisk;
+  adapterSupport: RippleAdapterDetectionSummary;
+  tokenBudget: number;
+  estimatedTokens: number;
+  readFirst: ContextPlanFile[];
+  readIfNeeded: ContextPlanFile[];
+  symbolFocus: ContextPlanSymbol[];
+  avoidInitially: string[];
+  doNotReadFirst?: string[];
+  verificationTargets: string[];
+  planningSignals?: string[];
+  why: string;
+};
 
 // ────────────────────────────────────────────────────────────────────────────
 // PERSISTENCE AND GENERATED CONTEXT
@@ -1692,7 +1898,7 @@ function makeChangeGroup(): string {
   return `save_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-const TS_JS_GLOB = "**/*.{ts,tsx,js,jsx}";
+const SOURCE_GLOB = "**/*.{ts,tsx,js,jsx,py}";
 
 // Risk thresholds are deliberately simple and visible. They are safety signals
 // for users and agents, not proofs of semantic impact.
@@ -1717,6 +1923,36 @@ function shouldIgnore(filePath: string): boolean {
   );
 }
 
+async function findWorkspaceSourceFiles(workspaceRoot: string): Promise<string[]> {
+  const files = await glob(SOURCE_GLOB, {
+    cwd: workspaceRoot,
+    absolute: true,
+    ignore: IGNORE_DIRS.map((dir) => `**/${dir}/**`),
+    nodir: true,
+  });
+
+  return files
+    .map((filePath) => path.resolve(filePath).split(/[\\/]/).join(path.sep))
+    .filter((filePath) => !shouldIgnore(filePath));
+}
+
+function isPythonFile(filePath: string): boolean {
+  return path.extname(filePath).toLowerCase() === ".py";
+}
+
+function isPythonIdentifier(value: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
+type PythonSymbolRange = {
+  name: string;
+  kind: SymbolNode["kind"];
+  startLine: number;
+  endLine: number;
+  indent: number;
+  text: string;
+};
+
 // ────────────────────────────────────────────────────────────────────────────
 // GRAPH ENGINE
 // ────────────────────────────────────────────────────────────────────────────
@@ -1739,6 +1975,7 @@ export class GraphEngine {
 
   private sessionNewFiles = new Set<string>();
   private cacheWriteTimer: ReturnType<typeof setTimeout> | undefined;
+  private adapterSupportCache: RippleAdapterDetectionSummary | undefined;
 
   /**
    * Disables writing .ripple/ context files while keeping the in-memory graph
@@ -1756,6 +1993,17 @@ export class GraphEngine {
     this.persistence.load(this.history);
 
     this.project = this.createProject();
+  }
+
+  getAdapterSupport(): RippleAdapterDetectionSummary {
+    if (!this.adapterSupportCache) {
+      this.adapterSupportCache = detectWorkspaceAdapters(this.workspaceRoot);
+    }
+    return this.adapterSupportCache;
+  }
+
+  private invalidateAdapterSupport(): void {
+    this.adapterSupportCache = undefined;
   }
 
   private createProject(): Project {
@@ -1868,11 +2116,7 @@ export class GraphEngine {
     this.isScanning = true;
 
     try {
-      const files = await vscode.workspace.findFiles(
-        TS_JS_GLOB,
-        `**/{${IGNORE_DIRS.join(",")}}/**`
-      );
-      const validFiles = files.map((u) => u.fsPath).filter((p) => !shouldIgnore(p));
+      const validFiles = await findWorkspaceSourceFiles(this.workspaceRoot);
 
       validFiles.sort((a, b) => {
         const aBarrel = /[\/\\]index\.(ts|tsx|js|jsx)$/.test(a) ? 0 : 1;
@@ -1946,12 +2190,9 @@ export class GraphEngine {
     priorityFile?: string
   ): Promise<void> {
     this.isScanning = true;
+    this.invalidateAdapterSupport();
 
-    const files = await vscode.workspace.findFiles(
-      TS_JS_GLOB,
-      `**/{${IGNORE_DIRS.join(",")}}/**`
-    );
-    const validFiles = files.map((u) => u.fsPath).filter((p) => !shouldIgnore(p));
+    const validFiles = await findWorkspaceSourceFiles(this.workspaceRoot);
 
     const staleFiles = this.persistence.loadCache(this.graph);
 
@@ -2193,6 +2434,23 @@ export class GraphEngine {
       const importerNode = this.graph.files.get(importerPath);
       if (!importerNode || importerPath === filePath || !fs.existsSync(importerPath)) {return;}
 
+      if (isPythonFile(importerPath)) {
+        let importerContent: string;
+        try {
+          importerContent = fs.readFileSync(importerPath, "utf8");
+        } catch {
+          return;
+        }
+
+        if (this.pythonSourceImportsTarget(importerPath, importerContent, filePath)) {
+          importerNode.imports.add(filePath);
+          newFileNode.importedBy.add(importerPath);
+        }
+
+        this.parsePythonCalls(importerPath, importerContent);
+        return;
+      }
+
       const sourceFile = this.getProjectSourceFile(importerPath);
       if (!sourceFile) {return;}
 
@@ -2326,6 +2584,7 @@ export class GraphEngine {
     }
 
     this.sessionNewFiles.add(filePath);
+    this.invalidateAdapterSupport();
     this.persistence.invalidatePatternCache();
     this.ensureFileNode(filePath);
     this.parseFile(filePath, content);
@@ -2393,6 +2652,7 @@ export class GraphEngine {
 
     const changeGroup = existingChangeGroup ?? makeChangeGroup();
     const fileNodeToDelete = this.graph.files.get(filePath)!;
+    this.invalidateAdapterSupport();
     this.persistence.invalidatePatternCache();
 
     fileNodeToDelete.importedBy.forEach((importerPath) => {
@@ -2428,6 +2688,16 @@ export class GraphEngine {
       this.history.log({ timestamp: Date.now(), type: "file_created", source: filePath });
     }
 
+    if (isPythonFile(filePath)) {
+      try {
+        this.parsePythonImportsAndSymbols(filePath, src);
+        fileNode.hasParseError = false;
+      } catch {
+        fileNode.hasParseError = true;
+      }
+      return;
+    }
+
     const tsMorphPath = this.toTsMorphPath(filePath);
     let sourceFile = this.project.getSourceFile(tsMorphPath);
     if (sourceFile) {
@@ -2447,6 +2717,16 @@ export class GraphEngine {
   }
 
   private parseCallsOnly(filePath: string): void {
+    if (isPythonFile(filePath)) {
+      try {
+        const src = fs.readFileSync(filePath, "utf8");
+        this.parsePythonCalls(filePath, src);
+      } catch {
+        console.warn("[Ripple] Python call parse error:", filePath);
+      }
+      return;
+    }
+
     const sourceFile = this.project.getSourceFile(this.toTsMorphPath(filePath));
     if (!sourceFile) {return;}
     this.parseCalls(filePath, sourceFile);
@@ -2463,6 +2743,18 @@ export class GraphEngine {
     fileNode.hash = sha1(src);
     fileNode.lastModifiedAt = Date.now();
     fileNode.changeCount += 1;
+
+    if (isPythonFile(filePath)) {
+      try {
+        this.parsePythonImportsAndSymbols(filePath, src);
+        this.parsePythonCalls(filePath, src);
+        fileNode.hasParseError = false;
+      } catch {
+        fileNode.hasParseError = true;
+        console.warn("[Ripple] Python parse error in:", filePath);
+      }
+      return;
+    }
 
     const tsMorphPath = this.toTsMorphPath(filePath);
     let sourceFile = this.project.getSourceFile(tsMorphPath);
@@ -2482,6 +2774,289 @@ export class GraphEngine {
       fileNode.hasParseError = true;
       console.warn("[Ripple] Parse error in:", filePath);
     }
+  }
+
+  // ── PYTHON PARSER ────────────────────────────────────────────────────────
+
+  private parsePythonImportsAndSymbols(filePath: string, sourceText: string): void {
+    const fileNode = this.graph.files.get(filePath)!;
+
+    this.parsePythonImportTargets(filePath, sourceText).forEach((targetPath) => {
+      fileNode.imports.add(targetPath);
+      this.ensureFileNode(targetPath).importedBy.add(filePath);
+    });
+
+    this.parsePythonSymbolRanges(filePath, sourceText).forEach((symbol) => {
+      const symbolId = makeSymbolId(filePath, symbol.name);
+      if (this.graph.symbols.has(symbolId)) {
+        const existing = this.graph.symbols.get(symbolId)!;
+        existing.lastModifiedAt = Date.now();
+        existing.symbolHash = sha1(symbol.text);
+        return;
+      }
+
+      const layerInfo = symbol.kind === "class"
+        ? { layer: "unknown" as SymbolNode["layer"], containsLayers: ["unknown"] }
+        : this.detectPythonSymbolLayer(symbol.name, symbol.text);
+
+      this.graph.symbols.set(symbolId, {
+        id: symbolId,
+        name: symbol.name,
+        file: filePath,
+        kind: symbol.kind,
+        layer: layerInfo.layer,
+        containsLayers: layerInfo.containsLayers,
+        symbolHash: sha1(symbol.text),
+        calls: new Set(),
+        calledBy: new Set(),
+        createdAt: Date.now(),
+        lastModifiedAt: Date.now(),
+      });
+      fileNode.symbols.add(symbolId);
+    });
+  }
+
+  private parsePythonImportTargets(filePath: string, sourceText: string): string[] {
+    const targets: string[] = [];
+
+    sourceText.split(/\r?\n/).forEach((rawLine) => {
+      const line = rawLine.replace(/#.*/, "").trim();
+      if (!line) {return;}
+
+      const importMatch = /^import\s+(.+)$/.exec(line);
+      if (importMatch) {
+        importMatch[1]
+          .split(",")
+          .map((item) => item.trim().split(/\s+as\s+/i)[0]?.trim())
+          .filter((moduleName): moduleName is string => Boolean(moduleName))
+          .forEach((moduleName) => {
+            targets.push(...this.resolvePythonImportTargets(filePath, moduleName));
+          });
+        return;
+      }
+
+      const fromMatch = /^from\s+([.\w]+)\s+import\s+(.+)$/.exec(line);
+      if (!fromMatch) {return;}
+
+      const moduleName = fromMatch[1];
+      const importedNames = fromMatch[2]
+        .replace(/[()]/g, "")
+        .split(",")
+        .map((item) => item.trim().split(/\s+as\s+/i)[0]?.trim())
+        .filter((name): name is string => Boolean(name) && isPythonIdentifier(name));
+
+      targets.push(...this.resolvePythonImportTargets(filePath, moduleName, importedNames));
+    });
+
+    return Array.from(new Set(targets));
+  }
+
+  private resolvePythonImportTargets(
+    importerPath: string,
+    moduleName: string,
+    importedNames: string[] = []
+  ): string[] {
+    const targets = [
+      ...this.resolvePythonModulePaths(importerPath, moduleName),
+      ...importedNames.flatMap((name) =>
+        this.resolvePythonModulePaths(importerPath, this.appendPythonImportedName(moduleName, name))
+      ),
+    ];
+
+    return Array.from(new Set(targets));
+  }
+
+  private appendPythonImportedName(moduleName: string, importedName: string): string {
+    return moduleName.replace(/\./g, "").length === 0
+      ? `${moduleName}${importedName}`
+      : `${moduleName}.${importedName}`;
+  }
+
+  private resolvePythonModulePaths(importerPath: string, moduleName: string): string[] {
+    const leadingDots = /^(\.+)/.exec(moduleName)?.[1] ?? "";
+    const moduleWithoutDots = leadingDots ? moduleName.slice(leadingDots.length) : moduleName;
+    const parts = moduleWithoutDots.split(".").filter(Boolean);
+    if (parts.length === 0) {return [];}
+
+    const baseDirs: string[] = [];
+    if (leadingDots) {
+      let baseDir = path.dirname(importerPath);
+      for (let i = 1; i < leadingDots.length; i++) {
+        baseDir = path.dirname(baseDir);
+      }
+      baseDirs.push(baseDir);
+    } else {
+      baseDirs.push(this.workspaceRoot, path.dirname(importerPath));
+    }
+
+    const results: string[] = [];
+    baseDirs.forEach((baseDir) => {
+      const moduleBase = path.resolve(baseDir, ...parts);
+      this.pythonModuleCandidates(moduleBase).forEach((candidate) => {
+        if (!results.includes(candidate)) {
+          results.push(candidate);
+        }
+      });
+    });
+    return results;
+  }
+
+  private pythonModuleCandidates(moduleBase: string): string[] {
+    return [
+      `${moduleBase}.py`,
+      path.join(moduleBase, "__init__.py"),
+    ]
+      .map((candidate) => path.resolve(candidate).split(/[\\/]/).join(path.sep))
+      .filter((candidate) => !shouldIgnore(candidate) && fs.existsSync(candidate))
+      .filter((candidate) => {
+        try {
+          return fs.statSync(candidate).isFile();
+        } catch {
+          return false;
+        }
+      });
+  }
+
+  private pythonSourceImportsTarget(
+    importerPath: string,
+    sourceText: string,
+    targetPath: string
+  ): boolean {
+    return this.parsePythonImportTargets(importerPath, sourceText).includes(targetPath);
+  }
+
+  private parsePythonSymbolRanges(filePath: string, sourceText: string): PythonSymbolRange[] {
+    const lines = sourceText.split(/\r?\n/);
+    const ranges: PythonSymbolRange[] = [];
+    const seen = new Set<string>();
+
+    lines.forEach((line, index) => {
+      const functionMatch = /^(\s*)(?:async\s+def|def)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line);
+      const classMatch = /^(\s*)class\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)/.exec(line);
+      const match = functionMatch ?? classMatch;
+      if (!match) {return;}
+
+      const indent = this.pythonIndent(match[1]);
+      const name = match[2];
+      const kind: SymbolNode["kind"] = classMatch
+        ? "class"
+        : indent > 0
+        ? "method"
+        : "function";
+      const key = `${name}:${kind}:${index}`;
+      if (seen.has(key)) {return;}
+      seen.add(key);
+
+      const endLine = this.pythonBlockEndLine(lines, index, indent);
+      ranges.push({
+        name,
+        kind,
+        startLine: index + 1,
+        endLine,
+        indent,
+        text: lines.slice(index, endLine).join("\n"),
+      });
+    });
+
+    return ranges;
+  }
+
+  private pythonBlockEndLine(lines: string[], startIndex: number, indent: number): number {
+    for (let i = startIndex + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim() || line.trimStart().startsWith("#") || line.trimStart().startsWith("@")) {
+        continue;
+      }
+      const lineIndent = this.pythonIndent(line.match(/^\s*/)?.[0] ?? "");
+      if (lineIndent <= indent) {
+        return i;
+      }
+    }
+    return lines.length;
+  }
+
+  private pythonIndent(value: string): number {
+    return value.replace(/\t/g, "    ").length;
+  }
+
+  private detectPythonSymbolLayer(
+    symbolName: string,
+    symbolText: string
+  ): { layer: SymbolNode["layer"]; containsLayers: string[] } {
+    const lowerName = symbolName.toLowerCase();
+    const lowerText = symbolText.toLowerCase();
+    const layers: string[] = [];
+
+    if (/^(handle_|on_)/.test(lowerName)) {
+      layers.push("handler");
+    }
+
+    if (
+      /\b(requests|httpx|urllib|sqlalchemy|django\.db|session|cursor|query|select|insert|update|delete)\b/.test(lowerText) ||
+      /\b(open|read_text|write_text|read_csv|to_csv)\s*\(/.test(lowerText)
+    ) {
+      layers.push("data");
+    }
+
+    if (/\b(if|elif|for|while|try|except|match|return)\b/.test(lowerText) || symbolText.length > 80) {
+      layers.push("logic");
+    }
+
+    if (layers.length === 0) {layers.push("unknown");}
+
+    return {
+      layer: layers.length > 1 ? "mixed" : (layers[0] as SymbolNode["layer"]),
+      containsLayers: layers,
+    };
+  }
+
+  private parsePythonCalls(filePath: string, sourceText: string): void {
+    const fileNode = this.graph.files.get(filePath);
+    if (!fileNode) {return;}
+
+    const callableSymbols = new Map<string, string>();
+    fileNode.imports.forEach((importedPath) => {
+      this.graph.files.get(importedPath)?.symbols.forEach((symbolId) => {
+        const sym = this.graph.symbols.get(symbolId);
+        if (sym) {callableSymbols.set(sym.name, symbolId);}
+      });
+    });
+    fileNode.symbols.forEach((symbolId) => {
+      const sym = this.graph.symbols.get(symbolId);
+      if (sym) {callableSymbols.set(sym.name, symbolId);}
+    });
+
+    if (callableSymbols.size === 0) {return;}
+
+    const ranges = this.parsePythonSymbolRanges(filePath, sourceText);
+    const lines = sourceText.split(/\r?\n/);
+    lines.forEach((line, index) => {
+      const lineNumber = index + 1;
+      const enclosing = this.findPythonEnclosingSymbol(filePath, ranges, lineNumber);
+      if (!enclosing) {return;}
+
+      const calls = line.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g);
+      for (const call of calls) {
+        const calledName = call[1];
+        const targetSymbolId = callableSymbols.get(calledName);
+        if (!targetSymbolId) {continue;}
+        this.addCallEdge(enclosing, targetSymbolId);
+      }
+    });
+  }
+
+  private findPythonEnclosingSymbol(
+    filePath: string,
+    ranges: PythonSymbolRange[],
+    lineNumber: number
+  ): string | null {
+    const enclosing = ranges
+      .filter((range) => range.startLine <= lineNumber && range.endLine >= lineNumber)
+      .sort((a, b) => b.indent - a.indent)[0];
+    if (!enclosing || enclosing.kind === "class") {return null;}
+
+    const symbolId = makeSymbolId(filePath, enclosing.name);
+    return this.graph.symbols.has(symbolId) ? symbolId : null;
   }
 
   // ── IMPORTS ───────────────────────────────────────────────────────────────
@@ -2964,6 +3539,156 @@ export class GraphEngine {
   // Public query methods used by editor features. They are thin wrappers around
   // graph Sets, keeping UI code away from graph internals.
 
+  private toProjectPath(filePath: string): string {
+    return path.relative(this.workspaceRoot, filePath).split(path.sep).join("/");
+  }
+
+  private modificationRiskFor(node: FileNode): FocusRisk {
+    const blastSize = node.importedBy.size;
+    if (blastSize >= DANGEROUS_BLAST_RADIUS || node.changeCount > DANGEROUS_CHURN) {
+      return "dangerous";
+    }
+    if (
+      blastSize >= CAUTION_BLAST_RADIUS ||
+      node.changeCount > CAUTION_CHURN ||
+      node.hasParseError
+    ) {
+      return "caution";
+    }
+    return "safe";
+  }
+
+  private focusPathFor(filePath: string): string {
+    return `.ripple/.cache/focus/${makeFocusKey(filePath, this.graph)}.json`;
+  }
+
+  private dependencyLinkFor(filePath: string): FileDependencyLink {
+    const node = this.graph.files.get(filePath);
+    return {
+      file: this.toProjectPath(filePath),
+      focus: this.focusPathFor(filePath),
+      modificationRisk: node ? this.modificationRiskFor(node) : "safe",
+      importCount: node?.imports.size ?? 0,
+      importerCount: node?.importedBy.size ?? 0,
+    };
+  }
+
+  private contextPlanFileFor(
+    filePath: string,
+    reason: string,
+    role?: ContextPlanFileRole,
+    score?: number,
+    signals?: ContextPlanSignal[],
+    adapterSignals?: ContextPlanAdapterSignal[]
+  ): ContextPlanFile | null {
+    const node = this.graph.files.get(filePath);
+    if (!node) {return null;}
+
+    return {
+      file: this.toProjectPath(filePath),
+      focus: this.focusPathFor(filePath),
+      modificationRisk: this.modificationRiskFor(node),
+      reason,
+      estimatedTokens: this.estimateFileContextTokens(node),
+      ...(role ? { role } : {}),
+      ...(score !== undefined ? { score } : {}),
+      ...(signals && signals.length > 0 ? { signals } : {}),
+      ...(adapterSignals && adapterSignals.length > 0 ? { adapterSignals } : {}),
+    };
+  }
+
+  private estimateFileContextTokens(node: FileNode): number {
+    const symbolCost = node.symbols.size * 80;
+    const dependencyCost = (node.imports.size + node.importedBy.size) * 35;
+    const churnCost = Math.min(node.changeCount, 10) * 20;
+    return Math.max(180, Math.min(1200, 220 + symbolCost + dependencyCost + churnCost));
+  }
+
+  private projectSymbolId(symbolId: string): string {
+    const separator = symbolId.indexOf("::");
+    if (separator === -1) {return symbolId;}
+
+    const filePath = symbolId.slice(0, separator);
+    const suffix = symbolId.slice(separator);
+    return `${this.toProjectPath(filePath)}${suffix}`;
+  }
+
+  private entityToProjectRef(entity: string): string {
+    const separator = entity.indexOf("::");
+    const filePath = separator === -1 ? entity : entity.slice(0, separator);
+    const suffix = separator === -1 ? "" : entity.slice(separator);
+
+    if (filePath === "initial_scan") {return entity;}
+    if (!path.isAbsolute(filePath)) {
+      return `${filePath.split(path.sep).join("/")}${suffix}`;
+    }
+
+    return `${this.toProjectPath(filePath)}${suffix}`;
+  }
+
+  private fileRefFromEntity(entity: string): string {
+    const separator = entity.indexOf("::");
+    const filePath = separator === -1 ? entity : entity.slice(0, separator);
+    return this.entityToProjectRef(filePath);
+  }
+
+  private symbolLinkFor(symbolId: string): SymbolLinkSummary | null {
+    const symbol = this.graph.symbols.get(symbolId);
+    if (!symbol) {return null;}
+
+    return {
+      symbolId,
+      projectSymbolId: this.projectSymbolId(symbolId),
+      file: this.toProjectPath(symbol.file),
+      name: symbol.name,
+      kind: symbol.kind,
+      layer: symbol.layer,
+      focus: this.focusPathFor(symbol.file),
+      callerCount: symbol.calledBy.size,
+      callCount: symbol.calls.size,
+    };
+  }
+
+  private symbolGraphSummaryFor(symbolId: string): SymbolGraphSummary | null {
+    const symbol = this.graph.symbols.get(symbolId);
+    const link = this.symbolLinkFor(symbolId);
+    if (!symbol || !link) {return null;}
+
+    const byProjectSymbolId = (a: string, b: string): number =>
+      this.projectSymbolId(a).localeCompare(this.projectSymbolId(b));
+
+    return {
+      ...link,
+      containsLayers: symbol.containsLayers,
+      calls: Array.from(symbol.calls)
+        .sort(byProjectSymbolId)
+        .map((targetId) => this.symbolLinkFor(targetId))
+        .filter((target): target is SymbolLinkSummary => Boolean(target)),
+      calledBy: Array.from(symbol.calledBy)
+        .sort(byProjectSymbolId)
+        .map((callerId) => this.symbolLinkFor(callerId))
+        .filter((caller): caller is SymbolLinkSummary => Boolean(caller)),
+    };
+  }
+
+  resolveFilePath(filePath: string): string {
+    const absolutePath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(this.workspaceRoot, filePath);
+    return path.resolve(absolutePath).split(/[\\/]/).join(path.sep);
+  }
+
+  resolveSymbolId(symbolId: string): string | null {
+    const separator = symbolId.indexOf("::");
+    if (separator === -1) {return null;}
+
+    const filePath = symbolId.slice(0, separator);
+    const symbolName = symbolId.slice(separator + 2);
+    if (!filePath || !symbolName) {return null;}
+
+    return makeSymbolId(this.resolveFilePath(filePath), symbolName);
+  }
+
   downstreamFiles(filePath: string): string[] {
     return Array.from(this.graph.files.get(filePath)?.importedBy ?? []);
   }
@@ -2978,6 +3703,1055 @@ export class GraphEngine {
 
   symbolImpact(symbolId: string): string[] {
     return Array.from(this.graph.symbols.get(symbolId)?.calledBy ?? []);
+  }
+
+  getRecentHistorySummary(limit: number = 10): RecentHistorySummary {
+    const normalizedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    const groups: HistoryGroupSummary[] = [];
+    const seenGroups = new Set<string>();
+
+    for (let i = this.history.events.length - 1; i >= 0; i--) {
+      const event = this.history.events[i];
+      const groupId = event.changeGroup ?? `${event.type}:${event.timestamp}:${event.source}`;
+      if (seenGroups.has(groupId)) {continue;}
+
+      seenGroups.add(groupId);
+      const groupEvents = event.changeGroup
+        ? this.history.getGroup(event.changeGroup)
+        : [event];
+
+      const filesChanged = new Set<string>();
+      const symbolsChanged = new Set<string>();
+      const relatedFiles = new Set<string>();
+      let changedAt = event.timestamp;
+
+      const events = groupEvents
+        .slice()
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .map((groupEvent) => {
+          changedAt = Math.max(changedAt, groupEvent.timestamp);
+
+          const sourceRef = this.entityToProjectRef(groupEvent.source);
+          const sourceFileRef = this.fileRefFromEntity(groupEvent.source);
+          if (sourceFileRef && sourceFileRef !== "initial_scan") {filesChanged.add(sourceFileRef);}
+          if (groupEvent.source.includes("::")) {symbolsChanged.add(sourceRef);}
+
+          const targetRef = groupEvent.target
+            ? this.entityToProjectRef(groupEvent.target)
+            : undefined;
+          if (groupEvent.target) {
+            const targetFileRef = this.fileRefFromEntity(groupEvent.target);
+            if (targetFileRef && targetFileRef !== sourceFileRef) {
+              relatedFiles.add(targetFileRef);
+            }
+          }
+
+          return {
+            timestamp: groupEvent.timestamp,
+            changedAt: new Date(groupEvent.timestamp).toISOString(),
+            type: groupEvent.type,
+            source: sourceRef,
+            target: targetRef,
+            changeGroup: groupEvent.changeGroup,
+            kind: groupEvent.kind,
+            layer: groupEvent.layer,
+            metadata: groupEvent.metadata,
+          };
+        });
+
+      groups.push({
+        id: groupId,
+        changedAt: new Date(changedAt).toISOString(),
+        eventCount: events.length,
+        filesChanged: Array.from(filesChanged).sort(),
+        symbolsChanged: Array.from(symbolsChanged).sort(),
+        relatedFiles: Array.from(relatedFiles).sort(),
+        events,
+      });
+
+      if (groups.length >= normalizedLimit) {break;}
+    }
+
+    return {
+      totalEvents: this.history.events.length,
+      returnedGroups: groups.length,
+      groups,
+    };
+  }
+
+  private isTestFileForPlan(filePath: string): boolean {
+    const projectPath = this.toProjectPath(filePath).toLowerCase();
+    const normalized = projectPath.split(/[\\/]/).join("/");
+    const base = path.basename(filePath).toLowerCase();
+    const segments = normalized.split("/");
+
+    return (
+      /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) ||
+      segments.includes("__tests__") ||
+      segments.includes("test") ||
+      segments.includes("tests") ||
+      segments.includes("spec") ||
+      segments.includes("specs")
+    );
+  }
+
+  private isIndexBoundaryFileForPlan(filePath: string): boolean {
+    const base = path.basename(filePath).toLowerCase();
+    if (!["index.ts", "index.tsx", "index.js", "index.jsx"].includes(base)) {
+      return false;
+    }
+
+    const projectPath = this.toProjectPath(filePath).toLowerCase();
+    if (this.isTestFileForPlan(filePath)) {
+      return false;
+    }
+
+    return (
+      projectPath === "src/index.ts" ||
+      projectPath === "src/index.tsx" ||
+      projectPath === "src/index.js" ||
+      projectPath === "src/index.jsx" ||
+      projectPath.includes("/app/") ||
+      projectPath.includes("/pages/") ||
+      projectPath.includes("/routes/") ||
+      projectPath.includes("/api/")
+    );
+  }
+
+  private isRouteEntryPointFileForPlan(filePath: string): boolean {
+    const base = path.basename(filePath).toLowerCase();
+    return (
+      base === "route.ts" ||
+      base === "route.tsx" ||
+      base === "page.ts" ||
+      base === "page.tsx" ||
+      filePath.includes(`${path.sep}pages${path.sep}api${path.sep}`) ||
+      filePath.includes(`${path.sep}app${path.sep}api${path.sep}`)
+    );
+  }
+
+  private wordsForPlan(text: string): string[] {
+    return text
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .map((word) => word.trim())
+      .filter(Boolean);
+  }
+
+  private taskTermsForPlan(task: string): string[] {
+    const stopWords = new Set([
+      "a",
+      "an",
+      "and",
+      "are",
+      "as",
+      "behavior",
+      "bug",
+      "change",
+      "class",
+      "code",
+      "component",
+      "do",
+      "does",
+      "file",
+      "fix",
+      "for",
+      "from",
+      "function",
+      "how",
+      "in",
+      "into",
+      "is",
+      "issue",
+      "js",
+      "jsx",
+      "logic",
+      "method",
+      "modify",
+      "new",
+      "of",
+      "old",
+      "on",
+      "or",
+      "refactor",
+      "remove",
+      "should",
+      "src",
+      "test",
+      "tests",
+      "that",
+      "the",
+      "this",
+      "to",
+      "ts",
+      "tsx",
+      "update",
+      "use",
+      "using",
+      "when",
+      "with",
+    ]);
+
+    const terms = new Set<string>();
+    this.wordsForPlan(task).forEach((word) => {
+      if (word.length < 3 || stopWords.has(word)) {
+        return;
+      }
+      terms.add(word);
+      if (word.length > 4 && word.endsWith("s")) {
+        terms.add(word.slice(0, -1));
+      }
+    });
+
+    return Array.from(terms).slice(0, 12);
+  }
+
+  private taskTermsMatchForPlan(taskTerm: string, candidateTerm: string): boolean {
+    if (taskTerm === candidateTerm) {return true;}
+    if (taskTerm.length >= 4 && candidateTerm.includes(taskTerm)) {return true;}
+    if (candidateTerm.length >= 4 && taskTerm.includes(candidateTerm)) {return true;}
+
+    const shorterLength = Math.min(taskTerm.length, candidateTerm.length);
+    if (shorterLength < 5) {return false;}
+
+    let commonPrefix = 0;
+    while (
+      commonPrefix < shorterLength &&
+      taskTerm[commonPrefix] === candidateTerm[commonPrefix]
+    ) {
+      commonPrefix++;
+    }
+    return commonPrefix >= 5;
+  }
+
+  private taskRelevanceForPlan(
+    filePath: string,
+    taskTerms: string[]
+  ): { score: number; matches: string[] } {
+    if (taskTerms.length === 0) {
+      return { score: 0, matches: [] };
+    }
+
+    const node = this.graph.files.get(filePath);
+    if (!node) {
+      return { score: 0, matches: [] };
+    }
+
+    const pathWords = this.wordsForPlan(this.toProjectPath(filePath));
+    const symbolWords: string[] = [];
+    node.symbols.forEach((symbolId) => {
+      const symbol = this.graph.symbols.get(symbolId);
+      if (symbol) {
+        symbolWords.push(...this.wordsForPlan(symbol.name));
+      }
+    });
+
+    const pathMatches = new Set<string>();
+    const symbolMatches = new Set<string>();
+    taskTerms.forEach((term) => {
+      if (pathWords.some((word) => this.taskTermsMatchForPlan(term, word))) {
+        pathMatches.add(term);
+      }
+      if (symbolWords.some((word) => this.taskTermsMatchForPlan(term, word))) {
+        symbolMatches.add(term);
+      }
+    });
+
+    const matches = new Set([...pathMatches, ...symbolMatches]);
+    if (matches.size === 0) {
+      return { score: 0, matches: [] };
+    }
+
+    const symbolOnlyMatches = Array.from(symbolMatches)
+      .filter((term) => !pathMatches.has(term));
+    const score =
+      Math.min(360, pathMatches.size * 180) +
+      Math.min(280, symbolOnlyMatches.length * 140);
+
+    return {
+      score,
+      matches: Array.from(matches).sort().slice(0, 6),
+    };
+  }
+
+  private symbolTaskRelevanceForPlan(
+    symbol: SymbolNode,
+    taskTerms: string[]
+  ): { score: number; matches: string[] } {
+    if (taskTerms.length === 0) {
+      return { score: 0, matches: [] };
+    }
+
+    const symbolWords = this.wordsForPlan(symbol.name);
+    const matches = taskTerms.filter((term) =>
+      symbolWords.some((word) => this.taskTermsMatchForPlan(term, word))
+    );
+
+    if (matches.length === 0) {
+      return { score: 0, matches: [] };
+    }
+
+    return {
+      score: Math.min(520, matches.length * 260),
+      matches: matches.sort().slice(0, 6),
+    };
+  }
+
+  private symbolFocusForPlan(
+    candidateFilePaths: string[],
+    resolvedPath: string,
+    taskTerms: string[],
+    taskMatchedFiles: Set<string>
+  ): ContextPlanSymbol[] {
+    const candidateFileSet = new Set(candidateFilePaths);
+    const rankedSymbols: ContextPlanSymbol[] = [];
+
+    candidateFilePaths.forEach((filePath) => {
+      if (this.isTestFileForPlan(filePath) && filePath !== resolvedPath) {
+        return;
+      }
+
+      const fileNode = this.graph.files.get(filePath);
+      if (!fileNode) {return;}
+
+      fileNode.symbols.forEach((symbolId) => {
+        const symbol = this.graph.symbols.get(symbolId);
+        if (!symbol) {return;}
+
+        let score = 0;
+        const reasons: string[] = [];
+        const signals = new Set<ContextPlanSymbolSignal>();
+        const addSignal = (
+          signal: ContextPlanSymbolSignal,
+          amount: number,
+          reason: string
+        ): void => {
+          score += amount;
+          signals.add(signal);
+          if (!reasons.includes(reason)) {
+            reasons.push(reason);
+          }
+        };
+
+        if (symbol.file === resolvedPath) {
+          addSignal("target-file", 320, "Defined in the target file.");
+        }
+
+        const taskMatch = this.symbolTaskRelevanceForPlan(symbol, taskTerms);
+        if (taskMatch.score > 0) {
+          addSignal(
+            "task-match",
+            taskMatch.score,
+            `Symbol name matches task terms: ${taskMatch.matches.join(", ")}.`
+          );
+        }
+
+        const calledTaskMatchedFiles = Array.from(symbol.calls)
+          .map((calledSymbolId) => this.graph.symbols.get(calledSymbolId)?.file)
+          .filter((calledFile): calledFile is string =>
+            typeof calledFile === "string" &&
+            taskMatchedFiles.has(calledFile) &&
+            calledFile !== symbol.file
+          )
+          .map((calledFile) => this.toProjectPath(calledFile));
+        const uniqueCalledTaskMatchedFiles = Array.from(new Set(calledTaskMatchedFiles));
+        if (uniqueCalledTaskMatchedFiles.length > 0) {
+          addSignal(
+            "calls-task-matched-file",
+            Math.min(420, 220 + uniqueCalledTaskMatchedFiles.length * 80),
+            `Calls task-matched file(s): ${uniqueCalledTaskMatchedFiles.slice(0, 3).join(", ")}.`
+          );
+        }
+
+        const plannedCallerFiles = Array.from(symbol.calledBy)
+          .map((callerId) => this.graph.symbols.get(callerId)?.file)
+          .filter((callerFile): callerFile is string =>
+            typeof callerFile === "string" &&
+            candidateFileSet.has(callerFile) &&
+            callerFile !== symbol.file
+          )
+          .map((callerFile) => this.toProjectPath(callerFile));
+        const uniquePlannedCallerFiles = Array.from(new Set(plannedCallerFiles));
+        if (uniquePlannedCallerFiles.length > 0) {
+          addSignal(
+            "called-by-planned-file",
+            Math.min(320, 180 + uniquePlannedCallerFiles.length * 50),
+            `Called by planned file(s): ${uniquePlannedCallerFiles.slice(0, 3).join(", ")}.`
+          );
+        }
+
+        if (symbol.calledBy.size > 0) {
+          addSignal(
+            "has-callers",
+            Math.min(180, 60 + symbol.calledBy.size * 20),
+            `${symbol.calledBy.size} tracked caller(s).`
+          );
+        }
+
+        if (score === 0) {
+          return;
+        }
+
+        rankedSymbols.push({
+          symbol: this.projectSymbolId(symbol.id),
+          file: this.toProjectPath(symbol.file),
+          name: symbol.name,
+          kind: symbol.kind,
+          layer: symbol.layer,
+          reason: reasons.join(" "),
+          score,
+          signals: Array.from(signals).sort(),
+          callers: symbol.calledBy.size,
+          calls: symbol.calls.size,
+        });
+      });
+    });
+
+    return rankedSymbols
+      .sort((a, b) => {
+        if (a.file === this.toProjectPath(resolvedPath) && b.file !== this.toProjectPath(resolvedPath)) {
+          return -1;
+        }
+        if (b.file === this.toProjectPath(resolvedPath) && a.file !== this.toProjectPath(resolvedPath)) {
+          return 1;
+        }
+        if (a.score !== b.score) {return b.score - a.score;}
+        return a.symbol.localeCompare(b.symbol);
+      })
+      .slice(0, 12);
+  }
+
+  planContext(task: string, targetFile: string, tokenBudget: number = 4000): ContextPlanSummary | null {
+    const resolvedPath = this.resolveFilePath(targetFile);
+    const node = this.graph.files.get(resolvedPath);
+    if (!node) {return null;}
+
+    const normalizedBudget = Math.max(1000, Math.min(32000, Math.floor(tokenBudget)));
+    const risk = this.modificationRiskFor(node);
+    const targetProjectPath = this.toProjectPath(resolvedPath);
+    const adapterSupport = this.getAdapterSupport();
+    const taskTerms = this.taskTermsForPlan(task);
+    const taskMatchedTerms = new Set<string>();
+    const taskMatchedFiles = new Set<string>();
+    let taskMatchedFileCount = 0;
+    const candidateMap = new Map<string, ContextPlanCandidate>();
+    const directTestFiles = new Set<string>();
+    const importerTestFiles = new Set<string>();
+    const entryPointFiles = new Set<string>();
+    const symbolVerificationTargets = new Set<string>();
+    const roleRank: Record<ContextPlanFileRole, number> = {
+      target: 7,
+      test: 6,
+      entrypoint: 5,
+      importer: 4,
+      caller: 3,
+      dependency: 2,
+      related: 1,
+    };
+    const riskRank: Record<FocusRisk, number> = { dangerous: 3, caution: 2, safe: 1 };
+    let candidateOrder = 0;
+
+    const adapterCapabilityForSignal = (
+      signal: ContextPlanSignal
+    ): RippleAdapterCapability | null => {
+      switch (signal) {
+        case "target":
+        case "parse-warning":
+          return "files";
+        case "direct-dependency":
+          return "dependencies";
+        case "direct-importer":
+        case "transitive-entrypoint":
+          return "reverse-dependencies";
+        case "symbol-caller":
+          return "call-edges";
+        case "direct-test":
+        case "test-for-importer":
+          return "tests";
+        case "recent-change":
+        case "task-match":
+        case "risk":
+          return null;
+      }
+    };
+
+    const adapterSignalFor = (signal: ContextPlanSignal): ContextPlanAdapterSignal | null => {
+      const capability = adapterCapabilityForSignal(signal);
+      if (!capability) {return null;}
+
+      const profile = adapterSupport.primaryAdapter.capabilityProfile.find(
+        (item) => item.capability === capability
+      );
+      if (!profile) {return null;}
+
+      return {
+        capability,
+        confidence: profile.confidence,
+        agentUse: profile.agentUse,
+        reason: profile.reason,
+      };
+    };
+
+    const adapterMultiplierFor = (signal: ContextPlanSignal): number => {
+      const adapterSignal = adapterSignalFor(signal);
+      if (!adapterSignal) {return 1;}
+
+      if (signal === "target") {
+        return Math.max(0.95, adapterSignal.confidence);
+      }
+
+      if (adapterSignal.agentUse === "trust") {
+        return Math.max(0.85, adapterSignal.confidence);
+      }
+      if (adapterSignal.agentUse === "verify") {
+        return Math.max(0.55, adapterSignal.confidence);
+      }
+      return Math.max(0.25, adapterSignal.confidence);
+    };
+
+    const adapterReasonFor = (
+      adapterSignal: ContextPlanAdapterSignal | null
+    ): string | null => {
+      if (!adapterSignal || adapterSignal.agentUse === "trust") {return null;}
+      const percent = Math.round(adapterSignal.confidence * 100);
+      return `Adapter ranks ${adapterSignal.capability} as ${adapterSignal.agentUse} (${percent}% confidence); verify before relying on this edge alone.`;
+    };
+
+    const recordAdapterSignal = (
+      candidate: ContextPlanCandidate,
+      adapterSignal: ContextPlanAdapterSignal | null
+    ): void => {
+      if (!adapterSignal) {return;}
+      const existing = candidate.adapterSignals.get(adapterSignal.capability);
+      if (!existing || adapterSignal.confidence > existing.confidence) {
+        candidate.adapterSignals.set(adapterSignal.capability, adapterSignal);
+      }
+    };
+
+    const byRiskThenConnectivity = (a: string, b: string): number => {
+      const aNode = this.graph.files.get(a);
+      const bNode = this.graph.files.get(b);
+      const aRisk = aNode ? riskRank[this.modificationRiskFor(aNode)] : 0;
+      const bRisk = bNode ? riskRank[this.modificationRiskFor(bNode)] : 0;
+      if (aRisk !== bRisk) {return bRisk - aRisk;}
+      const aEdges = (aNode?.imports.size ?? 0) + (aNode?.importedBy.size ?? 0);
+      const bEdges = (bNode?.imports.size ?? 0) + (bNode?.importedBy.size ?? 0);
+      if (aEdges !== bEdges) {return bEdges - aEdges;}
+      return this.toProjectPath(a).localeCompare(this.toProjectPath(b));
+    };
+
+    const importers = Array.from(node.importedBy).sort(byRiskThenConnectivity);
+    const imports = Array.from(node.imports).sort(byRiskThenConnectivity);
+    const testFiles = Array.from(this.graph.files.keys())
+      .filter((filePath) => this.isTestFileForPlan(filePath))
+      .sort((a, b) => this.toProjectPath(a).localeCompare(this.toProjectPath(b)));
+    const targetSymbolIds = new Set(node.symbols);
+
+    const addCandidate = (
+      filePath: string,
+      role: ContextPlanFileRole,
+      score: number,
+      reason: string,
+      signal: ContextPlanSignal
+    ): void => {
+      const fileNode = this.graph.files.get(filePath);
+      if (!fileNode) {return;}
+
+      const adapterSignal = adapterSignalFor(signal);
+      const weightedScore = Math.round(score * adapterMultiplierFor(signal));
+      const adapterReason = adapterReasonFor(adapterSignal);
+      const existing = candidateMap.get(filePath);
+      if (existing) {
+        existing.score += weightedScore;
+        if (!existing.reasons.includes(reason)) {
+          existing.reasons.push(reason);
+        }
+        if (adapterReason && !existing.reasons.includes(adapterReason)) {
+          existing.reasons.push(adapterReason);
+        }
+        existing.signals.add(signal);
+        recordAdapterSignal(existing, adapterSignal);
+        if (roleRank[role] > roleRank[existing.role]) {
+          existing.role = role;
+        }
+        return;
+      }
+
+      candidateMap.set(filePath, {
+        filePath,
+        role,
+        score: weightedScore,
+        reasons: adapterReason ? [reason, adapterReason] : [reason],
+        signals: new Set([signal]),
+        adapterSignals: new Map(),
+        order: candidateOrder++,
+      });
+      recordAdapterSignal(candidateMap.get(filePath)!, adapterSignal);
+    };
+
+    const callsAnySymbol = (filePath: string, symbolIds: Set<string>): boolean => {
+      const fileNode = this.graph.files.get(filePath);
+      if (!fileNode || symbolIds.size === 0) {return false;}
+
+      for (const symbolId of fileNode.symbols) {
+        const symbol = this.graph.symbols.get(symbolId);
+        if (!symbol) {continue;}
+        for (const calledSymbolId of symbol.calls) {
+          if (symbolIds.has(calledSymbolId)) {return true;}
+        }
+      }
+      return false;
+    };
+
+    const fileSymbolIds = (filePath: string): Set<string> =>
+      new Set(this.graph.files.get(filePath)?.symbols ?? []);
+
+    const isEntryPoint = (filePath: string): boolean =>
+      this.isRouteEntryPointFileForPlan(filePath) || this.isIndexBoundaryFileForPlan(filePath);
+
+    const historyEntityToFilePath = (entity: string | undefined): string | null => {
+      if (!entity) {return null;}
+      const separator = entity.indexOf("::");
+      const filePath = separator === -1 ? entity : entity.slice(0, separator);
+      if (!filePath || filePath === "initial_scan") {return null;}
+      return this.resolveFilePath(filePath);
+    };
+
+    const recentScores = new Map<string, number>();
+    let recentRank = 0;
+    for (let i = this.history.events.length - 1; i >= 0 && recentRank < 80; i--) {
+      const event = this.history.events[i];
+      [historyEntityToFilePath(event.source), historyEntityToFilePath(event.target)]
+        .filter((filePath): filePath is string => Boolean(filePath))
+        .forEach((filePath) => {
+          if (!recentScores.has(filePath)) {
+            recentScores.set(filePath, Math.max(20, 90 - recentRank * 3));
+            recentRank++;
+          }
+        });
+    }
+
+    addCandidate(
+      resolvedPath,
+      "target",
+      10000,
+      "Target file for the requested task; read this before every other file.",
+      "target"
+    );
+
+    testFiles.forEach((testFile) => {
+      const testNode = this.graph.files.get(testFile);
+      if (!testNode) {return;}
+      if (testNode.imports.has(resolvedPath) || callsAnySymbol(testFile, targetSymbolIds)) {
+        directTestFiles.add(testFile);
+        addCandidate(
+          testFile,
+          "test",
+          1600,
+          `Direct test for ${targetProjectPath}; use it as the first verification target.`,
+          "direct-test"
+        );
+      }
+    });
+
+    importers.slice(0, 8).forEach((filePath) => {
+      const role: ContextPlanFileRole = this.isTestFileForPlan(filePath)
+        ? "test"
+        : isEntryPoint(filePath)
+        ? "entrypoint"
+        : "importer";
+      const signal: ContextPlanSignal = role === "test"
+        ? "direct-test"
+        : role === "entrypoint"
+        ? "transitive-entrypoint"
+        : "direct-importer";
+      if (role === "test") {directTestFiles.add(filePath);}
+      if (role === "entrypoint") {entryPointFiles.add(filePath);}
+      addCandidate(
+        filePath,
+        role,
+        role === "test" ? 1500 : role === "entrypoint" ? 1050 : 900,
+        "Direct importer; verify it still satisfies the target file contract.",
+        signal
+      );
+    });
+
+    imports.slice(0, 6).forEach((filePath) => {
+      addCandidate(
+        filePath,
+        "dependency",
+        420,
+        "Direct dependency imported by the target file; read if the task changes how the target delegates work.",
+        "direct-dependency"
+      );
+    });
+
+    importers.forEach((importerPath) => {
+      const importerNode = this.graph.files.get(importerPath);
+      if (!importerNode) {return;}
+      const importerSymbolIds = fileSymbolIds(importerPath);
+
+      testFiles.forEach((testFile) => {
+        if (directTestFiles.has(testFile)) {return;}
+        const testNode = this.graph.files.get(testFile);
+        if (!testNode) {return;}
+        if (testNode.imports.has(importerPath) || callsAnySymbol(testFile, importerSymbolIds)) {
+          importerTestFiles.add(testFile);
+          addCandidate(
+            testFile,
+            "test",
+            980,
+            `Test for direct importer ${this.toProjectPath(importerPath)}; use after target-level tests.`,
+            "test-for-importer"
+          );
+        }
+      });
+
+      Array.from(importerNode.importedBy)
+        .filter((filePath) => isEntryPoint(filePath))
+        .sort(byRiskThenConnectivity)
+        .slice(0, 4)
+        .forEach((entryPointPath) => {
+          entryPointFiles.add(entryPointPath);
+          addCandidate(
+            entryPointPath,
+            "entrypoint",
+            620,
+            `Entry point reaches ${targetProjectPath} through ${this.toProjectPath(importerPath)}.`,
+            "transitive-entrypoint"
+          );
+        });
+    });
+
+    node.symbols.forEach((symbolId) => {
+      const symbol = this.graph.symbols.get(symbolId);
+      if (!symbol) {return;}
+      if (symbol.calledBy.size > 0) {
+        symbolVerificationTargets.add(`${this.projectSymbolId(symbol.id)} (${symbol.calledBy.size} callers)`);
+      }
+      symbol.calledBy.forEach((callerId) => {
+        const caller = this.graph.symbols.get(callerId);
+        if (caller) {
+          const role: ContextPlanFileRole = this.isTestFileForPlan(caller.file)
+            ? "test"
+            : isEntryPoint(caller.file)
+            ? "entrypoint"
+            : "caller";
+          if (role === "test") {directTestFiles.add(caller.file);}
+          if (role === "entrypoint") {entryPointFiles.add(caller.file);}
+          addCandidate(
+            caller.file,
+            role,
+            role === "test" ? 1350 : role === "entrypoint" ? 850 : 700,
+            `Caller of ${this.projectSymbolId(symbolId)}; inspect expected input/output behavior.`,
+            role === "test" ? "direct-test" : role === "entrypoint" ? "transitive-entrypoint" : "symbol-caller"
+          );
+        }
+      });
+      symbol.calls.forEach((targetId) => {
+        const target = this.graph.symbols.get(targetId);
+        if (target) {
+          addCandidate(
+            target.file,
+            "dependency",
+            360,
+            `Called by ${this.projectSymbolId(symbolId)}; read if the task touches this call path.`,
+            "direct-dependency"
+          );
+        }
+      });
+    });
+
+    const directNeighborhood = new Set([resolvedPath, ...importers, ...imports]);
+    recentScores.forEach((score, filePath) => {
+      if (directNeighborhood.has(filePath)) {
+        addCandidate(
+          filePath,
+          filePath === resolvedPath ? "target" : "related",
+          score,
+          "Recently changed in Ripple history; check for active churn around this task.",
+          "recent-change"
+        );
+      }
+    });
+
+    candidateMap.forEach((candidate) => {
+      const fileNode = this.graph.files.get(candidate.filePath);
+      if (!fileNode) {return;}
+
+      const candidateRisk = this.modificationRiskFor(fileNode);
+      if (candidateRisk !== "safe") {
+        candidate.score += candidateRisk === "dangerous" ? 260 : 140;
+        candidate.signals.add("risk");
+        const reason = `${candidateRisk} file; preserve public contracts and verify callers.`;
+        if (!candidate.reasons.includes(reason)) {
+          candidate.reasons.push(reason);
+        }
+      }
+
+      if (fileNode.hasParseError) {
+        candidate.score += 120;
+        candidate.signals.add("parse-warning");
+      }
+
+      const taskMatch = this.taskRelevanceForPlan(candidate.filePath, taskTerms);
+      if (taskMatch.score > 0) {
+        candidate.score += taskMatch.score;
+        candidate.signals.add("task-match");
+        taskMatchedFileCount++;
+        taskMatchedFiles.add(candidate.filePath);
+        taskMatch.matches.forEach((term) => taskMatchedTerms.add(term));
+        const reason = `Matches task terms: ${taskMatch.matches.join(", ")}.`;
+        if (!candidate.reasons.includes(reason)) {
+          candidate.reasons.push(reason);
+        }
+      }
+    });
+
+    const sortedCandidateEntries = Array.from(candidateMap.values())
+      .sort((a, b) => {
+        if (a.filePath === resolvedPath) {return -1;}
+        if (b.filePath === resolvedPath) {return 1;}
+        if (a.score !== b.score) {return b.score - a.score;}
+        const aNode = this.graph.files.get(a.filePath);
+        const bNode = this.graph.files.get(b.filePath);
+        const aRisk = aNode ? riskRank[this.modificationRiskFor(aNode)] : 0;
+        const bRisk = bNode ? riskRank[this.modificationRiskFor(bNode)] : 0;
+        if (aRisk !== bRisk) {return bRisk - aRisk;}
+        if (a.order !== b.order) {return a.order - b.order;}
+        return this.toProjectPath(a.filePath).localeCompare(this.toProjectPath(b.filePath));
+      });
+
+    const candidates = sortedCandidateEntries
+      .map((candidate) => this.contextPlanFileFor(
+        candidate.filePath,
+        candidate.reasons.join(" "),
+        candidate.role,
+        Math.round(candidate.score),
+        Array.from(candidate.signals).sort(),
+        Array.from(candidate.adapterSignals.values()).sort((a, b) =>
+          a.capability.localeCompare(b.capability)
+        )
+      ))
+      .filter((candidate): candidate is ContextPlanFile => Boolean(candidate));
+
+    const readFirst: ContextPlanFile[] = [];
+    const readIfNeeded: ContextPlanFile[] = [];
+    let estimatedTokens = 0;
+
+    candidates.forEach((candidate, index) => {
+      const mustRead = index === 0;
+      if (mustRead || estimatedTokens + candidate.estimatedTokens <= normalizedBudget) {
+        readFirst.push(candidate);
+        estimatedTokens += candidate.estimatedTokens;
+      } else {
+        readIfNeeded.push(candidate);
+      }
+    });
+
+    const symbolFocus = this.symbolFocusForPlan(
+      sortedCandidateEntries.map((candidate) => candidate.filePath),
+      resolvedPath,
+      taskTerms,
+      taskMatchedFiles
+    );
+
+    const verificationTargets: string[] = [];
+    const pushVerificationTarget = (target: string): void => {
+      if (!verificationTargets.includes(target)) {
+        verificationTargets.push(target);
+      }
+    };
+
+    Array.from(directTestFiles)
+      .sort(byRiskThenConnectivity)
+      .slice(0, 8)
+      .forEach((filePath) => pushVerificationTarget(this.toProjectPath(filePath)));
+    Array.from(importerTestFiles)
+      .sort(byRiskThenConnectivity)
+      .slice(0, 6)
+      .forEach((filePath) => pushVerificationTarget(this.toProjectPath(filePath)));
+    Array.from(entryPointFiles)
+      .sort(byRiskThenConnectivity)
+      .slice(0, 6)
+      .forEach((filePath) => pushVerificationTarget(this.toProjectPath(filePath)));
+    importers.slice(0, 8).forEach((filePath) => pushVerificationTarget(this.toProjectPath(filePath)));
+    Array.from(symbolVerificationTargets)
+      .sort()
+      .slice(0, 8)
+      .forEach(pushVerificationTarget);
+
+    const adapterCapabilitiesByUse = (agentUse: RippleAdapterAgentUse): string =>
+      adapterSupport.primaryAdapter.capabilityProfile
+        .filter((capability) => capability.agentUse === agentUse)
+        .map((capability) => capability.capability)
+        .join(", ") || "none";
+
+    const planningSignals = [
+      `Adapter ranking: ${adapterSupport.primaryAdapter.capabilities.displayName} ${adapterSupport.supportLevel} adapter (${Math.round(adapterSupport.primaryAdapter.confidence * 100)}% confidence); trust ${adapterCapabilitiesByUse("trust")}; verify ${adapterCapabilitiesByUse("verify")}; manual ${adapterCapabilitiesByUse("manual")}.`,
+      `${directTestFiles.size} direct test file(s) found`,
+      `${importerTestFiles.size} importer test file(s) found`,
+      `${entryPointFiles.size} entry point file(s) found`,
+      `${importers.length} direct importer(s)`,
+      `${imports.length} direct dependenc${imports.length === 1 ? "y" : "ies"}`,
+      `${symbolFocus.length} symbol focus item(s) ranked`,
+      ...(taskTerms.length > 0
+        ? [
+            `${taskMatchedFileCount} task-matched file(s) for: ${
+              Array.from(taskMatchedTerms).sort().join(", ") || taskTerms.join(", ")
+            }`,
+          ]
+        : []),
+    ];
+
+    return {
+      task: task.trim() || "Unspecified task",
+      targetFile: targetProjectPath,
+      risk,
+      adapterSupport,
+      tokenBudget: normalizedBudget,
+      estimatedTokens,
+      readFirst,
+      readIfNeeded,
+      symbolFocus,
+      avoidInitially: [
+        "Generated folders and caches such as .ripple/.cache, dist, out, build, .next, and coverage.",
+        "Docs, package metadata, and unrelated tests unless the readFirst files point there.",
+        "Files outside the listed import, importer, and caller neighborhoods until needed.",
+      ],
+      doNotReadFirst: [
+        "Unrelated tests that neither import the target nor test its direct importers.",
+        "Broad documentation, package metadata, generated files, and snapshots until a readFirst file points there.",
+        "Transitive dependencies beyond one hop unless verification fails or the task explicitly requires deeper tracing.",
+      ],
+      verificationTargets,
+      planningSignals,
+      why: `${targetProjectPath} is ${risk}; it imports ${node.imports.size} file(s), is imported by ${node.importedBy.size} file(s), and has ${node.symbols.size} tracked symbol(s). The plan prioritizes direct tests, contract importers, entry points, symbol callers, risky files, recent churn, and task term matches within the token budget.`,
+    };
+  }
+
+  getFileFocusSummary(filePath: string): FileFocusSummary | null {
+    const resolvedPath = this.resolveFilePath(filePath);
+    const node = this.graph.files.get(resolvedPath);
+    if (!node) {return null;}
+
+    const imports = Array.from(node.imports)
+      .sort((a, b) => this.toProjectPath(a).localeCompare(this.toProjectPath(b)))
+      .map((importPath) => this.toProjectPath(importPath));
+
+    const importedBy = Array.from(node.importedBy)
+      .sort((a, b) => this.toProjectPath(a).localeCompare(this.toProjectPath(b)))
+      .map((importerPath) => {
+        const importerNode = this.graph.files.get(importerPath);
+        return {
+          file: this.toProjectPath(importerPath),
+          focus: this.focusPathFor(importerPath),
+          modificationRisk: importerNode ? this.modificationRiskFor(importerNode) : "safe",
+        };
+      });
+
+    const symbols = Array.from(node.symbols)
+      .map((symbolId) => this.graph.symbols.get(symbolId))
+      .filter((symbol): symbol is SymbolNode => Boolean(symbol))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((symbol) => ({
+        name: symbol.name,
+        kind: symbol.kind,
+        layer: symbol.layer,
+        callerCount: symbol.calledBy.size,
+      }));
+
+    return {
+      filePath: resolvedPath,
+      projectPath: this.toProjectPath(resolvedPath),
+      focusKey: makeFocusKey(resolvedPath, this.graph),
+      focusPath: this.focusPathFor(resolvedPath),
+      modificationRisk: this.modificationRiskFor(node),
+      imports,
+      importedBy,
+      symbols,
+    };
+  }
+
+  getFileSymbolsSummary(filePath: string): FileSymbolsSummary | null {
+    const resolvedPath = this.resolveFilePath(filePath);
+    const node = this.graph.files.get(resolvedPath);
+    if (!node) {return null;}
+
+    const symbols = Array.from(node.symbols)
+      .sort((a, b) => this.projectSymbolId(a).localeCompare(this.projectSymbolId(b)))
+      .map((symbolId) => this.symbolGraphSummaryFor(symbolId))
+      .filter((symbol): symbol is SymbolGraphSummary => Boolean(symbol));
+
+    return {
+      filePath: resolvedPath,
+      projectPath: this.toProjectPath(resolvedPath),
+      modificationRisk: this.modificationRiskFor(node),
+      symbols,
+    };
+  }
+
+  getSymbolCallersSummary(symbolId: string): SymbolCallersSummary | null {
+    const resolvedSymbolId = this.resolveSymbolId(symbolId);
+    if (!resolvedSymbolId) {return null;}
+
+    const symbol = this.symbolGraphSummaryFor(resolvedSymbolId);
+    if (!symbol) {return null;}
+
+    return {
+      symbol,
+      callers: symbol.calledBy,
+      callerCount: symbol.calledBy.length,
+    };
+  }
+
+  getFileDependencySummary(filePath: string): FileDependencySummary | null {
+    const resolvedPath = this.resolveFilePath(filePath);
+    const node = this.graph.files.get(resolvedPath);
+    if (!node) {return null;}
+
+    const byProjectPath = (a: string, b: string): number =>
+      this.toProjectPath(a).localeCompare(this.toProjectPath(b));
+
+    return {
+      filePath: resolvedPath,
+      projectPath: this.toProjectPath(resolvedPath),
+      modificationRisk: this.modificationRiskFor(node),
+      imports: Array.from(node.imports).sort(byProjectPath).map((importPath) =>
+        this.dependencyLinkFor(importPath)
+      ),
+      importers: Array.from(node.importedBy).sort(byProjectPath).map((importerPath) =>
+        this.dependencyLinkFor(importerPath)
+      ),
+    };
+  }
+
+  getBlastRadiusSummary(filePath: string): FileBlastRadiusSummary | null {
+    const resolvedPath = this.resolveFilePath(filePath);
+    const node = this.graph.files.get(resolvedPath);
+    if (!node) {return null;}
+
+    const directImporters = this.blastRadius([resolvedPath])
+      .sort((a, b) => this.toProjectPath(a).localeCompare(this.toProjectPath(b)))
+      .map((affectedPath) => {
+        const affectedNode = this.graph.files.get(affectedPath);
+        return {
+          file: this.toProjectPath(affectedPath),
+          focus: this.focusPathFor(affectedPath),
+          modificationRisk: affectedNode ? this.modificationRiskFor(affectedNode) : "safe",
+          importerCount: affectedNode?.importedBy.size ?? 0,
+        };
+      });
+
+    return {
+      filePath: resolvedPath,
+      projectPath: this.toProjectPath(resolvedPath),
+      modificationRisk: this.modificationRiskFor(node),
+      directImporters,
+      affectedCount: directImporters.length,
+    };
   }
 
   blastRadius(filePaths: string[]): string[] {

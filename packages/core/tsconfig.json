@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
-    "outDir": "./out",
-    "rootDir": ".",
-    "baseUrl": ".",
-    "paths": {
-      "@getripple/core": ["packages/core/src/index"]
-    },
+    "outDir": "./dist",
+    "rootDir": "./src",
     "target": "ES2020",
     "module": "commonjs",
     "lib": ["ES2020"],
@@ -19,9 +15,9 @@
     "noImplicitReturns": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "declaration": false,
+    "declaration": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "packages/core/src/**/*.ts", "packages/cli/src/**/*.ts", "packages/mcp/src/**/*.ts"],
-  "exclude": ["node_modules", "out", ".ripple"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".ripple"]
 }

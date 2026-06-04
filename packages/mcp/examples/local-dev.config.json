@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ripple": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/ripple/packages/mcp/dist/server.js",
+        "--workspace",
+        "/absolute/path/to/your/repo"
+      ]
+    }
+  }
+}

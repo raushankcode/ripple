@@ -6,7 +6,7 @@
  * - Impact Lens sidebar for upstream and downstream file relationships
  * - CodeLens caller hints and the caller-detail webview
  * - Safety Check warnings for staged changes with untested blast radius
- * - AI setup and prompt-copy workflows backed by .ripple/ context files
+ * - Agent workflow setup and prompt-copy surfaces backed by .ripple/ context files
  *
  * Keep this layer thin. Long-running analysis belongs in GraphEngine; this file
  * should focus on commands, watchers, UI refreshes, and VS Code lifecycle.
@@ -22,8 +22,8 @@ import {
   DANGEROUS_CHURN,
   CAUTION_CHURN,
   HIGH_RISK_CALLER_COUNT,
-} from "./graph";
-import { clearAliasCache } from "./normalizer";
+  clearAliasCache,
+} from "@getripple/core";
 
 // ────────────────────────────────────────────────────────────────────────────
 // EXTENSION LIFECYCLE STATE
@@ -216,8 +216,8 @@ export async function activate(
 
   // ── "Copy Ripple Prompt" command ──────────────────────────────────────────
   //
-  // Right-click any TypeScript/JavaScript file -> "Ripple: Copy Agent Prompt".
-  // Generates a ready-to-paste prompt for any AI agent.
+  // Right-click any TypeScript/JavaScript file -> "Ripple: Copy Pre-Edit Agent Prompt".
+  // Generates a ready-to-paste pre-edit context prompt for any AI agent.
   // Developer fills in their task. Paste to Claude Code, Cursor, Copilot etc.
   // Uses ~400 tokens total (prompt + focus file). Safe, fast, minimal.
 
@@ -288,6 +288,8 @@ Before making any changes:
 ${riskLine}
 3. Check calledBy for every symbol you will modify.
 4. Only touch the layer the user requested: logic, UI, handler, state, or data.
+5. If the edit needs broader scope, stop before changing context-only files.
+6. If @getripple/cli or @getripple/mcp is available, prefer Ripple's plan/check/repair loop before handoff.
 
 File: ${targetFile} | Risk: ${risk} | ${blastSize} importer${blastSize !== 1 ? "s" : ""}${importedByNames ? ` (${importedByNames})` : ""}
 Symbols: ${symbolSummary || "none detected yet"}
@@ -484,7 +486,7 @@ Project rules: .ripple/WORKFLOW.md`;
             try {
               writeAgentsFileWithRippleSection(workspaceRoot);
               vscode.window.showInformationMessage(
-                "↯ Ripple: AGENTS.md created. AI agents now follow the Ripple protocol."
+                "↯ Ripple: AGENTS.md now contains the Ripple workflow protocol."
               );
             } catch {
               vscode.window.showWarningMessage(
@@ -1241,11 +1243,11 @@ class SafetyCheckProvider {
 //
 // Shows per project until one of three exit conditions is met:
 //   1. AGENTS.md / CLAUDE.md / .cursorrules contains Ripple content (success)
-//   2. Developer clicks "Activate AI Mode" button (success)
+//   2. Developer creates AGENTS.md from the setup panel (success)
 //   3. Developer clicks "Remind me later" 3 times (stop prompting)
 //
 // Developer can always re-show via Command Palette:
-//   "Ripple: Show AI Setup Panel"
+//   "Ripple: Show Agent Workflow Setup"
 // ────────────────────────────────────────────────────────────────────────────
 
 class RippleInsightPanel {
@@ -1344,7 +1346,7 @@ class RippleInsightPanel {
 
     const panel = vscode.window.createWebviewPanel(
       "rippleInsight",
-      "↯ Ripple — Project Insight",
+      "↯ Ripple — Agent Workflow Setup",
       vscode.ViewColumn.Beside,
       { enableScripts: true }
     );
@@ -1369,7 +1371,7 @@ class RippleInsightPanel {
 
             context.workspaceState.update(RippleInsightPanel.STATE_ACTIVATED, true);
             vscode.window.showInformationMessage(
-              "↯ Ripple: AGENTS.md created. AI agents will now follow the Ripple protocol automatically."
+              "↯ Ripple: AGENTS.md now contains the Ripple workflow protocol."
             );
           } else {
             vscode.window.showWarningMessage(
@@ -1417,7 +1419,7 @@ class RippleInsightPanel {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ripple — Project Insight</title>
+  <title>Ripple — Agent Workflow Setup</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1646,10 +1648,10 @@ class RippleInsightPanel {
 <body>
   <div class="top-badge">
     <span class="badge-dot"></span>
-    ↯ Ripple — Your Project Insight
+    ↯ Ripple — Agent Workflow Setup
   </div>
 
-  <div class="headline">Ripple found something important<br>about your project.</div>
+  <div class="headline">Ripple found an agent-risk signal<br>in your project.</div>
 
   <div class="risk-block">
     <div class="risk-label">${riskLabel}</div>
@@ -1669,10 +1671,10 @@ class RippleInsightPanel {
   <div class="protection-row">
     <span class="protection-icon">↯</span>
     <div class="protection-text">
-      Ripple tracks all <strong>${riskCount} connections</strong> automatically.
+      Ripple tracks all <strong>${riskCount} connections</strong> locally.
       One click below writes an AGENTS.md to your project.
-      From that point, every AI agent session follows the
-      safe-change protocol without you typing anything.
+      Compatible agents that read AGENTS.md receive the Ripple pre-edit
+      workflow protocol without you typing it into every chat.
     </div>
   </div>
 
@@ -1685,7 +1687,7 @@ class RippleInsightPanel {
 
   <div class="actions">
     <button class="btn-primary" onclick="activate()">
-      ↯ Activate AI Mode — Create AGENTS.md
+      ↯ Create AGENTS.md Workflow
     </button>
     <div class="btn-secondary-row">
       <button class="btn-secondary" onclick="dismiss()">Remind me later</button>
