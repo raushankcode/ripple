@@ -1,12 +1,16 @@
 # @getripple/core
 
-The core graph engine that powers Ripple's VS Code extension, CLI, and MCP server.
-It scans a local repository, builds architectural context, and exposes the `GraphEngine`
-used by Ripple's plan-before-edit and check-after-edit workflow.
+The graph engine that powers Ripple's VS Code extension, CLI, and MCP server.
 
-Most users should not start here. Install `@getripple/cli` for terminal and CI
-workflows, or `@getripple/mcp` to give AI agents direct structured access to
-Ripple's architectural context.
+Scans JavaScript, TypeScript, and basic Python repositories, builds a local
+dependency graph, and exposes the architectural context that AI agents need
+before editing code.
+
+**Most users should not start here.**
+Install [`@getripple/cli`](https://npmjs.com/package/@getripple/cli) for terminal
+and CI workflows.
+Install [`@getripple/mcp`](https://npmjs.com/package/@getripple/mcp) to give AI
+agents direct structured access to Ripple's context.
 
 ## Install
 
@@ -22,31 +26,66 @@ import { GraphEngine } from "@getripple/core";
 const engine = new GraphEngine(process.cwd());
 await engine.initialScan();
 
-const plan = engine.planContext(
-  "refactor token handling",
-  "src/auth.ts",
-  4000
-);
+// What does this file affect?
+const blastRadius = engine.blastRadius(["src/auth.ts"]);
+
+// What depends on this file?
+const importers = engine.downstreamFiles("src/auth.ts");
+
+// What does this file import?
+const imports = engine.upstreamFiles("src/auth.ts");
+```
+
+## What the Engine Tracks
+
+```
+File dependency graph      — every import and reverse import
+Symbol and call edges      — exported functions and who calls them
+Blast radius               — all files affected by a change
+Risk signals               — dangerous / caution / safe per file
+Focused context            — per-file summaries for AI agents
+Change history             — structural changes since first install
+Layer classification       — logic / ui / handler / state / data / effect
+Framework/config signals   — Next.js, Vite, React Router, Turborepo, Tailwind,
+                             tests, tsconfig paths, and package conventions
 ```
 
 ## What It Powers
 
-- file dependency and reverse-import graph
-- symbol and call-edge signals for JavaScript and TypeScript
-- focused context plans for AI coding agents
-- staged and changed-file checks against saved intent
-- trust-boundary, policy, readiness, and drift summaries
+**VS Code extension (`ripple`)** — Impact Lens sidebar, CodeLens caller counts,
+Safety Check pre-commit warnings, and Copy Agent Prompt.
+
+**CLI (`@getripple/cli`)** — `ripple plan`, `ripple check`, `ripple gate`, and
+the full CI pipeline integration.
+
+**MCP server (`@getripple/mcp`)** — `ripple_plan_context`, `ripple_check_staged`,
+`ripple_gate`, and twelve other tools agents can call directly.
 
 ## Trust Boundary Contract
 
-Ripple's core engine is the source of truth for control modes, editable files,
+The core engine is the single source of truth for control modes, editable files,
 context-only files, human gates, and continue/stop decisions. The CLI and MCP
-packages use this contract so humans, CI, and AI agents see the same workflow
-state.
+packages consume this contract directly — humans, CI pipelines, and AI agents
+all see the same workflow state.
+
+## Supported Languages
+
+Deep support: JavaScript and TypeScript — `.ts`, `.tsx`, `.js`, `.jsx`.
+
+Basic support: Python — `.py`.
+
+Framework and config signals are heuristic. Ripple detects common files and
+package conventions, then tells agents what to trust and what to verify.
+
+## Privacy
+
+The engine runs entirely on your machine. No data leaves the local file system.
+No network calls, telemetry, or account required.
 
 ## Status
 
-Public alpha. APIs may change while Ripple's CLI and MCP workflows harden.
+Public alpha. Core APIs may change while the CLI and MCP workflow contracts
+harden toward a stable 1.x release.
 
 ## License
 
