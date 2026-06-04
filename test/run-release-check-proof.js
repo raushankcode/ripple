@@ -142,7 +142,7 @@ function assertReleaseChecklist() {
     "Release Identity Review",
     "NPM Registry Preflight",
     "Do not publish if",
-    "npm view @getripple/core@1.0.4 version --json",
+    `npm view @getripple/core@${rootPackage.version} version --json`,
   ]) {
     assertIncludes(release, requiredText, "RELEASE.md");
   }

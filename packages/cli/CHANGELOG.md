@@ -1,5 +1,12 @@
 # @getripple/cli Changelog
 
+## [1.0.5] - 2026-06-04
+
+### Changed
+- Refresh package README wording for npm users.
+- Restore the first-run `npx -y @getripple/cli doctor` readiness command.
+- Clarify the plan/check/gate workflow, control modes, CI gate behavior, and local privacy posture.
+
 ## [1.0.4] - 2026-06-03
 
 ### Fixed

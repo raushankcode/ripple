@@ -1,5 +1,12 @@
 # @getripple/mcp Changelog
 
+## [1.0.5] - 2026-06-04
+
+### Changed
+- Refresh package README wording for npm users configuring AI agents.
+- Lead with the MCP config snippet and the before-edit / after-edit / gate / repair workflow.
+- Clarify stdio protocol behavior and local privacy posture.
+
 ## [1.0.4] - 2026-06-03
 
 ### Fixed

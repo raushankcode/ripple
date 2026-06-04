@@ -1,5 +1,12 @@
 # @getripple/core Changelog
 
+## [1.0.5] - 2026-06-04
+
+### Changed
+- Refresh package README wording for npm users.
+- Clarify that the core powers VS Code, CLI, and MCP, while most users should start with `@getripple/cli` or `@getripple/mcp`.
+- Document JavaScript/TypeScript depth, basic Python support, and static-analysis limits more clearly.
+
 ## [1.0.4] - 2026-06-03
 
 ### Fixed

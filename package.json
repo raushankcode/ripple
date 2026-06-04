@@ -2,7 +2,7 @@
   "name": "ripple",
   "displayName": "Ripple — Local AI-Agent Workflow Engine",
   "description": "VS Code interface for Ripple's local drift-control engine: live context, focus files, blast-radius signals, and safer AI-agent workflow prompts.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "rippleai",
   "author": {
     "name": "Raushan Soni"

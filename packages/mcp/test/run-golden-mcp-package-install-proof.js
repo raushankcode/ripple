@@ -4,6 +4,7 @@ const path = require("path");
 const { execFileSync, spawnSync } = require("child_process");
 
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const rootPackage = readJson(path.join(repoRoot, "package.json"));
 const proofRoot = path.join(
   repoRoot,
   "test",
@@ -12,6 +13,10 @@ const proofRoot = path.join(
 );
 const packRoot = path.join(proofRoot, "packs");
 const consumerRoot = path.join(proofRoot, "consumer");
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
 
 function writeFile(root, relativePath, contents) {
   const filePath = path.join(root, relativePath);
@@ -248,7 +253,7 @@ function callInstalledStdioTool(serverPath, tool, args = {}) {
   assert.strictEqual(responses.length, 2, "installed stdio server should return initialize + tool call");
   assert.strictEqual(responses[0].id, 1);
   assert.strictEqual(responses[0].result.serverInfo.name, "ripple-mcp");
-  assert.strictEqual(responses[0].result.serverInfo.version, "1.0.4");
+  assert.strictEqual(responses[0].result.serverInfo.version, rootPackage.version);
   assert.strictEqual(responses[1].id, 2);
   assert.strictEqual(responses[1].result.isError, false, responses[1].result.content?.[0]?.text);
   assert.strictEqual(responses[1].result.content[0].type, "text");

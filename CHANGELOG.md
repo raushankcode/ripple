@@ -2,7 +2,14 @@
 
 All notable user-facing changes to Ripple are documented here.
 
-Ripple is a local-first VS Code extension for JavaScript and TypeScript projects. It builds practical codebase context for AI agents by mapping imports, callers, risky dependency paths, focus files, and persistent project history.
+Ripple is a local-first AI-agent workflow engine for planning before edits, checking after edits, catching drift, and telling agents what to fix. It ships as a VS Code extension, CLI, MCP server, and shared core engine.
+
+## [1.0.5] - 2026-06-04
+
+### Changed
+- Refresh the root README and package READMEs so GitHub and npm users see the same product story: Ripple as a local drift-control engine for AI coding agents.
+- Clarify setup, trust-boundary, MCP, CLI, release-check, and known-limitations documentation.
+- Keep npm package docs honest about JavaScript/TypeScript depth, basic Python support, and static-analysis limits.
 
 ## [1.0.4] - 2026-06-03
 

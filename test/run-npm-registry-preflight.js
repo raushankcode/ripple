@@ -7,6 +7,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const rootPackage = readJson(path.join(repoRoot, "package.json"));
 const version = rootPackage.version;
 const live = process.argv.includes("--live");
+const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 const publicPackages = [
   {
@@ -74,7 +75,7 @@ function runNpm(args, options = {}) {
 }
 
 function assertLocalPackageReadiness() {
-  assert.strictEqual(rootPackage.version, "1.0.4", "root version");
+  assert(SEMVER_RE.test(rootPackage.version), "root version should be a semver release");
   assert.deepStrictEqual(rootPackage.workspaces, [
     "packages/core",
     "packages/cli",

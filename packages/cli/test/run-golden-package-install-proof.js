@@ -4,6 +4,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const rootPackage = readJson(path.join(repoRoot, "package.json"));
 const proofRoot = path.join(
   repoRoot,
   "test",
@@ -12,6 +13,10 @@ const proofRoot = path.join(
 );
 const packRoot = path.join(proofRoot, "packs");
 const consumerRoot = path.join(proofRoot, "consumer");
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
 
 function writeFile(root, relativePath, contents) {
   const filePath = path.join(root, relativePath);
@@ -149,7 +154,7 @@ function runInstalledRippleJson(cliEntry, args) {
 
 function proveInstalledCliWorks(cliEntry) {
   const version = runInstalledRipple(cliEntry, ["--version"]).trim();
-  assert.strictEqual(version, "1.0.4");
+  assert.strictEqual(version, rootPackage.version);
 
   const init = runInstalledRippleJson(cliEntry, ["init"]);
   assert.strictEqual(init.protocol, "ripple-init");

@@ -1,6 +1,6 @@
 {
   "name": "@getripple/mcp",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "MCP stdio server for Ripple's local AI-agent workflow engine.",
   "license": "MIT",
   "type": "commonjs",
@@ -45,7 +45,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@getripple/core": "^1.0.4"
+    "@getripple/core": "^1.0.5"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",

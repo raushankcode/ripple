@@ -1,6 +1,6 @@
 {
   "name": "@getripple/core",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Local AI-agent workflow engine core for context planning, drift checks, and trust-boundary gates.",
   "license": "MIT",
   "type": "commonjs",

@@ -4,6 +4,7 @@ const path = require("path");
 
 const repoRoot = path.resolve(__dirname, "..");
 const rootPackage = readJson(path.join(repoRoot, "package.json"));
+const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 const productSentence =
   "Ripple is a local AI-agent workflow engine that plans before edit, checks after edit, catches drift, and tells the agent what to fix.";
@@ -66,7 +67,7 @@ function normalizeWhitespace(value) {
 function assertIdentityFacts() {
   assert.strictEqual(rootPackage.name, "ripple");
   assert.strictEqual(rootPackage.displayName, "Ripple — Local AI-Agent Workflow Engine");
-  assert.strictEqual(rootPackage.version, "1.0.4");
+  assert(SEMVER_RE.test(rootPackage.version), "root version should be a semver release");
   assert.strictEqual(rootPackage.publisher, "rippleai");
   assert.strictEqual(rootPackage.author?.name, "Raushan Soni");
   assert.strictEqual(rootPackage.repository?.url, "https://github.com/raushankcode/ripple");
@@ -75,8 +76,8 @@ function assertIdentityFacts() {
 
   const rootReadme = readText(path.join(repoRoot, "README.md"));
   assertIncludes(rootReadme, productSentence, "Root README");
-  assertIncludes(rootReadme, "Ripple is in public alpha.", "Root README");
-  assertIncludes(rootReadme, "not mathematical proof", "Root README");
+  assertIncludes(rootReadme, "Public alpha.", "Root README");
+  assertIncludes(rootReadme, "These are signals, not proofs.", "Root README");
 
   for (const pkg of publicPackages) {
     const json = packageJson(pkg);
