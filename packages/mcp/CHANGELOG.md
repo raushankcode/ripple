@@ -1,5 +1,11 @@
 # @getripple/mcp Changelog
 
+## [1.0.6] - 2026-06-07
+
+### Fixed
+- Silence scan/cache `console.log` output in the MCP stdio server so agent clients receive clean protocol output.
+- Depend on the `1.0.6` core engine for clearer Git readiness diagnostics.
+
 ## [1.0.5] - 2026-06-04
 
 ### Changed

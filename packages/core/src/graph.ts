@@ -270,19 +270,21 @@ export type ContextPlanSummary = {
 // PERSISTENCE AND GENERATED CONTEXT
 // ────────────────────────────────────────────────────────────────────────────
 
+export type ContextGenerationMode = "full" | "lean" | "on-demand";
+
 /**
  * Handles durable project state:
  * - .ripple/history.json for human-auditable change history
  * - .ripple/.cache/graph.cache.json for fast startup
- * - .ripple/.cache/context*.json and focus files for AI agents
- * - .ripple/WORKFLOW.md for agent operating rules
+ * - optional .ripple/.cache/context*.json and focus files for file-based agents
+ * - optional .ripple/WORKFLOW.md for agent operating rules
  */
 class GraphPersistence {
   private persistPath: string;
   private cachePath: string;
   private workspaceRoot: string;
 
-  contextGenerationEnabled: boolean = true;
+  contextGenerationMode: ContextGenerationMode = "full";
 
   private patternCache: {
     prefersArrowFunctions: boolean;
@@ -418,29 +420,22 @@ class GraphPersistence {
    * Restores graph nodes from cache and returns files whose content hash changed
    * since the cache was written. Stale files are repaired by the scan phase.
    */
-  loadCache(graph: SystemGraph): string[] {
+  loadCache(
+    graph: SystemGraph,
+    options: { checkHashes?: boolean } = {}
+  ): string[] {
     try {
       if (!fs.existsSync(this.cachePath)) {return [];}
 
       const raw = fs.readFileSync(this.cachePath, "utf8");
       const data = JSON.parse(raw);
+      const checkHashes = options.checkHashes ?? true;
 
       const staleFiles: string[] = [];
       const loadedFilePaths = new Set<string>();
 
       Object.entries(data.files).forEach(([filePath, node]: [string, any]) => {
         if (!fs.existsSync(filePath)) {return;}
-
-        const currentContent = (() => {
-          try { return fs.readFileSync(filePath, "utf8"); }
-          catch { return null; }
-        })();
-        if (currentContent === null) {return;}
-
-        const currentHash = crypto
-          .createHash("sha1")
-          .update(currentContent)
-          .digest("hex");
 
         const fileNode: FileNode = {
           path: node.path,
@@ -457,7 +452,7 @@ class GraphPersistence {
         graph.files.set(filePath, fileNode);
         loadedFilePaths.add(filePath);
 
-        if (currentHash !== node.hash) {
+        if (checkHashes && this.cachedFileIsStale(filePath, node.hash)) {
           staleFiles.push(filePath);
         }
       });
@@ -498,6 +493,18 @@ class GraphPersistence {
       graph.files.clear();
       graph.symbols.clear();
       return [];
+    }
+  }
+
+  private cachedFileIsStale(filePath: string, cachedHash: string): boolean {
+    try {
+      const currentHash = crypto
+        .createHash("sha1")
+        .update(fs.readFileSync(filePath, "utf8"))
+        .digest("hex");
+      return currentHash !== cachedHash;
+    } catch {
+      return false;
     }
   }
 
@@ -868,7 +875,7 @@ class GraphPersistence {
    * - focus files and WORKFLOW.md for targeted agent workflows
    */
   generateContext(graph: SystemGraph, history: HistoryLog): void {
-    if (!this.contextGenerationEnabled) {
+    if (this.contextGenerationMode !== "full") {
       return;
     }
     try {
@@ -1822,7 +1829,7 @@ ${ambiguousBasenameExamples.map(e => `- ${e}`).join("\n")}` : ""}
    * debounced separately, but the target focus file should be fresh immediately.
    */
   generateSingleFocus(graph: SystemGraph, filePath: string): void {
-    if (!this.contextGenerationEnabled) {
+    if (this.contextGenerationMode === "lean") {
       return;
     }
     try {
@@ -1976,13 +1983,25 @@ export class GraphEngine {
   private sessionNewFiles = new Set<string>();
   private cacheWriteTimer: ReturnType<typeof setTimeout> | undefined;
   private adapterSupportCache: RippleAdapterDetectionSummary | undefined;
+  private focusKeyCache = new Map<string, string>();
+  private focusBaseKeyCounts: Map<string, number> | undefined;
 
   /**
-   * Disables writing .ripple/ context files while keeping the in-memory graph
-   * available for editor features.
+   * Chooses how much file-based context Ripple writes for the active interface.
+   *
+   * full      — VS Code/file-based agent mode; writes WORKFLOW.md and focus files.
+   * lean      — CLI gate/check mode; writes only durable history and graph cache.
+   * on-demand — MCP mode; skips broad dumps but allows targeted focus writes.
+   */
+  setContextGenerationMode(mode: ContextGenerationMode): void {
+    this.persistence.contextGenerationMode = mode;
+  }
+
+  /**
+   * Backwards-compatible switch used by older callers and tests.
    */
   setContextGeneration(enabled: boolean): void {
-    this.persistence.contextGenerationEnabled = enabled;
+    this.setContextGenerationMode(enabled ? "full" : "lean");
   }
 
   constructor(workspaceRoot: string) {
@@ -2004,6 +2023,34 @@ export class GraphEngine {
 
   private invalidateAdapterSupport(): void {
     this.adapterSupportCache = undefined;
+  }
+
+  private invalidateFocusKeyCache(): void {
+    this.focusKeyCache.clear();
+    this.focusBaseKeyCounts = undefined;
+  }
+
+  private focusKeyForPath(filePath: string): string {
+    const cached = this.focusKeyCache.get(filePath);
+    if (cached) {return cached;}
+
+    if (!this.focusBaseKeyCounts) {
+      this.focusBaseKeyCounts = new Map();
+      this.graph.files.forEach((_, graphFilePath) => {
+        const baseKey = getBaseKey(graphFilePath);
+        this.focusBaseKeyCounts!.set(
+          baseKey,
+          (this.focusBaseKeyCounts!.get(baseKey) ?? 0) + 1
+        );
+      });
+    }
+
+    const baseKey = getBaseKey(filePath);
+    const focusKey = (this.focusBaseKeyCounts.get(baseKey) ?? 0) > 1
+      ? `${baseKey}-${crypto.createHash("sha1").update(filePath).digest("hex").slice(0, 6)}`
+      : baseKey;
+    this.focusKeyCache.set(filePath, focusKey);
+    return focusKey;
   }
 
   private createProject(): Project {
@@ -2131,6 +2178,7 @@ export class GraphEngine {
       this.graph.files.clear();
       this.graph.symbols.clear();
       this.project = this.createProject();
+      this.invalidateFocusKeyCache();
       this.sessionNewFiles.clear();
 
       let scanned = 0;
@@ -2177,6 +2225,72 @@ export class GraphEngine {
       this.pendingFullRescan = false;
       await this.rebuildFromDisk(onProgress, priorityFile);
     }
+  }
+
+  /**
+   * Fast path for live agent gates. It trusts the existing graph cache instead
+   * of hash-checking every source file, then only parses candidate files that
+   * are missing from the cache. If no cache exists, it falls back to the normal
+   * scan so first-time use remains correct.
+   */
+  async fastCheckScan(
+    candidateFiles: string[] = [],
+    onProgress?: (scanned: number, total: number) => void
+  ): Promise<void> {
+    this.isScanning = true;
+    this.invalidateAdapterSupport();
+
+    this.graph.files.clear();
+    this.graph.symbols.clear();
+    this.project = this.createProject();
+    this.invalidateFocusKeyCache();
+
+    const normalizedCandidates = candidateFiles
+      .map((filePath) => this.resolveFilePath(filePath))
+      .filter((filePath, index, values) =>
+        values.indexOf(filePath) === index &&
+        !shouldIgnore(filePath) &&
+        fs.existsSync(filePath) &&
+        /\.(ts|tsx|js|jsx|py)$/i.test(filePath) &&
+        !filePath.endsWith(".d.ts")
+      );
+
+    this.persistence.loadCache(this.graph, { checkHashes: false });
+    this.isScanning = false;
+
+    if (this.graph.files.size === 0) {
+      await this.initialScan(onProgress, normalizedCandidates[0]);
+      return;
+    }
+
+    let scanned = 0;
+    const total = normalizedCandidates.length * 2;
+    normalizedCandidates
+      .filter((filePath) => !this.graph.files.has(filePath))
+      .forEach((filePath) => {
+        try {
+          this.ensureFileNode(filePath);
+          this.parseImportsAndExports(filePath, false);
+        } catch {
+          console.warn("[Ripple] Fast check parse error:", filePath);
+        }
+        scanned++;
+        onProgress?.(scanned, total);
+      });
+
+    normalizedCandidates
+      .filter((filePath) => this.graph.files.has(filePath))
+      .forEach((filePath) => {
+        try {
+          this.parseCallsOnly(filePath);
+        } catch {
+          console.warn("[Ripple] Fast check call parse error:", filePath);
+        }
+        scanned++;
+        onProgress?.(scanned, total);
+      });
+
+    this.processPendingChanges();
   }
 
   // ── INITIAL SCAN ──────────────────────────────────────────────────────────
@@ -3505,6 +3619,7 @@ export class GraphEngine {
         changeCount: 0,
         hash: "",
       });
+      this.invalidateFocusKeyCache();
     }
     return this.graph.files.get(filePath)!;
   }
@@ -3559,7 +3674,7 @@ export class GraphEngine {
   }
 
   private focusPathFor(filePath: string): string {
-    return `.ripple/.cache/focus/${makeFocusKey(filePath, this.graph)}.json`;
+    return `.ripple/.cache/focus/${this.focusKeyForPath(filePath)}.json`;
   }
 
   private dependencyLinkFor(filePath: string): FileDependencyLink {
@@ -3698,7 +3813,11 @@ export class GraphEngine {
   }
 
   focusKeyForFile(filePath: string): string {
-    return makeFocusKey(filePath, this.graph);
+    return this.focusKeyForPath(filePath);
+  }
+
+  writeFileFocus(filePath: string): void {
+    this.persistence.generateSingleFocus(this.graph, this.resolveFilePath(filePath));
   }
 
   symbolImpact(symbolId: string): string[] {
@@ -4666,7 +4785,7 @@ export class GraphEngine {
     return {
       filePath: resolvedPath,
       projectPath: this.toProjectPath(resolvedPath),
-      focusKey: makeFocusKey(resolvedPath, this.graph),
+      focusKey: this.focusKeyForPath(resolvedPath),
       focusPath: this.focusPathFor(resolvedPath),
       modificationRisk: this.modificationRiskFor(node),
       imports,

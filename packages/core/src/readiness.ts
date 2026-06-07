@@ -1,11 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "child_process";
 import { RippleAdapterDetectionSummary, detectWorkspaceAdapters } from "./adapters";
 import { defaultChangeIntentPath } from "./change-intent";
+import { execGit } from "./git";
 import { GraphEngine } from "./graph";
 
 export const RIPPLE_CI_WORKFLOW_PATH = ".github/workflows/ripple.yml";
+export const RIPPLE_GITIGNORE_PATH = ".gitignore";
+export const RIPPLE_CACHE_GITIGNORE_ENTRY = ".ripple/.cache/";
 
 export type RippleReadinessCheck = {
   ok: boolean;
@@ -29,8 +31,16 @@ export type RippleEnforcementReadiness = {
   gaps: string[];
 };
 
+export type RippleReadinessDecision = "continue" | "setup-required";
+
 export type RippleReadinessSummary = {
   status: "ready" | "needs_setup";
+  decision: RippleReadinessDecision;
+  canContinue: boolean;
+  mustStop: boolean;
+  nextRequiredAction: string;
+  why: string[];
+  fixNow: string[];
   workspace: string;
   sourceFiles: number;
   symbols: number;
@@ -40,6 +50,7 @@ export type RippleReadinessSummary = {
   checks: {
     graph: RippleReadinessCheck;
     git: RippleReadinessCheck;
+    gitIgnore: RippleReadinessCheck;
     ciWorkflow: RippleReadinessCheck;
     latestIntent: RippleReadinessCheck;
   };
@@ -58,7 +69,9 @@ export function buildRippleReadinessSummary(
   const latestIntentPath = defaultChangeIntentPath(workspaceRoot);
   const policyPath = path.join(workspaceRoot, ".ripple", "policy.json");
   const graphOk = sourceFiles > 0;
-  const gitOk = isGitWorktree(workspaceRoot);
+  const gitCheck = gitWorktreeCheck(workspaceRoot);
+  const gitOk = gitCheck.ok;
+  const gitIgnoreCheck = rippleGitIgnoreCheck(workspaceRoot);
   const ciWorkflowOk = fs.existsSync(workflowPath);
   const latestIntentOk = fs.existsSync(latestIntentPath);
   const explicitPolicyOk = fs.existsSync(policyPath);
@@ -70,11 +83,8 @@ export function buildRippleReadinessSummary(
         : "No supported source files were found",
       fix: graphOk ? undefined : "Run Ripple from a JavaScript, TypeScript, or Python repo root.",
     },
-    git: {
-      ok: gitOk,
-      detail: gitOk ? "Inside a git worktree" : "Not inside a git worktree",
-      fix: gitOk ? undefined : "Run Ripple inside a git repository.",
-    },
+    git: gitCheck,
+    gitIgnore: gitIgnoreCheck,
     ciWorkflow: {
       ok: ciWorkflowOk,
       detail: ciWorkflowOk
@@ -95,6 +105,8 @@ export function buildRippleReadinessSummary(
   const enforcement = buildEnforcementReadiness({
     graphOk,
     gitOk,
+    gitDetail: gitCheck.detail,
+    gitIgnoreOk: gitIgnoreCheck.ok,
     ciWorkflowOk,
     latestIntentOk,
     explicitPolicyOk,
@@ -107,8 +119,17 @@ export function buildRippleReadinessSummary(
     nextSteps.push("Run ripple ci --base origin/main --intent latest --github-annotations.");
   }
 
+  const status = Object.values(checks).every((check) => check.ok) ? "ready" : "needs_setup";
+  const contract = readinessContract(status, enforcement, nextSteps);
+
   return {
-    status: Object.values(checks).every((check) => check.ok) ? "ready" : "needs_setup",
+    status,
+    decision: contract.decision,
+    canContinue: contract.canContinue,
+    mustStop: contract.mustStop,
+    nextRequiredAction: contract.nextRequiredAction,
+    why: contract.why,
+    fixNow: contract.fixNow,
     workspace: workspaceRoot,
     sourceFiles,
     symbols,
@@ -120,9 +141,42 @@ export function buildRippleReadinessSummary(
   };
 }
 
+function readinessContract(
+  status: RippleReadinessSummary["status"],
+  enforcement: RippleEnforcementReadiness,
+  nextSteps: string[]
+): Pick<
+  RippleReadinessSummary,
+  "decision" | "canContinue" | "mustStop" | "nextRequiredAction" | "why" | "fixNow"
+> {
+  if (status === "ready") {
+    return {
+      decision: "continue",
+      canContinue: true,
+      mustStop: false,
+      nextRequiredAction:
+        "Continue with the saved-intent workflow and keep the Ripple CI gate enabled.",
+      why: [enforcement.summary],
+      fixNow: [],
+    };
+  }
+
+  return {
+    decision: "setup-required",
+    canContinue: false,
+    mustStop: true,
+    nextRequiredAction:
+      "Stop autonomous agent work until Ripple readiness gaps are fixed.",
+    why: enforcement.gaps,
+    fixNow: nextSteps,
+  };
+}
+
 function buildEnforcementReadiness(input: {
   graphOk: boolean;
   gitOk: boolean;
+  gitDetail: string;
+  gitIgnoreOk: boolean;
   ciWorkflowOk: boolean;
   latestIntentOk: boolean;
   explicitPolicyOk: boolean;
@@ -189,6 +243,8 @@ function enforcementSummary(level: RippleEnforcementLevel): string {
 function enforcementGaps(input: {
   graphOk: boolean;
   gitOk: boolean;
+  gitDetail: string;
+  gitIgnoreOk: boolean;
   ciWorkflowOk: boolean;
   latestIntentOk: boolean;
   explicitPolicyOk: boolean;
@@ -198,7 +254,10 @@ function enforcementGaps(input: {
     gaps.push("No supported source graph is available.");
   }
   if (!input.gitOk) {
-    gaps.push("Git worktree is required for changed-file and CI drift checks.");
+    gaps.push(`${input.gitDetail} Git is required for changed-file and CI drift checks.`);
+  }
+  if (!input.gitIgnoreOk) {
+    gaps.push("Missing .gitignore hygiene for .ripple/.cache/; generated cache files may be committed accidentally.");
   }
   if (!input.latestIntentOk) {
     gaps.push("No latest saved intent exists, so Ripple cannot compare agent work to a plan.");
@@ -220,17 +279,96 @@ function countCallEdges(engine: GraphEngine): number {
   return count;
 }
 
-function isGitWorktree(workspaceRoot: string): boolean {
+function gitWorktreeCheck(workspaceRoot: string): RippleReadinessCheck {
   try {
-    const output = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return output.trim() === "true";
-  } catch {
-    return false;
+    const output = execGit(
+      workspaceRoot,
+      ["rev-parse", "--is-inside-work-tree"],
+      ["ignore", "pipe", "ignore"]
+    );
+    const insideWorktree = output.trim() === "true";
+    return {
+      ok: insideWorktree,
+      detail: insideWorktree
+        ? "Inside a git worktree"
+        : "Git command ran, but this directory is not inside a git worktree",
+      fix: insideWorktree
+        ? undefined
+        : "Run Ripple from the repository root or initialize git first.",
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      detail,
+      fix: gitFixFor(detail),
+    };
   }
+}
+
+function gitFixFor(detail: string): string {
+  if (/could not be started|EPERM|EACCES/i.test(detail)) {
+    return "Run Ripple from a normal terminal, or allow Node.js to execute git in this environment.";
+  }
+  if (/not found|ENOENT/i.test(detail)) {
+    return "Install Git and make sure git is available on PATH.";
+  }
+  return "Run Ripple from the repository root or initialize git first.";
+}
+
+function rippleGitIgnoreCheck(workspaceRoot: string): RippleReadinessCheck {
+  const gitignorePath = path.join(workspaceRoot, RIPPLE_GITIGNORE_PATH);
+  if (!fs.existsSync(gitignorePath)) {
+    return {
+      ok: false,
+      detail: "Missing .gitignore entry for .ripple/.cache/",
+      fix: "Run ripple init or add .ripple/.cache/ to .gitignore.",
+    };
+  }
+
+  const lines = fs
+    .readFileSync(gitignorePath, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+
+  const broadRippleIgnore = lines.some(isBroadRippleIgnore);
+  if (broadRippleIgnore) {
+    return {
+      ok: false,
+      detail: "Overbroad .ripple/ ignore may hide policy, history, intents, or approvals",
+      fix: "Ignore only .ripple/.cache/ so Ripple audit files can be committed intentionally.",
+    };
+  }
+
+  const cacheIgnored = lines.some(isRippleCacheIgnore);
+  return {
+    ok: cacheIgnored,
+    detail: cacheIgnored
+      ? ".ripple/.cache/ is ignored; Ripple audit files remain commit-able"
+      : "Missing .gitignore entry for .ripple/.cache/",
+    fix: cacheIgnored
+      ? undefined
+      : "Run ripple init or add .ripple/.cache/ to .gitignore.",
+  };
+}
+
+function isRippleCacheIgnore(line: string): boolean {
+  const normalized = line.replace(/\\/g, "/").replace(/^\/+/, "");
+  return (
+    normalized === RIPPLE_CACHE_GITIGNORE_ENTRY ||
+    normalized === ".ripple/.cache" ||
+    normalized === ".ripple/.cache/**"
+  );
+}
+
+function isBroadRippleIgnore(line: string): boolean {
+  const normalized = line.replace(/\\/g, "/").replace(/^\/+/, "");
+  return (
+    normalized === ".ripple" ||
+    normalized === ".ripple/" ||
+    normalized === ".ripple/**"
+  );
 }
 
 function formatWorkspacePath(workspaceRoot: string, filePath: string): string {

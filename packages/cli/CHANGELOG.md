@@ -1,5 +1,11 @@
 # @getripple/cli Changelog
 
+## [1.0.6] - 2026-06-07
+
+### Fixed
+- Depend on the `1.0.6` core engine so CLI readiness output explains blocked Git execution clearly.
+- Keep install and release proofs aligned with the fixed package set.
+
 ## [1.0.5] - 2026-06-04
 
 ### Changed

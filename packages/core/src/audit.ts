@@ -70,6 +70,10 @@ export type RippleGateSummary = {
   auditStatus: RippleAuditStatus;
   auditDecision: RippleAuditDecision;
   approvalStatus: RippleApprovalStatus["status"];
+  allowedFiles: string[];
+  allowedSymbols: string[];
+  changedOutsideBoundaryFiles: string[];
+  changedOutsideBoundarySymbols: string[];
   changedFiles: string[];
   verificationTargets: string[];
   why: string[];
@@ -156,6 +160,7 @@ export function buildRippleAuditSummary(input: {
 
 export function buildRippleGateSummary(audit: RippleAuditSummary): RippleGateSummary {
   const handoff = audit.handoff;
+  const validation = audit.stagedCheck.intentValidation;
   return {
     protocol: "ripple-gate",
     version: 1,
@@ -174,6 +179,12 @@ export function buildRippleGateSummary(audit: RippleAuditSummary): RippleGateSum
     auditStatus: audit.status,
     auditDecision: audit.decision,
     approvalStatus: audit.approvalStatus.status,
+    allowedFiles: validation?.editableFiles ?? [],
+    allowedSymbols: validation?.allowedSymbols ?? [],
+    changedOutsideBoundaryFiles:
+      validation?.boundaryVerdict.changedOutsideBoundaryFiles ?? [],
+    changedOutsideBoundarySymbols:
+      validation?.boundaryVerdict.changedOutsideBoundarySymbols ?? [],
     changedFiles: audit.changedFiles,
     verificationTargets: audit.verificationTargets,
     why: handoff.why,

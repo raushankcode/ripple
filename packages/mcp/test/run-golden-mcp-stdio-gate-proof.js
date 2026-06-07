@@ -93,13 +93,21 @@ function callStdioTool(workspaceRoot, tool, args = {}) {
       input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30000,
     },
   );
 
   if (result.error) {
-    throw result.error;
+    throw new Error(
+      `MCP stdio call timed out or failed for ${tool}: ${result.error.message}\n${result.stderr}`,
+    );
   }
   assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(
+    result.stderr.trim(),
+    "",
+    `stdio server should not leak scan/cache logs to stderr for ${tool}`,
+  );
 
   const responses = parseJsonLines(result.stdout);
   assert.strictEqual(responses.length, 2, "stdio server should return initialize + tool call");

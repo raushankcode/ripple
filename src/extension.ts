@@ -164,9 +164,9 @@ export async function activate(
   const engine = new GraphEngine(workspaceRoot);
   _engine = engine;
 
-  // Apply context generation setting — graph always builds, but
-  // .ripple/ file writes are suppressed when the user opts out.
-  if (!cfgGenContext) {engine.setContextGeneration(false);}
+  // VS Code is the file-based human interface. By default it keeps the full
+  // .ripple/ context bundle fresh for setup panels and copy-prompt workflows.
+  engine.setContextGenerationMode(cfgGenContext ? "full" : "lean");
 
   // The Impact Lens view uses this extension-owned context key in package.json.
   // Set it explicitly so VS Code can reveal the sidebar view immediately.
@@ -1195,6 +1195,10 @@ class SafetyCheckProvider {
       const output = execSync("git diff --cached --name-only", {
         cwd: this.workspaceRoot,
         encoding: "utf8",
+        env: {
+          ...process.env,
+          GIT_OPTIONAL_LOCKS: "0",
+        },
         timeout: 3000,
       }) as string;
 

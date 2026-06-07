@@ -49,6 +49,7 @@ export type ChangeIntentReadinessSnapshot = {
   policyExplicit: boolean;
   graphOk: boolean;
   gitOk: boolean;
+  gitIgnoreOk: boolean;
   ciWorkflowOk: boolean;
   latestIntentOk: boolean;
   gaps: string[];
@@ -397,6 +398,7 @@ export function buildChangeIntentReadinessSnapshot(
     policyExplicit: readiness.enforcement.explicitPolicy.ok,
     graphOk: readiness.checks.graph.ok,
     gitOk: readiness.checks.git.ok,
+    gitIgnoreOk: readiness.checks.gitIgnore.ok,
     ciWorkflowOk: readiness.checks.ciWorkflow.ok,
     latestIntentOk: readiness.checks.latestIntent.ok,
     gaps: readiness.enforcement.gaps,
@@ -1389,6 +1391,7 @@ function readinessChangedFields(
     "policyExplicit",
     "graphOk",
     "gitOk",
+    "gitIgnoreOk",
     "ciWorkflowOk",
     "latestIntentOk",
   ];
@@ -1416,6 +1419,7 @@ function readinessWeakenedFields(
     | "policyExplicit"
     | "graphOk"
     | "gitOk"
+    | "gitIgnoreOk"
     | "ciWorkflowOk"
     | "latestIntentOk"
   >> = [
@@ -1425,6 +1429,7 @@ function readinessWeakenedFields(
     "policyExplicit",
     "graphOk",
     "gitOk",
+    "gitIgnoreOk",
     "ciWorkflowOk",
     "latestIntentOk",
   ];
@@ -1468,6 +1473,9 @@ function readinessDriftFix(
   }
   if (weakenedFields.includes("gitOk")) {
     fixes.push("Run Ripple inside a git worktree so changed-file drift checks can work.");
+  }
+  if (weakenedFields.includes("gitIgnoreOk")) {
+    fixes.push("Restore the .gitignore entry for .ripple/.cache/ before committing Ripple audit files.");
   }
   if (weakenedFields.includes("graphOk") || weakenedFields.includes("canGuideAgents")) {
     fixes.push("Run Ripple from a supported source repo so the graph can be scanned.");
@@ -1632,6 +1640,10 @@ function buildBoundaryVerdict(input: {
 }
 
 function boundaryPassReasons(intent: ChangeIntent, editableFiles: string[]): string[] {
+  if (intent.controlMode === "brainstorm") {
+    return ["Control mode 'brainstorm' allows no file edits."];
+  }
+
   const allowedFiles = editableFiles.length > 0
     ? editableFiles.join(", ")
     : "no files";
@@ -1978,6 +1990,9 @@ function contractChangedSymbols(symbols: StagedCheckChangedSymbol[]): StagedChec
 }
 
 function changeIntentEditableFiles(intent: ChangeIntent): string[] {
+  if (intent.controlMode === "brainstorm") {
+    return [];
+  }
   return uniqueItems(
     intent.editableFiles && intent.editableFiles.length > 0
       ? intent.editableFiles
@@ -2039,8 +2054,11 @@ function assertChangeIntent(value: unknown, sourcePath: string): ChangeIntent {
 }
 
 function normalizeChangeIntent(intent: RawChangeIntent): ChangeIntent {
+  const controlMode = isControlMode(intent.controlMode) ? intent.controlMode : "file";
   const editableFiles = uniqueItems(
-    intent.editableFiles && intent.editableFiles.length > 0
+    controlMode === "brainstorm"
+      ? []
+      : intent.editableFiles && intent.editableFiles.length > 0
       ? intent.editableFiles
       : intent.expectedFiles.length > 0
       ? intent.expectedFiles
@@ -2053,7 +2071,6 @@ function normalizeChangeIntent(intent: RawChangeIntent): ChangeIntent {
       : intent.allowedFiles.filter((file) => !editableFileSet.has(file))
     ).filter((file) => !editableFileSet.has(file))
   );
-  const controlMode = isControlMode(intent.controlMode) ? intent.controlMode : "file";
   const allowedSymbols = uniqueItems(
     (intent.allowedSymbols ?? []).filter((symbol): symbol is string =>
       typeof symbol === "string" && symbol.trim().length > 0
@@ -2121,6 +2138,7 @@ function normalizeReadinessSnapshot(
     policyExplicit: typeof value.policyExplicit === "boolean" ? value.policyExplicit : false,
     graphOk: typeof value.graphOk === "boolean" ? value.graphOk : false,
     gitOk: typeof value.gitOk === "boolean" ? value.gitOk : false,
+    gitIgnoreOk: typeof value.gitIgnoreOk === "boolean" ? value.gitIgnoreOk : false,
     ciWorkflowOk: typeof value.ciWorkflowOk === "boolean" ? value.ciWorkflowOk : false,
     latestIntentOk: typeof value.latestIntentOk === "boolean" ? value.latestIntentOk : false,
     gaps: stringList(value.gaps),
@@ -2138,6 +2156,7 @@ function fallbackReadinessSnapshot(): ChangeIntentReadinessSnapshot {
     policyExplicit: false,
     graphOk: false,
     gitOk: false,
+    gitIgnoreOk: false,
     ciWorkflowOk: false,
     latestIntentOk: false,
     gaps: ["Readiness snapshot was not captured when this intent was saved."],

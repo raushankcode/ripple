@@ -1,16 +1,24 @@
 # @getripple/core
 
-The graph engine that powers Ripple's VS Code extension, CLI, and MCP server.
+**Core engine for Ripple's local drift-control system for AI coding agents.**
 
-Scans JavaScript, TypeScript, and basic Python repositories, builds a local
-dependency graph, and exposes the architectural context that AI agents need
-before editing code.
+`@getripple/core` scans repositories, builds local dependency intelligence, tracks architectural relationships, records approved work boundaries, and powers Ripple's CLI, MCP server, CI integrations, and editor experiences.
 
-**Most users should not start here.**
-Install [`@getripple/cli`](https://npmjs.com/package/@getripple/cli) for terminal
-and CI workflows.
-Install [`@getripple/mcp`](https://npmjs.com/package/@getripple/mcp) to give AI
-agents direct structured access to Ripple's context.
+Most users should start with:
+
+```txt
+@getripple/cli
+```
+
+or
+
+```txt
+@getripple/mcp
+```
+
+and use `@getripple/core` only when building custom integrations.
+
+---
 
 ## Install
 
@@ -18,74 +26,310 @@ agents direct structured access to Ripple's context.
 npm install @getripple/core
 ```
 
+---
+
 ## Basic Usage
 
 ```ts
 import { GraphEngine } from "@getripple/core";
 
 const engine = new GraphEngine(process.cwd());
-await engine.initialScan();
 
-// What does this file affect?
-const blastRadius = engine.blastRadius(["src/auth.ts"]);
+try {
+  await engine.initialScan();
 
-// What depends on this file?
-const importers = engine.downstreamFiles("src/auth.ts");
+  const blastRadius = engine.blastRadius(["src/auth.ts"]);
+  const importers = engine.downstreamFiles("src/auth.ts");
+  const imports = engine.upstreamFiles("src/auth.ts");
 
-// What does this file import?
-const imports = engine.upstreamFiles("src/auth.ts");
+  console.log({
+    blastRadius,
+    importers,
+    imports,
+  });
+} finally {
+  engine.dispose();
+}
 ```
 
-## What the Engine Tracks
+---
 
+## What Core Powers
+
+`@getripple/core` is the shared engine behind Ripple's public interfaces.
+
+```txt
+@getripple/cli
+@getripple/mcp
+VS Code integrations
+CI workflows
+Custom integrations
 ```
-File dependency graph      — every import and reverse import
-Symbol and call edges      — exported functions and who calls them
-Blast radius               — all files affected by a change
-Risk signals               — dangerous / caution / safe per file
-Focused context            — per-file summaries for AI agents
-Change history             — structural changes since first install
-Layer classification       — logic / ui / handler / state / data / effect
-Framework/config signals   — Next.js, Vite, React Router, Turborepo, Tailwind,
-                             tests, tsconfig paths, and package conventions
+
+The engine provides local signals used to answer:
+
+```txt
+What should an agent read before editing?
+
+What files may be affected?
+
+What symbols may be affected?
+
+What was approved?
+
+What changed?
+
+Did the agent drift?
+
+Can the agent continue?
+
+Does a human need to review?
 ```
 
-## What It Powers
+---
 
-**VS Code extension (`ripple`)** — Impact Lens sidebar, CodeLens caller counts,
-Safety Check pre-commit warnings, and Copy Agent Prompt.
+## Core Capabilities
 
-**CLI (`@getripple/cli`)** — `ripple plan`, `ripple check`, `ripple gate`, and
-the full CI pipeline integration.
+Ripple builds and maintains local repository intelligence.
 
-**MCP server (`@getripple/mcp`)** — `ripple_plan_context`, `ripple_check_staged`,
-`ripple_gate`, and twelve other tools agents can call directly.
+```txt
+dependency graph
+
+reverse imports
+
+exported symbols
+
+call relationships
+
+blast radius analysis
+
+architectural history
+
+focused context generation
+
+saved change intents
+
+approval tracking
+
+trust-boundary validation
+
+drift detection
+
+continue / stop gate summaries
+```
+
+These capabilities power the Ripple workflow:
+
+```txt
+plan work
+
+save intent
+
+agent edits code
+
+check changes
+
+detect drift
+
+repair or review
+
+continue safely
+```
+
+---
 
 ## Trust Boundary Contract
 
-The core engine is the single source of truth for control modes, editable files,
-context-only files, human gates, and continue/stop decisions. The CLI and MCP
-packages consume this contract directly — humans, CI pipelines, and AI agents
-all see the same workflow state.
+The Trust Boundary Contract is the core safety model used throughout Ripple.
 
-## Supported Languages
+Ripple compares:
 
-Deep support: JavaScript and TypeScript — `.ts`, `.tsx`, `.js`, `.jsx`.
+```txt
+planned work
+```
 
-Basic support: Python — `.py`.
+against
 
-Framework and config signals are heuristic. Ripple detects common files and
-package conventions, then tells agents what to trust and what to verify.
+```txt
+actual changes
+```
+
+to determine whether an AI coding agent stayed within the work it was trusted to perform.
+
+The Trust Boundary Contract consists of:
+
+```txt
+planned work       -> what the human approved
+
+approved boundary  -> file, function, task, brainstorm, or PR scope
+
+actual changes     -> what the agent modified
+
+drift result       -> whether the agent left the approved work
+
+gate decision      -> continue, repair, human-review, or restore-readiness
+```
+
+The Trust Boundary Contract enables Ripple to:
+
+```txt
+detect intent drift
+
+detect boundary drift
+
+require repair
+
+require human review
+
+produce continue/stop decisions
+
+protect approved workflows
+```
+
+This contract is consumed by:
+
+```txt
+humans
+
+AI coding agents
+
+CI systems
+
+automation pipelines
+```
+
+---
+
+## Context Modes
+
+Core supports multiple context-generation modes.
+
+```txt
+lean
+```
+
+Uses graph and history cache for fast checks and gates.
+
+```txt
+on-demand
+```
+
+Builds targeted context for MCP tools and focused requests.
+
+```txt
+full
+```
+
+Generates broader workflow context for file-oriented agent workflows.
+
+---
+
+## Ripple Workspace
+
+Machine cache:
+
+```txt
+.ripple/.cache/
+```
+
+Workflow and audit state:
+
+```txt
+.ripple/policy.json
+.ripple/history.json
+.ripple/intents/
+.ripple/approvals/
+```
+
+---
+
+## Language Support
+
+| Language   | Support |
+| ---------- | ------- |
+| JavaScript | Deep    |
+| TypeScript | Deep    |
+| Python     | Basic   |
+
+JavaScript and TypeScript currently provide the strongest experience.
+
+Python support includes:
+
+```txt
+imports
+
+functions
+
+classes
+
+basic call relationships
+```
+
+Framework detection and configuration analysis remain heuristic.
+
+Ripple reports local repository signals rather than perfect semantic truth.
+
+---
 
 ## Privacy
 
-The engine runs entirely on your machine. No data leaves the local file system.
-No network calls, telemetry, or account required.
+Ripple operates locally.
+
+```txt
+No telemetry
+
+No cloud indexing
+
+No code upload
+
+No remote dependency required
+
+No account required
+```
+
+Repositories are scanned on the user's machine.
+
+---
 
 ## Status
 
-Public alpha. Core APIs may change while the CLI and MCP workflow contracts
-harden toward a stable 1.x release.
+Public alpha.
+
+The most stable public contracts are:
+
+```txt
+@getripple/cli
+
+@getripple/mcp
+```
+
+Core APIs may evolve as Ripple's graph, context, drift-control, and approval systems mature.
+
+---
+
+## What Core Is Not
+
+`@getripple/core` is not:
+
+```txt
+a coding agent
+
+a code generator
+
+a code review replacement
+
+a test replacement
+
+a typechecker replacement
+
+a sandbox
+
+a compiler
+```
+
+Instead, it is the local intelligence engine that helps Ripple determine whether an AI coding agent remained inside the work it was trusted to perform.
+
+---
 
 ## License
 

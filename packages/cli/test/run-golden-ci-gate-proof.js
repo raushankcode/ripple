@@ -175,6 +175,21 @@ function assertSummaryHasGate(summaryPath, expected) {
   return summary;
 }
 
+function assertFullContextBundleAbsent(label) {
+  [
+    path.join(workspaceRoot, ".ripple", ".cache", "context.json"),
+    path.join(workspaceRoot, ".ripple", ".cache", "context.files.json"),
+    path.join(workspaceRoot, ".ripple", ".cache", "context.symbols.json"),
+    path.join(workspaceRoot, ".ripple", "WORKFLOW.md"),
+    path.join(workspaceRoot, ".ripple", ".cache", "focus"),
+  ].forEach((generatedPath) => {
+    assert(
+      !fs.existsSync(generatedPath),
+      `${label} should not generate ${path.relative(workspaceRoot, generatedPath)}`,
+    );
+  });
+}
+
 function proveMatchedCiGateOpens() {
   const summaryPath = path.join(workspaceRoot, "matched-ci-summary.md");
   const result = runCliResult(["ci", "--base", "HEAD", "--intent", "latest"], {
@@ -203,6 +218,7 @@ function proveMatchedCiGateOpens() {
   });
   assert(summary.includes("Audit status: pass"));
   assert(summary.includes("Next required phase: done"));
+  assertFullContextBundleAbsent("matched CI gate");
 }
 
 function proveDriftedCiGateCloses() {
@@ -265,11 +281,13 @@ function proveDriftedCiGateCloses() {
   assert(summary.includes("Audit status: repair-required"));
   assert(summary.includes("Unplanned file changed: src/other.ts"));
   assert(summary.includes("ripple repair --agent --intent latest"));
+  assertFullContextBundleAbsent("drifted CI gate");
 }
 
 function main() {
   setupFixture();
   createSavedPlan();
+  assertFullContextBundleAbsent("saved CI plan");
   commitBaseline("saved ripple intent");
   changeInsidePlan();
   proveMatchedCiGateOpens();

@@ -157,7 +157,7 @@ function printDryRun() {
     console.log(`  npm view ${pkg.name}@${version} version --json`);
   }
   console.log("");
-  console.log("Expected before first publish:");
+  console.log("Expected before publishing this version:");
   console.log("  npm whoami succeeds");
   console.log("  requested package versions are not found");
   console.log("  scope/package ownership is reviewed by the human before publish");

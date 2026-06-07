@@ -29,11 +29,13 @@ const requiredPersonaSections = [
 ];
 
 const rootReadmeRequiredText = [
-  "Ripple is a local AI-agent workflow engine",
+  "Ripple tells AI coding agents when they may continue",
   "Plan before edit.",
+  "Save intent.",
+  "Choose a trust boundary.",
   "Check after edit.",
   "Catch drift.",
-  "Tell the agent exactly what to fix.",
+  "Continue / stop / human review.",
   "These are signals, not proofs.",
 ];
 

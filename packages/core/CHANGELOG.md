@@ -1,5 +1,11 @@
 # @getripple/core Changelog
 
+## [1.0.6] - 2026-06-07
+
+### Fixed
+- Report Git spawn failures with actionable messages when Node.js cannot launch `git`.
+- Preserve the exact Git readiness failure in `ripple doctor` and readiness summaries.
+
 ## [1.0.5] - 2026-06-04
 
 ### Changed

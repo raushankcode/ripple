@@ -78,6 +78,8 @@ function assertRootReleaseScripts() {
 
   for (const requiredScript of [
     "proof:agent-control",
+    "proof:doctor-contract",
+    "proof:mcp-doctor-contract",
     "proof:package-install",
     "proof:mcp-package-install",
     "proof:publish-readiness",
@@ -86,6 +88,16 @@ function assertRootReleaseScripts() {
     assert(scripts[requiredScript], `Missing required release script: ${requiredScript}`);
   }
 
+  assertIncludes(
+    scripts["test:agent-control"],
+    "run-golden-doctor-contract-proof.js",
+    "product proof",
+  );
+  assertIncludes(
+    scripts["test:agent-control"],
+    "run-golden-mcp-doctor-contract-proof.js",
+    "product proof",
+  );
   assertIncludes(
     scripts["test:agent-control"],
     "run-golden-package-install-proof.js",

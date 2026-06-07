@@ -1,16 +1,14 @@
-import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import {
-  Node,
-  Project,
-  SyntaxKind,
+  ts,
 } from "ts-morph";
 import {
   ContextPlanAdapterSignal,
   FileFocusSummary,
   GraphEngine,
 } from "./graph";
+import { execGit } from "./git";
 import { RippleAdapterCapability, SymbolNode } from "./types";
 import type { RippleAdapterDetectionSummary } from "./adapters";
 
@@ -155,15 +153,12 @@ export function isRippleSourceFile(filePath: string): boolean {
 
 export function listGitStagedFiles(workspaceRoot: string): string[] {
   try {
-    const output = execFileSync(
-      "git",
-      ["diff", "--name-only", "--cached", "--diff-filter=ACMR"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    const output = execGit(workspaceRoot, [
+      "diff",
+      "--name-only",
+      "--cached",
+      "--diff-filter=ACMR",
+    ]);
     return output
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -176,15 +171,12 @@ export function listGitStagedFiles(workspaceRoot: string): string[] {
 
 export function listGitStagedDiff(workspaceRoot: string): string {
   try {
-    return execFileSync(
-      "git",
-      ["diff", "--cached", "--unified=0", "--no-ext-diff"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    return execGit(workspaceRoot, [
+      "diff",
+      "--cached",
+      "--unified=0",
+      "--no-ext-diff",
+    ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Could not read staged diff with git diff --cached: ${message}`);
@@ -193,15 +185,13 @@ export function listGitStagedDiff(workspaceRoot: string): string {
 
 export function listGitChangedFiles(workspaceRoot: string, baseRef: string): string[] {
   try {
-    const output = execFileSync(
-      "git",
-      ["diff", "--name-only", "--diff-filter=ACMR", baseRef, "--"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    const output = execGit(workspaceRoot, [
+      "diff",
+      "--name-only",
+      "--diff-filter=ACMR",
+      baseRef,
+      "--",
+    ]);
     return output
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -216,15 +206,11 @@ export function listGitChangedFiles(workspaceRoot: string, baseRef: string): str
 
 function listGitUntrackedSourceFiles(workspaceRoot: string): string[] {
   try {
-    const output = execFileSync(
-      "git",
-      ["ls-files", "--others", "--exclude-standard"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    const output = execGit(workspaceRoot, [
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+    ]);
     return output
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -240,15 +226,13 @@ function uniqueString(value: string, index: number, values: string[]): boolean {
 
 export function listGitChangedDiff(workspaceRoot: string, baseRef: string): string {
   try {
-    return execFileSync(
-      "git",
-      ["diff", "--unified=0", "--no-ext-diff", baseRef, "--"],
-      {
-        cwd: workspaceRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    return execGit(workspaceRoot, [
+      "diff",
+      "--unified=0",
+      "--no-ext-diff",
+      baseRef,
+      "--",
+    ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Could not read changed diff with git diff ${baseRef}: ${message}`);
@@ -721,11 +705,7 @@ function readWorkingTreeFileContent(workspaceRoot: string, projectPath: string):
 
 function readStagedFileContent(workspaceRoot: string, projectPath: string): string | null {
   try {
-    return execFileSync("git", ["show", `:${projectPath}`], {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    return execGit(workspaceRoot, ["show", `:${projectPath}`]);
   } catch {
     const absolutePath = path.resolve(workspaceRoot, projectPath);
     try {
@@ -742,11 +722,7 @@ function readGitRefFileContent(
   projectPath: string
 ): string | null {
   try {
-    return execFileSync("git", ["show", `${ref}:${projectPath}`], {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    return execGit(workspaceRoot, ["show", `${ref}:${projectPath}`]);
   } catch {
     return null;
   }
@@ -766,20 +742,13 @@ function parseSymbolRanges(
     return parsePythonSymbolRanges(engine, workspaceRoot, projectPath, content);
   }
 
-  const project = new Project({
-    compilerOptions: {
-      allowJs: true,
-      jsx: 4,
-      allowSyntheticDefaultImports: true,
-      esModuleInterop: true,
-      moduleResolution: 2,
-      target: 99,
-      strict: false,
-    },
-    skipAddingFilesFromTsConfig: true,
-    skipFileDependencyResolution: true,
-  });
-  const sourceFile = project.createSourceFile(projectPath, content, { overwrite: true });
+  const sourceFile = ts.createSourceFile(
+    projectPath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindForPath(projectPath)
+  );
   const exportedNames = exportedSymbolNames(sourceFile);
   const graphSymbols = graphSymbolsByName(engine, workspaceRoot, projectPath);
   const ranges: ParsedSymbolRange[] = [];
@@ -788,19 +757,19 @@ function parseSymbolRanges(
   const addRange = (
     name: string | undefined,
     kind: SymbolNode["kind"],
-    node: Node
+    node: ts.Node
   ) => {
     if (!name || name.includes("{") || name.includes("[")) {
       return;
     }
-    const key = `${name}:${kind}:${node.getStart()}`;
+    const key = `${name}:${kind}:${node.getStart(sourceFile)}`;
     if (seen.has(key)) {
       return;
     }
     seen.add(key);
 
     const graphSymbol = graphSymbols.get(name);
-    const nodeRange = lineRangeForNode(node);
+    const nodeRange = lineRangeForNode(sourceFile, node);
     ranges.push({
       symbol: `${projectPath}::${name}`,
       file: projectPath,
@@ -814,31 +783,34 @@ function parseSymbolRanges(
       endLine: nodeRange.end,
       signatureStartLine: nodeRange.signatureStart,
       signatureEndLine: nodeRange.signatureEnd,
-      signatureText: signatureTextForNode(node),
+      signatureText: signatureTextForNode(sourceFile, node),
     });
   };
 
-  sourceFile.getFunctions().forEach((funcDecl) => {
-    addRange(funcDecl.getName(), "function", funcDecl);
-  });
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node)) {
+      addRange(node.name?.text, "function", node);
+    } else if (ts.isClassDeclaration(node)) {
+      addRange(node.name?.text, "class", node);
+      node.members.forEach((member) => {
+        if (ts.isMethodDeclaration(member)) {
+          addRange(propertyNameText(member.name, sourceFile), "method", member);
+        }
+      });
+      return;
+    } else if (ts.isVariableDeclaration(node) && isTopLevelVariableDeclaration(node)) {
+      const initializer = node.initializer;
+      const kind =
+        initializer &&
+        (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+          ? "function"
+          : "variable";
+      addRange(bindingNameText(node.name, sourceFile), kind, node);
+    }
 
-  sourceFile.getClasses().forEach((classDecl) => {
-    addRange(classDecl.getName(), "class", classDecl);
-    classDecl.getMethods().forEach((methodDecl) => {
-      addRange(methodDecl.getName(), "method", methodDecl);
-    });
-  });
-
-  sourceFile.getVariableDeclarations().forEach((varDecl) => {
-    const initializer = varDecl.getInitializer();
-    const kind =
-      initializer &&
-      (initializer.getKind() === SyntaxKind.ArrowFunction ||
-        initializer.getKind() === SyntaxKind.FunctionExpression)
-        ? "function"
-        : "variable";
-    addRange(varDecl.getName(), kind, varDecl);
-  });
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
 
   return ranges;
 }
@@ -920,15 +892,80 @@ function symbolsByName(symbols: ParsedSymbolRange[]): Map<string, ParsedSymbolRa
   return result;
 }
 
-function exportedSymbolNames(sourceFile: import("ts-morph").SourceFile): Set<string> {
+function scriptKindForPath(projectPath: string): ts.ScriptKind {
+  const ext = path.extname(projectPath).toLowerCase();
+  if (ext === ".tsx") {return ts.ScriptKind.TSX;}
+  if (ext === ".jsx") {return ts.ScriptKind.JSX;}
+  if (ext === ".js") {return ts.ScriptKind.JS;}
+  if (ext === ".json") {return ts.ScriptKind.JSON;}
+  return ts.ScriptKind.TS;
+}
+
+function exportedSymbolNames(sourceFile: ts.SourceFile): Set<string> {
   const exported = new Set<string>();
-  sourceFile.getExportedDeclarations().forEach((declarations, exportName) => {
-    declarations.forEach((decl) => {
-      const declaredName = (decl as { getName?: () => string | undefined }).getName?.();
-      exported.add(declaredName ?? exportName);
+
+  sourceFile.statements.forEach((statement) => {
+    if (ts.isFunctionDeclaration(statement)) {
+      addExportedName(exported, statement.name?.text, statement);
+      return;
+    }
+    if (ts.isClassDeclaration(statement)) {
+      addExportedName(exported, statement.name?.text, statement);
+      return;
+    }
+    if (!ts.isVariableStatement(statement)) {return;}
+    if (!isExportedNode(statement)) {return;}
+    statement.declarationList.declarations.forEach((declaration) => {
+      const name = bindingNameText(declaration.name, sourceFile);
+      if (name) {exported.add(name);}
     });
   });
+
+  sourceFile.statements.forEach((statement) => {
+    if (!ts.isExportDeclaration(statement)) {return;}
+    const exportClause = statement.exportClause;
+    if (!exportClause || !ts.isNamedExports(exportClause)) {return;}
+    exportClause.elements.forEach((namedExport) => {
+      exported.add(namedExport.propertyName?.text ?? namedExport.name.text);
+    });
+  });
+
   return exported;
+}
+
+function addExportedName(
+  exported: Set<string>,
+  name: string | undefined,
+  node: ts.Node
+): void {
+  if (name && isExportedNode(node)) {
+    exported.add(name);
+  }
+}
+
+function isExportedNode(node: ts.Node): boolean {
+  return ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some((modifier) =>
+      modifier.kind === ts.SyntaxKind.ExportKeyword
+    );
+}
+
+function bindingNameText(name: ts.BindingName, sourceFile: ts.SourceFile): string | undefined {
+  if (ts.isIdentifier(name)) {return name.text;}
+  return name.getText(sourceFile);
+}
+
+function propertyNameText(name: ts.PropertyName, sourceFile: ts.SourceFile): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  return name.getText(sourceFile);
+}
+
+function isTopLevelVariableDeclaration(node: ts.VariableDeclaration): boolean {
+  const declarationList = node.parent;
+  const statement = declarationList.parent;
+  return ts.isVariableStatement(statement) && ts.isSourceFile(statement.parent);
 }
 
 function graphSymbolsByName(
@@ -945,18 +982,17 @@ function graphSymbolsByName(
   return symbols;
 }
 
-function lineRangeForNode(node: Node): {
+function lineRangeForNode(sourceFile: ts.SourceFile, node: ts.Node): {
   start: number;
   end: number;
   signatureStart: number;
   signatureEnd: number;
 } {
-  const sourceFile = node.getSourceFile();
-  const start = sourceFile.getLineAndColumnAtPos(node.getStart()).line;
-  const end = sourceFile.getLineAndColumnAtPos(node.getEnd()).line;
+  const start = lineForPosition(sourceFile, node.getStart(sourceFile));
+  const end = lineForPosition(sourceFile, node.getEnd());
   const body = bodyNodeFor(node);
   const bodyStart = body
-    ? sourceFile.getLineAndColumnAtPos(body.getStart()).line
+    ? lineForPosition(sourceFile, body.getStart(sourceFile))
     : start;
 
   return {
@@ -967,48 +1003,51 @@ function lineRangeForNode(node: Node): {
   };
 }
 
-function bodyNodeFor(node: Node): Node | undefined {
+function lineForPosition(sourceFile: ts.SourceFile, position: number): number {
+  return sourceFile.getLineAndCharacterOfPosition(position).line + 1;
+}
+
+function bodyNodeFor(node: ts.Node): ts.Node | undefined {
   if (
-    Node.isFunctionDeclaration(node) ||
-    Node.isMethodDeclaration(node) ||
-    Node.isFunctionExpression(node) ||
-    Node.isArrowFunction(node)
+    ts.isFunctionDeclaration(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node)
   ) {
-    return node.getBody();
+    return node.body;
   }
 
-  if (Node.isClassDeclaration(node)) {
+  if (ts.isClassDeclaration(node)) {
     return node;
   }
 
-  if (Node.isVariableDeclaration(node)) {
-    const initializer = node.getInitializer();
+  if (ts.isVariableDeclaration(node)) {
+    const initializer = node.initializer;
     if (
       initializer &&
-      (Node.isArrowFunction(initializer) || Node.isFunctionExpression(initializer))
+      (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
     ) {
-      return initializer.getBody();
+      return initializer.body;
     }
   }
 
   return undefined;
 }
 
-function signatureTextForNode(node: Node): string {
-  const sourceFile = node.getSourceFile();
-  const fullText = sourceFile.getFullText();
+function signatureTextForNode(sourceFile: ts.SourceFile, node: ts.Node): string {
+  const fullText = sourceFile.text;
   const body = bodyNodeFor(node);
 
-  if (body && !Node.isClassDeclaration(node)) {
-    const start = node.getStart();
-    const bodyStart = body.getStart();
+  if (body && !ts.isClassDeclaration(node)) {
+    const start = node.getStart(sourceFile);
+    const bodyStart = body.getStart(sourceFile);
     if (bodyStart > start) {
       return normalizeSignatureText(fullText.slice(start, bodyStart));
     }
   }
 
-  const text = node.getText();
-  if (Node.isClassDeclaration(node)) {
+  const text = node.getText(sourceFile);
+  if (ts.isClassDeclaration(node)) {
     const braceIndex = text.indexOf("{");
     if (braceIndex >= 0) {
       return normalizeSignatureText(text.slice(0, braceIndex));

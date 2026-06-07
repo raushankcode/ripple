@@ -99,6 +99,15 @@ function proveInitCreatesAgentControlSetup() {
     "ripple init should write the CI gate workflow",
   );
   assert(
+    summary.files.some(
+      (file) =>
+        file.path === ".gitignore" &&
+        file.status === "written" &&
+        file.written === true,
+    ),
+    "ripple init should add Ripple cache hygiene to .gitignore",
+  );
+  assert(
     fs.existsSync(path.join(workspaceRoot, ".ripple", "policy.json")),
     "policy file should exist after ripple init",
   );
@@ -106,8 +115,13 @@ function proveInitCreatesAgentControlSetup() {
     fs.existsSync(path.join(workspaceRoot, ".github", "workflows", "ripple.yml")),
     "CI workflow should exist after ripple init",
   );
+  assert(
+    fs.readFileSync(path.join(workspaceRoot, ".gitignore"), "utf8").includes(".ripple/.cache/"),
+    ".gitignore should ignore the Ripple machine cache",
+  );
   assert.strictEqual(summary.readiness.checks.graph.ok, true);
   assert.strictEqual(summary.readiness.checks.git.ok, true);
+  assert.strictEqual(summary.readiness.checks.gitIgnore.ok, true);
   assert.strictEqual(summary.readiness.checks.ciWorkflow.ok, true);
   assert.strictEqual(summary.readiness.enforcement.explicitPolicy.ok, true);
   assert.strictEqual(summary.readiness.checks.latestIntent.ok, false);
@@ -132,13 +146,24 @@ function proveInitIsSafeToRepeat() {
 
   const forced = runCliJson(["init", "--force"]);
   assert(
-    forced.files.every(
+    forced.files
+      .filter((file) => file.path !== ".gitignore")
+      .every(
+        (file) =>
+          file.status === "overwritten" &&
+          file.written === true &&
+          file.overwritten === true,
+      ),
+    "ripple init --force should overwrite policy and CI setup files",
+  );
+  assert(
+    forced.files.some(
       (file) =>
-        file.status === "overwritten" &&
-        file.written === true &&
-        file.overwritten === true,
+        file.path === ".gitignore" &&
+        file.status === "exists" &&
+        file.written === false,
     ),
-    "ripple init --force should overwrite existing setup files",
+    "ripple init --force should not overwrite .gitignore",
   );
 }
 
@@ -163,6 +188,7 @@ function proveSavedPlanMakesRepoCiGateReady() {
   const doctor = runCliJson(["doctor"]);
   assert.strictEqual(doctor.status, "ready");
   assert.strictEqual(doctor.checks.latestIntent.ok, true);
+  assert.strictEqual(doctor.checks.gitIgnore.ok, true);
   assert.strictEqual(doctor.enforcement.level, "ci-gate-ready");
   assert.strictEqual(doctor.enforcement.canGuideAgents, true);
   assert.strictEqual(doctor.enforcement.canDetectDrift, true);

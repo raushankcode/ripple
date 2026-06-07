@@ -732,8 +732,18 @@ async function main() {
       readiness.data.status === "ready" || readiness.data.status === "needs_setup",
       "ripple_doctor should return readiness status"
     );
+    assert(
+      readiness.data.decision === "continue" || readiness.data.decision === "setup-required",
+      "ripple_doctor should return the agent readiness decision"
+    );
+    assert.strictEqual(typeof readiness.data.canContinue, "boolean");
+    assert.strictEqual(typeof readiness.data.mustStop, "boolean");
+    assert.strictEqual(typeof readiness.data.nextRequiredAction, "string");
+    assert(Array.isArray(readiness.data.why));
+    assert(Array.isArray(readiness.data.fixNow));
     assert.strictEqual(readiness.data.checks.graph.ok, true);
     assert.strictEqual(readiness.data.checks.git.ok, true);
+    assert.strictEqual(typeof readiness.data.checks.gitIgnore.ok, "boolean");
     assert.strictEqual(typeof readiness.data.checks.latestIntent.ok, "boolean");
     assert(
       ["advisory", "drift-check-ready", "ci-gate-ready"].includes(
@@ -821,6 +831,12 @@ async function main() {
 
     const readyAfterIntent = await host.callTool("ripple_doctor", {});
     assert.strictEqual(readyAfterIntent.data.checks.latestIntent.ok, true);
+    assert.strictEqual(
+      readyAfterIntent.data.decision,
+      readyAfterIntent.data.status === "ready" ? "continue" : "setup-required"
+    );
+    assert.strictEqual(readyAfterIntent.data.canContinue, readyAfterIntent.data.status === "ready");
+    assert.strictEqual(readyAfterIntent.data.mustStop, readyAfterIntent.data.status !== "ready");
     assert(
       readyAfterIntent.data.enforcement.level === "drift-check-ready" ||
         readyAfterIntent.data.enforcement.level === "ci-gate-ready",
@@ -1135,6 +1151,18 @@ async function main() {
     assert(
       focus.data.importedBy.some((item) => item.file === "src/index.ts"),
       "focus should include direct importer"
+    );
+    assert(
+      fs.existsSync(path.join(workspaceRoot, focus.data.focusPath)),
+      "ripple_get_focus should write only the requested focus file on demand"
+    );
+    assert(
+      !fs.existsSync(path.join(workspaceRoot, ".ripple", ".cache", "context.json")),
+      "ripple_get_focus should not write the full context bundle"
+    );
+    assert(
+      !fs.existsSync(path.join(workspaceRoot, ".ripple", "WORKFLOW.md")),
+      "ripple_get_focus should not write WORKFLOW.md"
     );
 
     const blast = await host.callTool("ripple_get_blast_radius", { filePath: "src/util.ts" });

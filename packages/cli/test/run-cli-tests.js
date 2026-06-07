@@ -203,6 +203,7 @@ function main() {
   const help = runCli(["--help"]);
   assert(help.includes("ripple init [--force] [--json]"), "help should show init command");
   assert(help.includes("ripple doctor"), "help should show doctor command");
+  assert(help.includes("ripple workflow"), "help should show workflow command");
   assert(help.includes("ripple check --staged"), "help should show check --staged");
   assert(help.includes("ripple check --changed --base <ref>"), "help should show changed mode");
   assert(help.includes("ripple repair"), "help should show repair command");
@@ -265,6 +266,7 @@ function main() {
     "help should show ci command example"
   );
   assert(help.includes("ripple init"), "help should show init example");
+  assert(help.includes("ripple workflow"), "help should show workflow example");
   assert(help.includes("ripple init-ci"), "help should show init-ci example");
 
   const initWorkspace = setupInitFixture();
@@ -274,9 +276,14 @@ function main() {
     printedInit.includes("# .github/workflows/ripple.yml"),
     "init --print should show workflow path"
   );
+  assert(printedInit.includes("# .gitignore"), "init --print should show gitignore path");
+  assert(
+    printedInit.includes(".ripple/.cache/"),
+    "init --print should include the Ripple cache gitignore entry"
+  );
   const printedInitJson = runCliJsonIn(initWorkspace, ["init", "--print"]);
   assert.strictEqual(printedInitJson.protocol, "ripple-init");
-  assert.strictEqual(printedInitJson.files.length, 2);
+  assert.strictEqual(printedInitJson.files.length, 3);
   assert(
     printedInitJson.files.every((file) => file.status === "printed" && file.written === false),
     "init --print --json should not write setup files"
@@ -284,7 +291,7 @@ function main() {
 
   const initJson = runCliJsonIn(initWorkspace, ["init"]);
   assert.strictEqual(initJson.protocol, "ripple-init");
-  assert.strictEqual(initJson.files.length, 2);
+  assert.strictEqual(initJson.files.length, 3);
   assert(
     initJson.files.some((file) => file.path === ".ripple/policy.json" && file.status === "written"),
     "init should write policy file"
@@ -294,6 +301,10 @@ function main() {
     "init should write CI workflow"
   );
   assert(
+    initJson.files.some((file) => file.path === ".gitignore" && file.status === "written"),
+    "init should write gitignore hygiene when .gitignore is missing"
+  );
+  assert(
     fs.existsSync(path.join(initWorkspace, ".ripple", "policy.json")),
     "init should create .ripple/policy.json"
   );
@@ -301,7 +312,12 @@ function main() {
     fs.existsSync(path.join(initWorkspace, ".github", "workflows", "ripple.yml")),
     "init should create .github/workflows/ripple.yml"
   );
+  assert(
+    fs.readFileSync(path.join(initWorkspace, ".gitignore"), "utf8").includes(".ripple/.cache/"),
+    "init should add .ripple/.cache/ to .gitignore"
+  );
   assert.strictEqual(initJson.readiness.checks.ciWorkflow.ok, true);
+  assert.strictEqual(initJson.readiness.checks.gitIgnore.ok, true);
   assert.strictEqual(initJson.readiness.enforcement.explicitPolicy.ok, true);
   assert.strictEqual(initJson.readiness.checks.latestIntent.ok, false);
   assert(
@@ -317,8 +333,14 @@ function main() {
 
   const forcedInitJson = runCliJsonIn(initWorkspace, ["init", "--force"]);
   assert(
-    forcedInitJson.files.every((file) => file.status === "overwritten" && file.overwritten === true),
-    "init --force should overwrite setup files"
+    forcedInitJson.files
+      .filter((file) => file.path !== ".gitignore")
+      .every((file) => file.status === "overwritten" && file.overwritten === true),
+    "init --force should overwrite policy and CI setup files"
+  );
+  assert(
+    forcedInitJson.files.some((file) => file.path === ".gitignore" && file.status === "exists"),
+    "init --force should not overwrite an existing .gitignore"
   );
 
   const printedWorkflow = runCli(["init-ci", "--print"]);
@@ -373,6 +395,17 @@ function main() {
 
   const doctorNeedsIntent = runCliJson(["doctor"]);
   assert.strictEqual(doctorNeedsIntent.status, "needs_setup", "doctor should require latest intent");
+  assert.strictEqual(doctorNeedsIntent.decision, "setup-required", "doctor should expose setup-required decision");
+  assert.strictEqual(doctorNeedsIntent.canContinue, false, "doctor should not allow continuing before setup is ready");
+  assert.strictEqual(doctorNeedsIntent.mustStop, true, "doctor should require stop before setup is ready");
+  assert(
+    doctorNeedsIntent.nextRequiredAction.includes("Stop autonomous agent work"),
+    "doctor should expose next required action for agents"
+  );
+  assert(
+    doctorNeedsIntent.fixNow.some((step) => step.includes("ripple plan")),
+    "doctor should expose setup fixes through fixNow"
+  );
   assert.strictEqual(doctorNeedsIntent.checks.graph.ok, true, "doctor should validate graph scan");
   assert.strictEqual(
     doctorNeedsIntent.checks.ciWorkflow.ok,
@@ -408,8 +441,20 @@ function main() {
     "doctor --agent should have a stable header"
   );
   assert(
-    doctorNeedsIntentAgent.includes("readiness_decision: setup-required"),
+    doctorNeedsIntentAgent.includes("decision: setup-required"),
     "doctor --agent should tell agents setup is required"
+  );
+  assert(
+    doctorNeedsIntentAgent.includes("can_continue: false"),
+    "doctor --agent should tell agents not to continue before setup is ready"
+  );
+  assert(
+    doctorNeedsIntentAgent.includes("must_stop: true"),
+    "doctor --agent should tell agents to stop before setup is ready"
+  );
+  assert(
+    doctorNeedsIntentAgent.includes("next_required_action: Stop autonomous agent work until Ripple readiness gaps are fixed."),
+    "doctor --agent should include the next required action"
   );
   assert(
     doctorNeedsIntentAgent.includes("enforcement_level: advisory"),
@@ -420,8 +465,12 @@ function main() {
     "doctor --agent should expose CI blocking readiness"
   );
   assert(
-    doctorNeedsIntentAgent.includes("gaps:"),
-    "doctor --agent should expose readiness gaps"
+    doctorNeedsIntentAgent.includes("why:"),
+    "doctor --agent should expose readiness reasons"
+  );
+  assert(
+    doctorNeedsIntentAgent.includes("fix_now:"),
+    "doctor --agent should expose setup fixes"
   );
 
   const agentGuide = runCli(["agent"]);
@@ -919,7 +968,17 @@ function main() {
   const scan = runCliJson(["scan", "."]);
   assert.strictEqual(scan.files, 4, "scan should find source and test files");
   assert(scan.symbols >= 3, "scan should find tracked symbols");
-  assert(scan.contextGenerated, "scan should generate Ripple context");
+  assert.strictEqual(scan.contextMode, "lean", "scan should use lean context generation");
+  assert(scan.cacheGenerated, "scan should generate the graph cache");
+  assert.strictEqual(scan.contextGenerated, false, "scan should not generate the full Ripple context bundle");
+  assert(
+    fs.existsSync(path.join(workspaceRoot, ".ripple", ".cache", "graph.cache.json")),
+    "lean scan should write the graph cache"
+  );
+  assert(
+    !fs.existsSync(path.join(workspaceRoot, ".ripple", "WORKFLOW.md")),
+    "lean scan should not write WORKFLOW.md"
+  );
 
   const focus = runCliJson(["focus", "src/util.ts"]);
   assert.strictEqual(focus.projectPath, "src/util.ts");
@@ -928,6 +987,35 @@ function main() {
     focus.symbols.some((symbol) => symbol.name === "trimName"),
     "focus should include trimName"
   );
+  assert(
+    fs.existsSync(path.join(workspaceRoot, focus.focusPath)),
+    "focus should write only the requested focus file on demand"
+  );
+  assert(
+    !fs.existsSync(path.join(workspaceRoot, ".ripple", ".cache", "context.json")),
+    "focus should not write the full context bundle"
+  );
+  assert(
+    !fs.existsSync(path.join(workspaceRoot, ".ripple", "WORKFLOW.md")),
+    "focus should not write WORKFLOW.md"
+  );
+
+  const workflow = runCliJson(["workflow"]);
+  assert.strictEqual(workflow.protocol, "ripple-workflow");
+  assert.strictEqual(workflow.path, ".ripple/WORKFLOW.md");
+  assert.strictEqual(workflow.written, true, "workflow should write WORKFLOW.md");
+  assert.strictEqual(workflow.contextGenerated, true, "workflow should write the context bundle");
+  assert(workflow.focusFileCount >= 1, "workflow should write focus files for file-based agents");
+  assert(
+    fs.existsSync(path.join(workspaceRoot, ".ripple", "WORKFLOW.md")),
+    "workflow should create WORKFLOW.md"
+  );
+  assert(
+    fs.existsSync(path.join(workspaceRoot, ".ripple", ".cache", "context.json")),
+    "workflow should create context.json"
+  );
+  const workflowText = fs.readFileSync(path.join(workspaceRoot, ".ripple", "WORKFLOW.md"), "utf8");
+  assert(workflowText.includes("Ripple"), "WORKFLOW.md should identify Ripple");
 
   const blast = runCliJson(["blast", "src/util.ts"]);
   assert.strictEqual(blast.affectedCount, 2);
@@ -1202,11 +1290,17 @@ function main() {
   const history = runCliJson(["history", "--last", "1"]);
   assert(history.returnedGroups >= 1, "history should return at least one group");
 
+  writeFile(".gitignore", ".ripple/.cache/\n");
   stageFixtureFiles();
 
   const doctorReady = runCliJson(["doctor"]);
   assert.strictEqual(doctorReady.status, "ready", "doctor should pass once setup is complete");
+  assert.strictEqual(doctorReady.decision, "continue", "ready doctor should expose continue decision");
+  assert.strictEqual(doctorReady.canContinue, true, "ready doctor should allow continuing");
+  assert.strictEqual(doctorReady.mustStop, false, "ready doctor should not require stop");
+  assert.strictEqual(doctorReady.fixNow.length, 0, "ready doctor should not expose setup fixes");
   assert.strictEqual(doctorReady.checks.git.ok, true, "doctor should detect git worktree");
+  assert.strictEqual(doctorReady.checks.gitIgnore.ok, true, "doctor should detect Ripple cache gitignore hygiene");
   assert.strictEqual(doctorReady.checks.latestIntent.ok, true, "doctor should detect latest intent");
   assert.strictEqual(
     doctorReady.enforcement.level,
@@ -1238,8 +1332,16 @@ function main() {
   const doctorReadyAgent = runCli(["doctor", "--agent"]);
   assert(doctorReadyAgent.startsWith("RIPPLE_DOCTOR"), "ready doctor --agent should have header");
   assert(
-    doctorReadyAgent.includes("readiness_decision: continue"),
+    doctorReadyAgent.includes("decision: continue"),
     "ready doctor --agent should tell agents they can continue"
+  );
+  assert(
+    doctorReadyAgent.includes("can_continue: true"),
+    "ready doctor --agent should expose the continue flag"
+  );
+  assert(
+    doctorReadyAgent.includes("must_stop: false"),
+    "ready doctor --agent should expose the stop flag"
   );
   assert(
     doctorReadyAgent.includes("enforcement_level: ci-gate-ready"),

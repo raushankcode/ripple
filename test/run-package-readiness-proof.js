@@ -84,7 +84,8 @@ function runNpm(args, cwd) {
     });
   }
 
-  return execFileSync("npm", args, {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  return execFileSync(npmCommand, args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

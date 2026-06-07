@@ -200,9 +200,7 @@ export class RippleMcpJsonRpcServer {
 
 export async function runStdioServer(workspaceRoot: string): Promise<void> {
   const originalLog = console.log;
-  console.log = (...args: unknown[]) => {
-    console.error(...args);
-  };
+  console.log = () => {};
 
   const host = createRippleMcpToolHost({ workspaceRoot });
   const server = new RippleMcpJsonRpcServer(host);

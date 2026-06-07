@@ -280,26 +280,11 @@ Package result:
 
 ```txt
 ripple-1.0.2.vsix
-9 files
-1.49 MB
-resources/ripple-value-demo.gif included
 ```
 
-## README Proof Asset
+## Validation Summary
 
-The landing page includes the demo video:
-
-```txt
-docs/demo-video.mp4
-```
-
-The README includes a visual proof GIF:
-
-```txt
-resources/ripple-value-demo.gif
-```
-
-The demo assets summarize the same Ky comparison:
+The Ky validation compared manual search with Ripple's structural analysis:
 
 ```txt
 Manual search: 2 direct text-match files

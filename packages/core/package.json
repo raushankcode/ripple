@@ -1,7 +1,7 @@
 {
   "name": "@getripple/core",
-  "version": "1.0.5",
-  "description": "Local AI-agent workflow engine core for context planning, drift checks, and trust-boundary gates.",
+  "version": "1.0.6",
+  "description": "Core engine for Ripple's local drift-control gate: context planning, drift checks, and trust boundaries.",
   "license": "MIT",
   "type": "commonjs",
   "main": "dist/index.js",

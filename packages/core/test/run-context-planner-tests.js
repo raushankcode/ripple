@@ -8,6 +8,8 @@ const {
   buildIntentDriftRepairPlan,
   buildStagedCheckSummary,
   listGitStagedFiles,
+  loadChangeIntent,
+  saveChangeIntent,
   validateStagedCheckAgainstIntent,
 } = require("../dist");
 
@@ -858,6 +860,105 @@ async function testFunctionControlBoundaryDetectsSymbolDrift() {
   });
 }
 
+async function testBrainstormControlBoundaryAllowsNoEditsAfterReload() {
+  const files = {
+    "src/auth.ts": [
+      "export function refreshToken(value: string): string {",
+      "  return value.trim();",
+      "}",
+      "",
+      "export function login(value: string): string {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  };
+  const workspaceRoot = createWorkspace("intent-brainstorm-boundary", files);
+  commitBaseline(workspaceRoot);
+
+  await withScannedEngine(workspaceRoot, async (engine) => {
+    const plan = engine.planContext(
+      "brainstorm auth behavior without editing files",
+      "src/auth.ts",
+      1800
+    );
+    assert(plan, "planContext should return a plan");
+    const intent = buildChangeIntent(plan, {
+      controlMode: "brainstorm",
+    });
+    assert.strictEqual(intent.controlMode, "brainstorm");
+    assert.deepStrictEqual(intent.editableFiles, []);
+    assert.deepStrictEqual(intent.expectedFiles, []);
+    saveChangeIntent(workspaceRoot, intent);
+  });
+
+  const reloadedIntent = loadChangeIntent(workspaceRoot, "latest");
+  assert.strictEqual(reloadedIntent.controlMode, "brainstorm");
+  assert.deepStrictEqual(
+    reloadedIntent.editableFiles,
+    [],
+    "loaded brainstorm intents must preserve an empty editable file boundary"
+  );
+
+  writeFile(
+    workspaceRoot,
+    "src/auth.ts",
+    [
+      "export function refreshToken(value: string): string {",
+      "  return value.trim().toLowerCase();",
+      "}",
+      "",
+      "export function login(value: string): string {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n")
+  );
+  execFileSync("git", ["add", "src/auth.ts"], {
+    cwd: workspaceRoot,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+
+  await withScannedEngine(workspaceRoot, async (engine) => {
+    const staged = buildStagedCheckSummary(engine, {
+      workspaceRoot,
+      stagedFiles: listGitStagedFiles(workspaceRoot),
+      tokenBudget: 1800,
+    });
+    const checked = validateStagedCheckAgainstIntent(staged, reloadedIntent);
+
+    assert(checked.intentValidation, "intent validation should be attached");
+    assert.strictEqual(checked.intentValidation.controlMode, "brainstorm");
+    assert.deepStrictEqual(checked.intentValidation.allowedFiles, []);
+    assert.deepStrictEqual(checked.intentValidation.editableFiles, []);
+    assert.strictEqual(checked.intentValidation.boundaryVerdict.status, "danger");
+    assert(
+      checked.intentValidation.boundaryVerdict.changedOutsideBoundaryFiles.includes(
+        "src/auth.ts"
+      ),
+      "brainstorm mode should treat any edited file as outside the boundary"
+    );
+    assert(
+      checked.intentValidation.boundaryVerdict.changedOutsideBoundarySymbols.includes(
+        "src/auth.ts::refreshToken"
+      ),
+      "brainstorm mode should treat any changed symbol as outside the boundary"
+    );
+    assert(
+      checked.intentValidation.boundaryVerdict.why.includes(
+        "Control mode 'brainstorm' allows no file edits."
+      ),
+      "brainstorm boundary explanation should say no edits are allowed"
+    );
+    assert(
+      !checked.intentValidation.boundaryVerdict.why.some((reason) =>
+        reason.includes("allows edits to")
+      ),
+      "brainstorm boundary explanation must not claim any editable file"
+    );
+  });
+}
+
 async function testPolicyDriftWarnsWhenCurrentPolicyChanges() {
   const files = {
     "src/util.ts": [
@@ -1386,6 +1487,7 @@ async function main() {
   await testChangeIntentValidatesPlannedScope();
   await testChangeIntentDetectsProtectedContractDrift();
   await testFunctionControlBoundaryDetectsSymbolDrift();
+  await testBrainstormControlBoundaryAllowsNoEditsAfterReload();
   await testPolicyDriftWarnsWhenCurrentPolicyChanges();
   await testSharedUtilityQuality();
   await testBudgetPressureKeepsTargetAndDefersOverflow();

@@ -84,8 +84,8 @@ Does a human need to take control?
 Use this sentence as the default public promise:
 
 ```txt
-Ripple is a local AI-agent workflow engine that plans before edit, checks after
-edit, catches drift, and tells the agent what to fix.
+Ripple is a local drift-control gate for AI coding agents that plans before
+edit, checks after edit, catches drift, and tells the agent what to fix.
 ```
 
 Short category form:
@@ -129,7 +129,7 @@ Secondary user:
 
 - humans in VS Code who want impact context before changing a file
 - CI owners who want agent work to produce a clear continue/stop signal
-- tool builders who want to build on Ripple's local graph and workflow engine
+- tool builders who want to build on Ripple's local graph and gate engine
 
 Not the primary user right now:
 

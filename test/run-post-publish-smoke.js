@@ -102,6 +102,7 @@ function spawnNpmExecPackage(packageSpec, command, args, input, options = {}) {
     input,
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
+    timeout: options.timeout ?? 30000,
   });
 }
 
@@ -206,9 +207,16 @@ function callPublicMcpTool(tool, args = {}) {
   );
 
   if (result.error) {
-    throw result.error;
+    throw new Error(
+      `Public MCP stdio call timed out or failed for ${tool}: ${result.error.message}\n${result.stderr}`,
+    );
   }
   assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(
+    result.stderr.trim(),
+    "",
+    `public MCP stdio should not leak scan/cache logs to stderr for ${tool}`,
+  );
 
   const responses = parseJsonLines(result.stdout);
   assert.strictEqual(responses.length, 2, "MCP stdio should return initialize + tool call");
@@ -216,6 +224,42 @@ function callPublicMcpTool(tool, args = {}) {
   assert.strictEqual(responses[0].result.serverInfo.version, version);
   assert.strictEqual(responses[1].result.isError, false, responses[1].result.content?.[0]?.text);
   return responses[1].result.structuredContent;
+}
+
+function assertDoctorBlocks(doctor, label) {
+  assert.strictEqual(doctor.status, "needs_setup", `${label} status`);
+  assert.strictEqual(doctor.decision, "setup-required", `${label} decision`);
+  assert.strictEqual(doctor.canContinue, false, `${label} canContinue`);
+  assert.strictEqual(doctor.mustStop, true, `${label} mustStop`);
+  assert.strictEqual(
+    doctor.nextRequiredAction,
+    "Stop autonomous agent work until Ripple readiness gaps are fixed.",
+    `${label} nextRequiredAction`,
+  );
+  assert(Array.isArray(doctor.why), `${label} why`);
+  assert(Array.isArray(doctor.fixNow), `${label} fixNow`);
+  assert(doctor.why.length > 0, `${label} should explain why setup is required`);
+  assert(
+    doctor.fixNow.some((fix) => fix.includes("ripple init") || fix.includes("ripple plan")),
+    `${label} should tell the user how to make Ripple ready`,
+  );
+}
+
+function assertDoctorAllows(doctor, label) {
+  assert.strictEqual(doctor.status, "ready", `${label} status`);
+  assert.strictEqual(doctor.decision, "continue", `${label} decision`);
+  assert.strictEqual(doctor.canContinue, true, `${label} canContinue`);
+  assert.strictEqual(doctor.mustStop, false, `${label} mustStop`);
+  assert.strictEqual(
+    doctor.nextRequiredAction,
+    "Continue with the saved-intent workflow and keep the Ripple CI gate enabled.",
+    `${label} nextRequiredAction`,
+  );
+  assert.deepStrictEqual(doctor.fixNow, [], `${label} fixNow`);
+  assert(
+    doctor.why.some((reason) => reason.includes("detect drift, and fail CI")),
+    `${label} should explain CI gate readiness`,
+  );
 }
 
 function provePublicCli() {
@@ -253,13 +297,18 @@ function provePublicCli() {
   assert.strictEqual(gate.decision, "continue");
 }
 
-function provePublicMcp() {
+function provePublicMcpBeforeSetup() {
   const workflow = callPublicMcpTool("ripple_get_agent_workflow");
   assert.strictEqual(workflow.protocol, "ripple-agent-workflow");
   assert.strictEqual(workflow.commands.initializeRepo, "ripple init");
 
   const doctor = callPublicMcpTool("ripple_doctor");
-  assert.strictEqual(doctor.status, "ready");
+  assertDoctorBlocks(doctor, "public MCP doctor before setup");
+}
+
+function provePublicMcpAfterSetup() {
+  const doctor = callPublicMcpTool("ripple_doctor");
+  assertDoctorAllows(doctor, "public MCP doctor after setup");
   assert.strictEqual(doctor.enforcement.level, "ci-gate-ready");
 
   const plan = callPublicMcpTool("ripple_plan_context", {
@@ -301,8 +350,9 @@ function main() {
   }
 
   setupWorkspace();
+  provePublicMcpBeforeSetup();
   provePublicCli();
-  provePublicMcp();
+  provePublicMcpAfterSetup();
 
   console.log("Ripple post-publish smoke passed");
   console.log(`Workspace: ${workspaceRoot}`);

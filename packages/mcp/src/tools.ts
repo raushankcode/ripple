@@ -410,6 +410,7 @@ export class RippleMcpToolHost {
   constructor(options: RippleMcpToolHostOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
     this.engine = new GraphEngine(this.workspaceRoot);
+    this.engine.setContextGenerationMode("on-demand");
   }
 
   listTools(): RippleMcpToolDefinition[] {
@@ -453,9 +454,8 @@ export class RippleMcpToolHost {
       };
     }
 
-    await this.initialize();
-
     if (name === "ripple_get_focus") {
+      await this.initialize();
       return {
         tool: name,
         data: this.getFocus(args),
@@ -463,6 +463,7 @@ export class RippleMcpToolHost {
     }
 
     if (name === "ripple_doctor") {
+      await this.initialize();
       return {
         tool: name,
         data: this.getReadiness(),
@@ -470,6 +471,7 @@ export class RippleMcpToolHost {
     }
 
     if (name === "ripple_get_blast_radius") {
+      await this.initialize();
       return {
         tool: name,
         data: this.getBlastRadius(args),
@@ -477,6 +479,7 @@ export class RippleMcpToolHost {
     }
 
     if (name === "ripple_plan_context") {
+      await this.initialize();
       return {
         tool: name,
         data: this.planContext(args),
@@ -486,39 +489,40 @@ export class RippleMcpToolHost {
     if (name === "ripple_check_staged") {
       return {
         tool: name,
-        data: this.checkStaged(args),
+        data: await this.checkStaged(args),
       };
     }
 
     if (name === "ripple_check_changed") {
       return {
         tool: name,
-        data: this.checkChanged(args),
+        data: await this.checkChanged(args),
       };
     }
 
     if (name === "ripple_audit_change") {
       return {
         tool: name,
-        data: this.auditChange(args),
+        data: await this.auditChange(args),
       };
     }
 
     if (name === "ripple_gate") {
       return {
         tool: name,
-        data: this.gateChange(args),
+        data: await this.gateChange(args),
       };
     }
 
     if (name === "ripple_repair_intent_drift") {
       return {
         tool: name,
-        data: this.repairIntentDrift(args),
+        data: await this.repairIntentDrift(args),
       };
     }
 
     if (name === "ripple_get_recent_changes") {
+      await this.initialize();
       return {
         tool: name,
         data: this.getRecentChanges(args),
@@ -535,6 +539,7 @@ export class RippleMcpToolHost {
     if (!focus) {
       throw new Error(`File is not in the Ripple graph: ${filePath}`);
     }
+    this.engine.writeFileFocus(filePath);
     return focus;
   }
 
@@ -627,17 +632,20 @@ export class RippleMcpToolHost {
     );
   }
 
-  private checkStaged(args: RippleMcpToolCallArgs): StagedCheckWithIntentSummary {
+  private async checkStaged(args: RippleMcpToolCallArgs): Promise<StagedCheckWithIntentSummary> {
+    const stagedFiles = listGitStagedFiles(this.workspaceRoot);
+    const intentPath = optionalString(args, "intentPath");
+    const intent = intentPath ? loadChangeIntent(this.workspaceRoot, intentPath) : undefined;
+    await this.prepareFastCheck(stagedFiles, intent);
+
     const stagedSummary = buildStagedCheckSummary(this.engine, {
       workspaceRoot: this.workspaceRoot,
-      stagedFiles: listGitStagedFiles(this.workspaceRoot),
+      stagedFiles,
       tokenBudget: optionalPositiveInteger(args, "tokenBudget", 4000),
     });
-    const intentPath = optionalString(args, "intentPath");
-    if (!intentPath) {
+    if (!intent) {
       return stagedSummary;
     }
-    const intent = loadChangeIntent(this.workspaceRoot, intentPath);
     return validateStagedCheckAgainstIntent(
       stagedSummary,
       intent,
@@ -648,20 +656,23 @@ export class RippleMcpToolHost {
     );
   }
 
-  private checkChanged(args: RippleMcpToolCallArgs): StagedCheckWithIntentSummary {
+  private async checkChanged(args: RippleMcpToolCallArgs): Promise<StagedCheckWithIntentSummary> {
     const baseRef = optionalString(args, "baseRef") ?? "HEAD";
+    const changedFiles = listGitChangedFiles(this.workspaceRoot, baseRef);
+    const intentPath = optionalString(args, "intentPath");
+    const intent = intentPath ? loadChangeIntent(this.workspaceRoot, intentPath) : undefined;
+    await this.prepareFastCheck(changedFiles, intent);
+
     const changedSummary = buildStagedCheckSummary(this.engine, {
       workspaceRoot: this.workspaceRoot,
-      stagedFiles: listGitChangedFiles(this.workspaceRoot, baseRef),
+      stagedFiles: changedFiles,
       mode: "changed",
       baseRef,
       tokenBudget: optionalPositiveInteger(args, "tokenBudget", 4000),
     });
-    const intentPath = optionalString(args, "intentPath");
-    if (!intentPath) {
+    if (!intent) {
       return changedSummary;
     }
-    const intent = loadChangeIntent(this.workspaceRoot, intentPath);
     return validateStagedCheckAgainstIntent(
       changedSummary,
       intent,
@@ -672,17 +683,20 @@ export class RippleMcpToolHost {
     );
   }
 
-  private auditChange(args: RippleMcpToolCallArgs): RippleAuditSummary {
+  private async auditChange(args: RippleMcpToolCallArgs): Promise<RippleAuditSummary> {
     const mode = optionalAuditMode(args, "mode") ?? "staged";
     const baseRef = optionalString(args, "baseRef") ?? "HEAD";
     const intentPath = optionalString(args, "intentPath") ?? "latest";
     const intent = loadChangeIntent(this.workspaceRoot, intentPath);
     const currentPolicyExplanation = this.currentPolicyExplanationForIntent(intent);
+    const files = mode === "changed"
+      ? listGitChangedFiles(this.workspaceRoot, baseRef)
+      : listGitStagedFiles(this.workspaceRoot);
+    await this.prepareFastCheck(files, intent);
+
     const stagedCheck = buildStagedCheckSummary(this.engine, {
       workspaceRoot: this.workspaceRoot,
-      stagedFiles: mode === "changed"
-        ? listGitChangedFiles(this.workspaceRoot, baseRef)
-        : listGitStagedFiles(this.workspaceRoot),
+      stagedFiles: files,
       mode,
       baseRef: mode === "changed" ? baseRef : undefined,
       tokenBudget: optionalPositiveInteger(args, "tokenBudget", 4000),
@@ -703,17 +717,27 @@ export class RippleMcpToolHost {
     });
   }
 
-  private gateChange(args: RippleMcpToolCallArgs): RippleGateSummary {
-    return buildRippleGateSummary(this.auditChange(args));
+  private async gateChange(args: RippleMcpToolCallArgs): Promise<RippleGateSummary> {
+    return buildRippleGateSummary(await this.auditChange(args));
   }
 
-  private repairIntentDrift(args: RippleMcpToolCallArgs): IntentDriftRepairPlan {
+  private async repairIntentDrift(args: RippleMcpToolCallArgs): Promise<IntentDriftRepairPlan> {
     const intentPath = optionalString(args, "intentPath") ?? "latest";
-    const stagedSummary = this.checkStaged({
+    const intent = loadChangeIntent(this.workspaceRoot, intentPath);
+    const stagedFiles = listGitStagedFiles(this.workspaceRoot);
+    await this.prepareFastCheck(stagedFiles, intent);
+
+    const stagedSummary = buildStagedCheckSummary(this.engine, {
+      workspaceRoot: this.workspaceRoot,
+      stagedFiles,
       tokenBudget: optionalPositiveInteger(args, "tokenBudget", 4000),
-      intentPath,
     });
-    return buildIntentDriftRepairPlan(stagedSummary);
+    return buildIntentDriftRepairPlan(
+      validateStagedCheckAgainstIntent(stagedSummary, intent, {
+        currentPolicyExplanation: this.currentPolicyExplanationForIntent(intent),
+        currentReadinessSnapshot: this.currentReadinessSnapshot(),
+      })
+    );
   }
 
   private currentPolicyExplanationForIntent(intent: ChangeIntent): RipplePolicyExplanation {
@@ -724,6 +748,17 @@ export class RippleMcpToolHost {
     return buildChangeIntentReadinessSnapshot(
       buildRippleReadinessSummary(this.workspaceRoot, this.engine)
     );
+  }
+
+  private async prepareFastCheck(files: string[], intent?: ChangeIntent): Promise<void> {
+    this.engine.setContextGenerationMode("lean");
+    try {
+      await runWithQuietConsoleLog(() =>
+        this.engine.fastCheckScan(fastCheckCandidateFiles(files, intent))
+      );
+    } finally {
+      this.engine.setContextGenerationMode("on-demand");
+    }
   }
 }
 
@@ -858,6 +893,26 @@ function uniqueItems(items: string[]): string[] {
   });
 }
 
+function fastCheckCandidateFiles(files: string[], intent?: ChangeIntent): string[] {
+  const intentSymbolFiles = (intent?.allowedSymbols ?? [])
+    .map((symbolId) => symbolId.split("::")[0])
+    .filter(Boolean);
+
+  return uniqueItems([
+    ...files,
+    ...(intent
+      ? [
+          intent.targetFile,
+          ...intent.editableFiles,
+          ...intent.allowedFiles,
+          ...intent.expectedFiles,
+          ...intent.contextFiles,
+          ...intentSymbolFiles,
+        ]
+      : []),
+  ].filter((file): file is string => Boolean(file)));
+}
+
 function approvalStatusWithIntent(
   intent: ChangeIntent,
   status: RippleApprovalStatus
@@ -890,12 +945,10 @@ function normalizeProjectPath(filePath: string): string {
 async function runWithQuietConsoleLog<T>(task: () => Promise<T>): Promise<T> {
   const originalLog = console.log;
   const originalStdoutWrite = process.stdout.write;
-  const stderrWrite = process.stderr.write as unknown as typeof process.stdout.write;
-  console.log = (...args: unknown[]) => {
-    console.error(...args);
-  };
+  console.log = () => {};
   process.stdout.write = ((...args: Parameters<typeof process.stdout.write>) => {
-    return stderrWrite.apply(process.stderr, args);
+    void args;
+    return true;
   }) as typeof process.stdout.write;
   try {
     return await task();

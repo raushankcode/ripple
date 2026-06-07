@@ -132,6 +132,7 @@ function setupConsumerRepo() {
       "",
     ].join("\n"),
   );
+  writeFile(consumerRoot, ".gitignore", [".ripple/.cache/", ""].join("\n"));
   runGit(["init"]);
   runGit(["add", "."]);
   runGit([
@@ -241,13 +242,21 @@ function callInstalledStdioTool(serverPath, tool, args = {}) {
       input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30000,
     },
   );
 
   if (result.error) {
-    throw result.error;
+    throw new Error(
+      `Installed MCP stdio call timed out or failed for ${tool}: ${result.error.message}\n${result.stderr}`,
+    );
   }
   assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(
+    result.stderr.trim(),
+    "",
+    `installed MCP stdio should not leak scan/cache logs to stderr for ${tool}`,
+  );
 
   const responses = parseJsonLines(result.stdout);
   assert.strictEqual(responses.length, 2, "installed stdio server should return initialize + tool call");
@@ -283,13 +292,50 @@ function changeUtilityInsidePlan() {
   runGit(["add", "src/util.ts"]);
 }
 
+function assertDoctorBlocks(doctor, label) {
+  assert.strictEqual(doctor.status, "needs_setup", `${label} status`);
+  assert.strictEqual(doctor.decision, "setup-required", `${label} decision`);
+  assert.strictEqual(doctor.canContinue, false, `${label} canContinue`);
+  assert.strictEqual(doctor.mustStop, true, `${label} mustStop`);
+  assert.strictEqual(
+    doctor.nextRequiredAction,
+    "Stop autonomous agent work until Ripple readiness gaps are fixed.",
+    `${label} nextRequiredAction`,
+  );
+  assert(
+    doctor.why.some((reason) => reason.includes("No latest saved intent exists")),
+    `${label} should explain the missing saved intent`,
+  );
+  assert(
+    doctor.fixNow.some((fix) => fix.includes("ripple plan --file")),
+    `${label} should tell the agent how to create a saved intent`,
+  );
+}
+
+function assertDoctorAllows(doctor, label) {
+  assert.strictEqual(doctor.status, "ready", `${label} status`);
+  assert.strictEqual(doctor.decision, "continue", `${label} decision`);
+  assert.strictEqual(doctor.canContinue, true, `${label} canContinue`);
+  assert.strictEqual(doctor.mustStop, false, `${label} mustStop`);
+  assert.strictEqual(
+    doctor.nextRequiredAction,
+    "Continue with the saved-intent workflow and keep the Ripple CI gate enabled.",
+    `${label} nextRequiredAction`,
+  );
+  assert.deepStrictEqual(doctor.fixNow, [], `${label} fixNow`);
+  assert(
+    doctor.why.some((reason) => reason.includes("detect drift, and fail CI")),
+    `${label} should explain CI gate readiness`,
+  );
+}
+
 function proveInstalledMcpWorks(serverPath) {
   const workflow = callInstalledStdioTool(serverPath, "ripple_get_agent_workflow");
   assert.strictEqual(workflow.protocol, "ripple-agent-workflow");
   assert.strictEqual(workflow.commands.initializeRepo, "ripple init");
 
   const beforePlanDoctor = callInstalledStdioTool(serverPath, "ripple_doctor");
-  assert.strictEqual(beforePlanDoctor.status, "needs_setup");
+  assertDoctorBlocks(beforePlanDoctor, "installed MCP doctor before plan");
   assert.strictEqual(beforePlanDoctor.enforcement.level, "advisory");
   assert.strictEqual(beforePlanDoctor.enforcement.canGuideAgents, true);
   assert.strictEqual(beforePlanDoctor.enforcement.canDetectDrift, false);
@@ -313,7 +359,7 @@ function proveInstalledMcpWorks(serverPath) {
   assert.strictEqual(plan.changeIntentPath, ".ripple/intents/latest.json");
 
   const afterPlanDoctor = callInstalledStdioTool(serverPath, "ripple_doctor");
-  assert.strictEqual(afterPlanDoctor.status, "ready");
+  assertDoctorAllows(afterPlanDoctor, "installed MCP doctor after plan");
   assert.strictEqual(afterPlanDoctor.enforcement.level, "ci-gate-ready");
   assert.strictEqual(afterPlanDoctor.enforcement.canGuideAgents, true);
   assert.strictEqual(afterPlanDoctor.enforcement.canDetectDrift, true);

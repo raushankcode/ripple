@@ -4,6 +4,16 @@ All notable user-facing changes to Ripple are documented here.
 
 Ripple is a local-first AI-agent workflow engine for planning before edits, checking after edits, catching drift, and telling agents what to fix. It ships as a VS Code extension, CLI, MCP server, and shared core engine.
 
+## [1.0.6] - 2026-06-07
+
+### Fixed
+- Keep the MCP stdio server quiet during scans so agent clients do not receive scan/cache logs on stderr.
+- Report blocked Git execution clearly when Node.js cannot launch `git`, instead of reducing every failure to "not inside a git worktree".
+
+### Changed
+- Prepare package metadata and changelogs for the fixed npm release.
+- Show the product demo more prominently on the landing page while keeping the README demo contained for GitHub readers.
+
 ## [1.0.5] - 2026-06-04
 
 ### Changed
