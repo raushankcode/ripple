@@ -8,6 +8,7 @@ import type {
   StagedCheckWithIntentSummary,
 } from "./change-intent";
 import { buildAgentHandoffVerdict } from "./change-intent";
+import { buildRippleRiskSummary, RippleRiskSummary } from "./risk";
 import type { AgentRuntimeNextPhaseId } from "./agent-workflow";
 import type { RipplePolicyExplanation } from "./policy";
 import {
@@ -49,6 +50,7 @@ export type RippleAuditSummary = {
   nextSteps: string[];
   changedFiles: string[];
   verificationTargets: string[];
+  risk: RippleRiskSummary;
   handoff: RippleAgentHandoffVerdict;
 };
 
@@ -80,6 +82,7 @@ export type RippleGateSummary = {
   fixNow: string[];
   askHuman: string[];
   commands: RippleAgentHandoffVerdict["commands"];
+  risk: RippleRiskSummary;
 };
 
 export function buildRippleAuditSummary(input: {
@@ -151,6 +154,19 @@ export function buildRippleAuditSummary(input: {
     nextSteps,
     changedFiles: input.stagedCheck.files.map((file) => file.file),
     verificationTargets: input.repairPlan.verificationTargets,
+    risk: buildRippleRiskSummary({
+      boundaryRisk: input.intent.boundaryRisk,
+      allowedFiles: validation.editableFiles,
+      allowedSymbols: validation.allowedSymbols,
+      changedFiles: input.stagedCheck.files.map((file) => file.file),
+      changedOutsideBoundaryFiles: validation.boundaryVerdict.changedOutsideBoundaryFiles,
+      changedOutsideBoundarySymbols: validation.boundaryVerdict.changedOutsideBoundarySymbols,
+      unplannedFiles: validation.unplannedFiles,
+      unplannedSymbols: validation.unplannedSymbols,
+      verificationTargets: input.repairPlan.verificationTargets,
+      nextSteps,
+      stagedFiles: input.stagedCheck.files,
+    }),
   };
   return {
     ...audit,
@@ -191,6 +207,7 @@ export function buildRippleGateSummary(audit: RippleAuditSummary): RippleGateSum
     fixNow: handoff.fixNow,
     askHuman: handoff.askHuman,
     commands: handoff.commands,
+    risk: audit.risk,
   };
 }
 

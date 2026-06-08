@@ -7,5 +7,6 @@ export * from "./graph";
 export * from "./normalizer";
 export * from "./policy";
 export * from "./readiness";
+export * from "./risk";
 export * from "./staged-check";
 export * from "./types";

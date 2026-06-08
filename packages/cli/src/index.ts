@@ -2280,6 +2280,15 @@ function printAgentGateSummary(summary: RippleGateSummary): void {
   console.log(`control_mode: ${summary.intent.controlMode}`);
   console.log(`human_gate: ${summary.intent.humanGate}`);
   console.log(`boundary_risk: ${summary.intent.boundaryRisk}`);
+  console.log(`risk_level: ${summary.risk.level}`);
+  console.log(`risk_score: ${summary.risk.score}`);
+  console.log(`risk_summary: ${summary.risk.summary}`);
+  console.log("");
+  printAgentList("risk_reasons", compactGateRiskReasons(summary));
+  console.log("");
+  printAgentList("risk_evidence", compactGateRiskEvidence(summary));
+  console.log("");
+  printAgentList("risk_required_actions", compactGateRiskActions(summary));
   console.log("");
   printAgentList("why", summary.why);
   console.log("");
@@ -2312,6 +2321,7 @@ function printGateSummary(summary: RippleGateSummary): void {
   console.log(`Decision: ${summary.decision}`);
   console.log(`Can continue: ${formatYesNo(summary.canContinue)}`);
   console.log(`Must stop: ${formatYesNo(summary.mustStop)}`);
+  printGateRiskSummary(summary);
   console.log("");
   console.log("Intent:");
   console.log(`  Task: ${summary.intent.task}`);
@@ -2333,6 +2343,29 @@ function printGateSummary(summary: RippleGateSummary): void {
   } else {
     printHumanList("Commands:", compactGateCommands(summary));
   }
+}
+
+function printGateRiskSummary(summary: RippleGateSummary): void {
+  console.log("");
+  console.log(`Risk: ${summary.risk.level.toUpperCase()} ${summary.risk.score}/100`);
+  console.log(`Risk summary: ${summary.risk.summary}`);
+  printHumanList("Why this is risky:", compactGateRiskReasons(summary));
+  printHumanList("Evidence:", compactGateRiskEvidence(summary));
+  printHumanList("Required:", compactGateRiskActions(summary));
+}
+
+function compactGateRiskReasons(summary: RippleGateSummary): string[] {
+  return summary.risk.reasons
+    .map((reason) => `${reason.severity.toUpperCase()} ${reason.kind}: ${reason.message}`)
+    .slice(0, 6);
+}
+
+function compactGateRiskEvidence(summary: RippleGateSummary): string[] {
+  return uniqueItems(summary.risk.reasons.flatMap((reason) => reason.evidence)).slice(0, 10);
+}
+
+function compactGateRiskActions(summary: RippleGateSummary): string[] {
+  return uniqueItems(summary.risk.requiredActions).slice(0, 8);
 }
 
 function gateHeadline(summary: RippleGateSummary): string {

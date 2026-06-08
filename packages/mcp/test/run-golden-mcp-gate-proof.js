@@ -266,6 +266,19 @@ function assertGate(gate, expected, label) {
   assert(Array.isArray(gate.askHuman), `${label} askHuman should be an array`);
 }
 
+
+function assertRiskContract(gate, label) {
+  assert(gate.risk, `${label} should include risk summary`);
+  assert.strictEqual(typeof gate.risk.level, "string", `${label} risk level`);
+  assert.strictEqual(typeof gate.risk.score, "number", `${label} risk score`);
+  assert(gate.risk.score >= 0 && gate.risk.score <= 100, `${label} risk score range`);
+  assert.strictEqual(typeof gate.risk.summary, "string", `${label} risk summary`);
+  assert(Array.isArray(gate.risk.reasons), `${label} risk reasons should be an array`);
+  assert(Array.isArray(gate.risk.affectedFiles), `${label} affectedFiles should be an array`);
+  assert(Array.isArray(gate.risk.affectedSymbols), `${label} affectedSymbols should be an array`);
+  assert(Array.isArray(gate.risk.requiredActions), `${label} requiredActions should be an array`);
+}
+
 function assertAuditHandoffMatchesGate(audit, gate, label) {
   assert.strictEqual(audit.protocol, "ripple-audit", `${label} audit protocol`);
   assert.strictEqual(audit.handoff.protocol, "ripple-agent-handoff", `${label} handoff`);
@@ -316,6 +329,7 @@ async function proveMcpGateContinues() {
     },
     "continue MCP gate",
   );
+  assertRiskContract(gate, "continue MCP gate");
   assertAuditHandoffMatchesGate(audit, gate, "continue MCP gate");
   assert(
     gate.commands.verify.includes("tests/util.test.ts"),
@@ -351,6 +365,21 @@ async function proveMcpGateRepairs() {
       approvalStatus: "not-required",
     },
     "repair MCP gate",
+  );
+  assertRiskContract(gate, "repair MCP gate");
+  assert(
+    gate.risk.reasons.some((reason) => reason.kind === "intent-drift"),
+    "repair MCP gate should include intent-drift risk reason",
+  );
+  assert(
+    gate.risk.reasons.some((reason) =>
+      reason.evidence.some((item) => item.includes("unplanned file: src/other.ts")),
+    ),
+    "repair MCP gate should include unplanned file risk evidence",
+  );
+  assert(
+    gate.risk.requiredActions.length > 0,
+    "repair MCP gate should include risk required actions",
   );
   assertAuditHandoffMatchesGate(audit, gate, "repair MCP gate");
   assert(
@@ -393,6 +422,11 @@ async function proveMcpGateRequiresHuman() {
       approvalStatus: "missing",
     },
     "human-review MCP gate",
+  );
+  assertRiskContract(gate, "human-review MCP gate");
+  assert(
+    ["high", "critical"].includes(gate.risk.level),
+    "human-review MCP gate should surface high/critical risk",
   );
   assertAuditHandoffMatchesGate(audit, gate, "human-review MCP gate");
   assert.strictEqual(approval.status, "missing");
@@ -441,6 +475,7 @@ async function proveMcpGateRestoresReadiness() {
     },
     "restore-readiness MCP gate",
   );
+  assertRiskContract(gate, "restore-readiness MCP gate");
   assertAuditHandoffMatchesGate(audit, gate, "restore-readiness MCP gate");
   assert(
     gate.commands.doctor.includes("ripple doctor --agent --strict"),

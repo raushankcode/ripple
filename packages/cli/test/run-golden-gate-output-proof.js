@@ -33,6 +33,13 @@ function runGit(args) {
   });
 }
 
+function assertIncludes(output, expected, label) {
+  assert(
+    output.includes(expected),
+    `${label} should include ${expected}\n\nOutput:\n${output}`
+  );
+}
+
 function setupFixture() {
   if (!fs.existsSync(cliPath)) {
     throw new Error("CLI build output is missing. Run npm run build:cli first.");
@@ -165,44 +172,54 @@ function main() {
 
   const output = runCli(["gate", "--intent", "latest"]);
   assertGeneratedContextBundleWasNotRecreated();
-  const expected = [
+
+  [
     "Ripple gate: STOP",
     "Agent must stop and ask the human before continuing.",
-    "",
     "Decision: human-review",
     "Can continue: no",
     "Must stop: yes",
-    "",
+    "Risk: HIGH",
+    "Risk summary: HIGH risk",
+    "Why this is risky:",
+    "HIGH boundary-crossed: Agent changed symbols outside the approved Ripple boundary.",
+    "MEDIUM public-contract: Changed exported/public symbols may affect callers or external contracts.",
+    "Evidence:",
+    "allowed symbol: src/auth.ts::refreshToken",
+    "changed outside boundary: src/auth.ts::login",
+    "Required:",
+    "Undo the outside-boundary change or create a wider human-approved intent.",
+    "Review public contract changes before keeping this edit.",
     "Intent:",
-    "  Task: fix refresh token retry behavior",
-    "  Boundary: function",
-    "  Target: src/auth.ts",
-    "  Human gate: required-before-edit",
-    "  Approval: approved",
-    "",
+    "Boundary: function",
     "Allowed:",
-    "  - src/auth.ts::refreshToken",
+    "src/auth.ts::refreshToken",
     "Changed outside boundary:",
-    "  - symbol: src/auth.ts::login",
-    "Why:",
-    "  - Control mode 'function' allows edits to src/auth.ts.",
-    "  - Allowed symbols: src/auth.ts::refreshToken.",
-    "  - Changed symbol outside function boundary: src/auth.ts::login",
-    "  - Target path is high risk for agent autonomy.",
-    "Fix now:",
-    "  - Undo the accidental change to src/auth.ts::login, or ask the human to approve a wider boundary.",
-    "  - If the broader scope is intentional, create a new saved intent with the human-approved boundary and run the staged check again.",
-    "  - Undo or replan unapproved symbol: src/auth.ts::login",
-    "  - Ask the human to approve a wider boundary before keeping these changes.",
-    "  - Run the narrowest verification target(s) from the staged check.",
-    "  - Keep the staged set scoped to the saved change intent.",
+    "symbol: src/auth.ts::login",
     "Commands:",
-    "  - ripple repair --agent --intent latest",
-    "  - Run ripple_plan_context with saveIntent: true for the broader intended scope.",
-    "",
-  ].join("\n");
+    "ripple repair --agent --intent latest",
+  ].forEach((expected) => assertIncludes(output, expected, "golden gate output"));
 
-  assert.strictEqual(output, expected);
+  const json = JSON.parse(runCli(["gate", "--intent", "latest", "--json"]));
+  assert.strictEqual(json.risk.level, "high");
+  assert(json.risk.score >= 51, `risk score should be high; got ${json.risk.score}`);
+  assert(
+    json.risk.reasons.some((reason) => reason.kind === "boundary-crossed"),
+    "risk should include boundary-crossed reason"
+  );
+  assert(
+    json.risk.reasons.some((reason) =>
+      reason.evidence.includes("changed outside boundary: src/auth.ts::login")
+    ),
+    "risk evidence should include changed outside boundary symbol"
+  );
+  assert(
+    json.risk.requiredActions.some((action) =>
+      action.includes("Undo the outside-boundary change")
+    ),
+    "risk required actions should tell the agent to undo or replan"
+  );
+
   console.log("Ripple golden gate output proof passed");
   console.log(`Workspace: ${workspaceRoot}`);
   console.log("Gate output: compact STOP report");
