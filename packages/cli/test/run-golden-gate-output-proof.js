@@ -76,6 +76,28 @@ function setupFixture() {
       "",
     ].join("\n")
   );
+  writeFile(
+    "src/auth-consumer.ts",
+    [
+      "import { refreshToken } from './auth';",
+      "",
+      "export function consumeAuthToken(value: string): string {",
+      "  return refreshToken(value);",
+      "}",
+      "",
+    ].join("\n")
+  );
+  writeFile(
+    "src/admin-session.ts",
+    [
+      "import { login } from './auth';",
+      "",
+      "export function startAdminSession(value: string): string {",
+      "  return login(value);",
+      "}",
+      "",
+    ].join("\n")
+  );
 
   runGit(["init"]);
   runGit(["add", "."]);
@@ -179,11 +201,12 @@ function main() {
     "Decision: human-review",
     "Can continue: no",
     "Must stop: yes",
-    "Risk: HIGH",
-    "Risk summary: HIGH risk",
+    "Risk:",
+    "Risk summary:",
     "Why this is risky:",
     "HIGH boundary-crossed: Agent changed symbols outside the approved Ripple boundary.",
     "MEDIUM public-contract: Changed exported/public symbols may affect callers or external contracts.",
+    "MEDIUM blast-radius:",
     "Evidence:",
     "allowed symbol: src/auth.ts::refreshToken",
     "changed outside boundary: src/auth.ts::login",
@@ -201,8 +224,11 @@ function main() {
   ].forEach((expected) => assertIncludes(output, expected, "golden gate output"));
 
   const json = JSON.parse(runCli(["gate", "--intent", "latest", "--json"]));
-  assert.strictEqual(json.risk.level, "high");
-  assert(json.risk.score >= 51, `risk score should be high; got ${json.risk.score}`);
+  assert(
+    ["high", "critical"].includes(json.risk.level),
+    `risk level should be high or critical; got ${json.risk.level}`
+  );
+  assert(json.risk.score >= 51, `risk score should be high or critical; got ${json.risk.score}`);
   assert(
     json.risk.reasons.some((reason) => reason.kind === "boundary-crossed"),
     "risk should include boundary-crossed reason"
@@ -212,6 +238,16 @@ function main() {
       reason.evidence.includes("changed outside boundary: src/auth.ts::login")
     ),
     "risk evidence should include changed outside boundary symbol"
+  );
+  assert(
+    json.risk.reasons.some((reason) => reason.kind === "blast-radius"),
+    "risk should include blast-radius reason when changed file has downstream importers"
+  );
+  assert(
+    json.risk.reasons.some((reason) =>
+      reason.evidence.some((evidence) => evidence.includes("direct importers"))
+    ),
+    "risk evidence should include downstream importer count"
   );
   assert(
     json.risk.requiredActions.some((action) =>
