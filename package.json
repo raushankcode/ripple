@@ -2,7 +2,7 @@
   "name": "ripple",
   "displayName": "Ripple — Local Drift-Control Gate",
   "description": "VS Code interface for Ripple's local drift-control gate: live context, focus files, blast-radius signals, and safer AI-agent workflow prompts.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "rippleai",
   "author": {
     "name": "Raushan Soni"
