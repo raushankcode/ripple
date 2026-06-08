@@ -966,6 +966,20 @@ function buildGithubAuditStepSummary(audit: RippleAuditSummary): string {
   lines.push("");
   pushList(lines, "Fix now", gate.fixNow, 12);
   lines.push("");
+  lines.push(
+    "### Risk",
+    "",
+    `- Level: ${gate.risk.level}`,
+    `- Score: ${gate.risk.score}/100`,
+    `- Summary: ${gate.risk.summary}`,
+    ""
+  );
+  pushList(lines, "Why this is risky", compactGateRiskReasons(gate), 8);
+  lines.push("");
+  pushList(lines, "Risk evidence", compactGateRiskEvidence(gate), 12);
+  lines.push("");
+  pushList(lines, "Risk required actions", compactGateRiskActions(gate), 12);
+  lines.push("");
   pushList(lines, "Ask human", gate.askHuman, 8);
   lines.push("");
   pushList(

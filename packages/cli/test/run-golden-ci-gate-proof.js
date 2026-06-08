@@ -262,6 +262,13 @@ function proveDriftedCiGateCloses() {
     "latest",
   ]);
   assert.strictEqual(json.gate.protocol, "ripple-gate");
+  assert(json.gate.risk, "CI JSON gate should include risk summary");
+  assert.strictEqual(typeof json.gate.risk.level, "string");
+  assert.strictEqual(typeof json.gate.risk.score, "number");
+  assert(
+    json.gate.risk.reasons.some((reason) => reason.kind === "intent-drift"),
+    "CI JSON gate risk should include intent-drift reason"
+  );
   assert.strictEqual(json.gate.status, "closed");
   assert.strictEqual(json.gate.decision, "repair");
   assert.strictEqual(json.gate.canContinue, false);
@@ -279,6 +286,11 @@ function proveDriftedCiGateCloses() {
     canContinue: false,
   });
   assert(summary.includes("Audit status: repair-required"));
+  assert(summary.includes("### Risk"));
+  assert(summary.includes("- Level:"));
+  assert(summary.includes("- Score:"));
+  assert(summary.includes("#### Why this is risky"));
+  assert(summary.includes("intent-drift"));
   assert(summary.includes("Unplanned file changed: src/other.ts"));
   assert(summary.includes("ripple repair --agent --intent latest"));
   assertFullContextBundleAbsent("drifted CI gate");
