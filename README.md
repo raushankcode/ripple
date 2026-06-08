@@ -153,9 +153,83 @@ Machine-readable output for agents and CI:
   "mustStop": true,
   "needsHuman": true,
   "why": ["Changed symbol outside approved boundary: src/auth.ts::login"],
-  "fixNow": ["Undo src/auth.ts::login or replan with human approval."]
+  "fixNow": ["Undo src/auth.ts::login or replan with human approval."],
+  "risk": {
+    "level": "critical",
+    "score": 100,
+    "summary": "CRITICAL risk 100/100: Agent changed symbols outside the approved Ripple boundary.",
+    "reasons": [
+      {
+        "kind": "boundary-crossed",
+        "severity": "high",
+        "message": "Agent changed symbols outside the approved Ripple boundary.",
+        "evidence": [
+          "allowed symbol: src/auth.ts::refreshToken",
+          "changed outside boundary: src/auth.ts::login"
+        ]
+      }
+    ],
+    "requiredActions": [
+      "Undo the outside-boundary change or create a wider human-approved intent.",
+      "Review downstream callers/importers before continuing."
+    ]
+  }
 }
 ```
+
+---
+
+## Risk Explanation Layer
+
+Ripple does not only say that an agent crossed a boundary.
+
+It explains why the crossing matters.
+
+Example:
+
+```txt
+Human approved:
+  src/auth.ts::refreshToken
+
+Agent changed outside boundary:
+  src/auth.ts::login
+```
+
+Ripple can return:
+
+```txt
+Decision: human-review
+Risk: CRITICAL 100/100
+
+Why this is risky:
+  - boundary-crossed: agent changed a symbol outside the approved function boundary
+  - policy-rule: the saved intent is marked high/critical risk by policy
+  - blast-radius: changed file has downstream importers
+  - public-contract: exported/public symbols may affect callers
+
+Evidence:
+  - allowed symbol: src/auth.ts::refreshToken
+  - changed outside boundary: src/auth.ts::login
+  - direct importers may be affected
+
+Required:
+  - undo the outside-boundary change
+  - or create a wider human-approved intent
+  - review downstream callers/importers
+  - run verification targets
+```
+
+The goal is to make the invisible consequence visible:
+
+```txt
+What was approved?
+What changed outside approval?
+Why is that risky?
+What evidence proves it?
+What must happen before continuing?
+```
+
+This risk layer is available through the CLI gate, MCP gate, JSON output, and CI summary.
 
 ---
 
@@ -706,6 +780,8 @@ Layer classification      logic / ui / handler / state / data / effect
 Framework signals         Next.js, Vite, Turborepo, MobX, Prisma, Tailwind
 Saved change intents      what the agent was allowed to do
 Approval records          human gate decisions tied to intent fingerprints
+Risk explanations         boundary, graph, policy, contract, and verification evidence
+Required actions          what the agent or human must do before continuing
 ```
 
 ---
@@ -715,11 +791,39 @@ Approval records          human gate decisions tied to intent fingerprints
 | Language                | Status | Tracks                                                                                   |
 | ----------------------- | ------ | ---------------------------------------------------------------------------------------- |
 | TypeScript / JavaScript | Deep   | Imports, exports, symbols, call edges, blast radius, risk, focused context, staged drift |
-| Python                  | Basic  | Static imports, functions, classes, basic call signals, file-level staged checks         |
+| Python                  | Basic  | Static imports, from-imports, functions, classes, methods, basic call signals, file-level staged checks |
 
 The strongest current experience is JavaScript and TypeScript.
 
 Python support is basic and improving carefully.
+
+### What works for Python today
+
+Ripple's Python support is intentionally basic, but useful for local agent control:
+
+```txt
+Supported today:
+- discover Python files in the repo
+- parse static imports and from-imports
+- detect functions, classes, and methods
+- build basic file-level dependency signals
+- perform file-level staged checks
+- apply saved file/task boundaries
+- surface risk explanations for changed Python files using policy, boundary, graph, and verification signals
+```
+
+Python support is strongest for clear, static Python code.
+
+```txt
+Use carefully with:
+- dynamic imports
+- runtime monkey-patching
+- decorators that create hidden call paths
+- framework routing that is not visible through static imports
+- generated files
+```
+
+For Python repos, Ripple should be treated as a local boundary/risk signal, not a perfect semantic analyzer.
 
 ---
 
@@ -916,8 +1020,11 @@ What exists today:
 - Boundary drift detection
 - Human approval gates
 - Compact continue / stop gate
+- Risk explanation layer with score, reasons, evidence, and required actions
 - Structural evidence in stop reports
-- GitHub Actions CI gate
+- Blast-radius proof in gate output
+- MCP risk contract for agents
+- GitHub Actions CI gate with risk summary
 - JavaScript and TypeScript deep support
 - Python basic support
 
@@ -926,6 +1033,8 @@ What is still early:
 - Python depth beyond basic imports and symbols
 - Framework-specific intelligence beyond signal detection
 - Perfect semantic accuracy on complex aliasing
+- Product-flow risk intelligence across arbitrary frameworks
+- Code-owner / reviewer routing
 - Team policy tooling at scale
 - Large monorepo tuning
 
@@ -935,7 +1044,7 @@ What is still early:
 
 Near-term:
 
-- Surface stronger structural evidence in every stop report
+- Add more risk fixtures for risky paths such as auth, payments, config, infra, and migrations
 - Improve `ripple_plan_context` context ranking quality
 - Strengthen repair action specificity
 - Add more regression fixtures
@@ -945,6 +1054,8 @@ Later:
 
 - Framework-specific adapters
 - Better test-target mapping
+- Product-flow impact mapping
+- Code-owner and reviewer routing
 - More language adapters
 - Richer architectural memory over time
 - Stronger team policy workflows
