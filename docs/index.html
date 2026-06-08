@@ -6,7 +6,7 @@
     <title>Ripple — Local Drift-Control Gate for AI Coding Agents</title>
     <meta
       name="description"
-      content="Ripple is a local drift-control gate for AI coding agents. Plan before edit, check after edit, catch drift, and tell the agent what to fix." />
+      content="Ripple is a local boundary and risk gate for AI coding agents. Save what the agent was allowed to change, check what it actually changed, and explain the risk with evidence." />
     <meta name="theme-color" content="#07111d" />
     <link rel="canonical" href="https://raushankcode.github.io/ripple/" />
 
@@ -15,7 +15,7 @@
       content="Ripple — Local Drift-Control Gate for AI Coding Agents" />
     <meta
       property="og:description"
-      content="Plan before edit. Check after edit. Catch drift. Tell the agent what to fix." />
+      content="Save intent before edit. Check staged changes after edit. Catch drift. Explain risk with evidence." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://raushankcode.github.io/ripple/" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -1019,6 +1019,7 @@
           <a href="#install">Install</a>
           <a href="#workflow">Workflow</a>
           <a href="#gate">Gate</a>
+          <a href="#risk">Risk</a>
           <a href="#demo">Demo</a>
           <a href="#interfaces">Interfaces</a>
           <a href="#proof">Proof</a>
@@ -1039,23 +1040,25 @@
         <div class="container hero-grid">
           <div>
             <div class="eyebrow">
-              <span class="pulse-dot"></span> Local-first · CLI · MCP · CI · VS
-              Code
+              <span class="pulse-dot"></span> Local drift control · Boundary ·
+              Risk · CLI · MCP · CI
             </div>
 
             <h1>
-              Local drift control<br />
-              for AI coding<br />
-              <span class="accent">agents.</span>
+              Was the agent<br />
+              allowed to make<br />
+              <span class="accent">that change?</span>
             </h1>
 
             <p class="hero-copy">
-              Ripple helps AI coding agents <strong>plan before edit</strong>,
-              <strong>check after edit</strong>, <strong>catch drift</strong>,
-              and <strong>tell the agent what to fix</strong>. It saves the
-              human-approved intent, checks real staged changes, catches intent
-              and boundary drift, and tells agents when they may continue, when
-              to repair, and when to stop for human review.
+              Ripple saves what an AI coding agent was allowed to change, checks
+              what it actually changed, and explains the risk with evidence when
+              the agent crosses the approved boundary.
+              <strong
+                >It does not judge whether the code is good — it verifies
+                whether the agent stayed inside the work it was trusted to
+                do.</strong
+              >
             </p>
 
             <div class="actions">
@@ -1102,6 +1105,11 @@
                 </div>
               </div>
               <div class="fix">
+                <strong>Risk:</strong> HIGH because the agent changed an
+                unapproved symbol in shared code. Evidence: function boundary
+                crossed, downstream callers may be affected.
+              </div>
+              <div class="fix">
                 <strong>Fix now:</strong> undo the unapproved symbol change, or
                 create a wider human-approved intent before continuing.
               </div>
@@ -1121,8 +1129,8 @@
             <h2>The agent may continue until the boundary breaks.</h2>
             <p class="section-copy">
               Ripple saves the approved intent, checks the staged change, stops
-              boundary drift, and gives the agent a repair handoff before work
-              continues.
+              boundary drift, and now shows risk evidence before the agent
+              continues or the PR merges.
             </p>
           </div>
         </div>
@@ -1138,7 +1146,7 @@
         <div class="container">
           <p class="demo-note">
             This demo shows Ripple's real command contract: plan before edit,
-            check after edit, catch drift, tell the agent what to fix, and stop
+            check after edit, catch drift, explain risk with evidence, and stop
             on crossed boundaries before work continues.
           </p>
         </div>
@@ -1148,11 +1156,13 @@
         <div class="container">
           <div class="section-head">
             <div class="kicker">Why Ripple exists</div>
-            <h2>AI agents can edit fast. The hard question is permission.</h2>
+            <h2>
+              AI agents can edit fast. The hard question is authorization.
+            </h2>
             <p class="section-copy">
-              Code review asks, “Is this code good?” Ripple asks a different
-              question: “Was the agent allowed to make this change in the first
-              place?”
+              The hidden pain is not only bad code. It is unverifiable
+              authorization: what was the agent allowed to change, what did it
+              change on its own, and why does that matter?
             </p>
           </div>
 
@@ -1177,12 +1187,55 @@
 
             <article class="card">
               <div class="icon">03</div>
-              <h3>Human handoff</h3>
+              <h3>Risk evidence</h3>
               <p>
-                Ripple returns a compact continue, repair, or human-review
-                decision that agents and CI can obey.
+                Ripple explains boundary, policy, blast-radius, public-contract,
+                and verification risk before the agent continues or the PR
+                merges.
               </p>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="risk">
+        <div class="container">
+          <div class="section-head">
+            <div class="kicker">Risk explanation layer</div>
+            <h2>Not just “stop.” Ripple shows why the boundary mattered.</h2>
+            <p class="section-copy">
+              If the agent crosses the approved task, Ripple surfaces a risk
+              score, concrete reasons, evidence, and required actions for both
+              humans and agents.
+            </p>
+          </div>
+
+          <div class="terminal">
+            <div class="term-bar">
+              <span class="circle r"></span>
+              <span class="circle y"></span>
+              <span class="circle g"></span>
+              <span class="term-title">ripple gate --intent latest</span>
+            </div>
+            <pre><span class="bad">Decision: human-review</span>
+<span class="bad">Risk: CRITICAL 100/100</span>
+
+Why this is risky:
+  - boundary-crossed: changed src/auth.ts::login outside approval
+  - policy-rule: auth path is high risk for agent autonomy
+  - blast-radius: downstream importers may be affected
+  - public-contract: exported symbols may affect callers
+
+Evidence:
+  - allowed symbol: src/auth.ts::refreshToken
+  - changed outside boundary: src/auth.ts::login
+  - direct importers may be affected
+
+Required:
+  - undo the outside-boundary change
+  - or create a wider human-approved intent
+  - review downstream callers/importers
+  - run verification targets</pre>
           </div>
         </div>
       </section>
@@ -1411,7 +1464,7 @@
               <p>
                 Ripple’s proof suite verifies the control loop across terminal
                 workflows, CI gates, MCP host paths, MCP stdio paths, approval
-                gates, and handoff contracts.
+                gates, handoff contracts, and risk summaries.
               </p>
             </div>
 
@@ -1428,7 +1481,9 @@
 <span class="ok">✓ approval-control proof</span>
 <span class="ok">✓ agent-handoff proof</span>
 <span class="ok">✓ ci-gate proof</span>
-<span class="ok">✓ mcp-gate proof</span></pre>
+<span class="ok">✓ mcp-gate proof</span>
+<span class="ok">✓ risk explanation proof</span>
+<span class="ok">✓ blast-radius proof</span></pre>
             </div>
           </div>
         </div>
@@ -1443,6 +1498,13 @@
               <li>
                 <span class="yes">✓</span
                 ><span>Saved intent and trust-boundary checking</span>
+              </li>
+              <li>
+                <span class="yes">✓</span
+                ><span
+                  >Risk explanations with reasons, evidence, and required
+                  actions</span
+                >
               </li>
               <li>
                 <span class="yes">✓</span
@@ -1517,11 +1579,12 @@
 
       <section class="final-cta split">
         <div class="container">
-          <h2>Give your AI coding agent a local stop/continue gate.</h2>
+          <h2>Give your AI coding agent a local boundary and risk gate.</h2>
           <p>
-            Ripple helps agents plan before edit, check after edit, catch drift,
-            and tell the agent what to fix. Start with the CLI, connect the MCP
-            server, or install the VS Code extension.
+            Ripple saves what the agent was trusted to do, checks what it
+            actually changed, and explains the risk before work continues or
+            merges. Start with the CLI, connect the MCP server, or install the
+            VS Code extension.
           </p>
           <div class="actions" style="justify-content: center">
             <a class="btn btn-primary" href="#install">↯ Start with CLI</a>
