@@ -4,6 +4,21 @@ All notable user-facing changes to Ripple are documented here.
 
 Ripple is a local-first AI-agent workflow engine for planning before edits, checking after edits, catching drift, and telling agents what to fix. It ships as a VS Code extension, CLI, MCP server, and shared core engine.
 
+## [1.0.7] - 2026-06-08
+
+### Added
+- Add Ripple gate risk explanations with level, score, summary, reasons, evidence, affected files/symbols, and required actions.
+- Surface risk explanations through CLI gate output, JSON output, MCP gate responses, and CI summaries.
+- Add golden proofs for CLI gate risk output, MCP gate risk contracts, CI risk summaries, and blast-radius risk evidence.
+
+### Changed
+- Explain crossed boundaries with stronger evidence from saved intent, graph/blast-radius signals, policy risk, public-contract risk, and verification targets.
+- Update README and landing page language around unverifiable authorization, boundary risk, and evidence-based handoff.
+
+### Notes
+- JavaScript and TypeScript remain the deepest supported languages.
+- Python support remains basic: static imports/from-imports, functions, classes, methods, basic call signals, and file-level staged checks.
+
 ## [1.0.6] - 2026-06-07
 
 ### Fixed
