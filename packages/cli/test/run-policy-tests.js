@@ -48,7 +48,26 @@ function setupFixture() {
     throw new Error("CLI build output is missing. Run npm run build:cli first.");
   }
 
-  writeFile("package.json", JSON.stringify({ name: "cli-policy-fixture" }, null, 2));
+  writeFile(
+    "package.json",
+    JSON.stringify(
+      {
+        name: "cli-policy-fixture",
+        dependencies: {
+          next: "latest",
+          "@prisma/client": "latest",
+        },
+        devDependencies: {
+          prisma: "latest",
+        },
+      },
+      null,
+      2
+    )
+  );
+  writeFile("app/api/login/route.ts", "export function POST(): Response { return new Response('ok'); }\n");
+  writeFile("prisma/schema.prisma", "datasource db { provider = \"postgresql\" url = env(\"DATABASE_URL\") }\n");
+  writeFile(".env.example", "DATABASE_URL=postgres://example\n");
   writeFile(
     "src/util.ts",
     [
@@ -80,7 +99,7 @@ function initializeGitBaseline() {
     cwd: workspaceRoot,
     stdio: ["ignore", "ignore", "pipe"],
   });
-  execFileSync("git", ["add", "package.json", "src", "tests"], {
+  execFileSync("git", ["add", "package.json", "app", "prisma", ".env.example", "src", "tests"], {
     cwd: workspaceRoot,
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -122,17 +141,31 @@ function main() {
   assertIncludes(printedPolicy, '"protocol": "ripple-policy"', "policy init --print");
   assertIncludes(printedPolicy, '"defaultMode": "file"', "policy init --print");
   assertIncludes(printedPolicy, '"riskRules"', "policy init --print");
+  assertIncludes(printedPolicy, '"app/api/**"', "policy init --print smart next api rule");
+  assertIncludes(printedPolicy, '"prisma/schema.prisma"', "policy init --print smart prisma rule");
+  assertIncludes(printedPolicy, '".env.*"', "policy init --print smart env rule");
 
   const printedPolicyJson = runCliJson(["policy", "init", "--print"]);
   assert.strictEqual(printedPolicyJson.path, ".ripple/policy.json");
   assert.strictEqual(printedPolicyJson.written, false);
   assert.strictEqual(printedPolicyJson.policy.defaultMode, "file");
+  assert(
+    printedPolicyJson.detections.some((detection) => detection.kind === "nextjs"),
+    "policy init --print --json should expose Next.js smart detection"
+  );
+  assert(
+    printedPolicyJson.detections.some((detection) => detection.kind === "prisma"),
+    "policy init --print --json should expose Prisma smart detection"
+  );
 
   const initPolicy = runCli(["policy", "init"]);
   const policyPath = path.join(workspaceRoot, ".ripple", "policy.json");
   assert(fs.existsSync(policyPath), "policy init should write .ripple/policy.json");
   assertIncludes(initPolicy, "Ripple policy written", "policy init");
   assertIncludes(initPolicy, "Default mode: file", "policy init");
+  assertIncludes(initPolicy, "Smart detections:", "policy init smart detections");
+  assertIncludes(initPolicy, "nextjs", "policy init smart detections");
+  assertIncludes(initPolicy, "prisma", "policy init smart detections");
 
   const duplicateInit = runCliResult(["policy", "init"]);
   assert.strictEqual(duplicateInit.status, 1, "policy init should refuse overwrite");

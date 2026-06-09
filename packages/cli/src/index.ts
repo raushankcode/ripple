@@ -46,6 +46,7 @@ import {
   RIPPLE_CI_WORKFLOW_PATH,
   RIPPLE_GITIGNORE_PATH,
   RIPPLE_POLICY_PATH,
+  buildSmartRipplePolicy,
   defaultRipplePolicy,
   explainRipplePolicyForTarget,
   explainRipplePolicyForIntent,
@@ -3361,7 +3362,7 @@ async function doctorCommand(options: CliOptions): Promise<void> {
 
 async function initCommand(options: CliOptions): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(".");
-  const policy = defaultRipplePolicy();
+  const { policy } = buildSmartRipplePolicy(workspaceRoot);
   const policyContents = formatRipplePolicy(policy);
   const workflow = githubActionsWorkflow();
   const gitignoreBlock = rippleGitIgnoreBlock();
@@ -3567,8 +3568,8 @@ function policyCommand(args: string[], options: CliOptions): void {
 }
 
 function policyInitCommand(options: CliOptions): void {
-  const policy = defaultRipplePolicy();
   const workspaceRoot = resolveWorkspaceRoot(".");
+  const { policy, detections } = buildSmartRipplePolicy(workspaceRoot);
   const targetPath = ripplePolicyPath(workspaceRoot);
   const relativeTargetPath = RIPPLE_POLICY_PATH.split(path.sep).join("/");
   const contents = formatRipplePolicy(policy);
@@ -3578,6 +3579,7 @@ function policyInitCommand(options: CliOptions): void {
       printJson({
         path: relativeTargetPath,
         policy,
+        detections,
         written: false,
       });
     } else {
@@ -3600,6 +3602,7 @@ function policyInitCommand(options: CliOptions): void {
       written: true,
       overwritten: existed,
       policy,
+      detections,
     });
     return;
   }
@@ -3608,7 +3611,14 @@ function policyInitCommand(options: CliOptions): void {
   console.log(`Path: ${relativeTargetPath}`);
   console.log(`Default mode: ${policy.defaultMode ?? "file"}`);
   console.log(`Risk rules: ${policy.riskRules?.length ?? 0}`);
+  if (detections.length > 0) {
+    console.log("Smart detections:");
+    detections.forEach((detection) => {
+      console.log(`- ${detection.kind}: ${detection.evidence.join(", ")}`);
+    });
+  }
 }
+
 
 function policyExplainCommand(options: CliOptions): void {
   if (!options.file) {
