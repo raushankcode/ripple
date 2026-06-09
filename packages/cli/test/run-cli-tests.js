@@ -190,6 +190,69 @@ function setupInitFixture() {
   return root;
 }
 
+
+function setupHistoryScanFixture() {
+  const root = path.join(
+    repoRoot,
+    "test",
+    ".tmp",
+    `cli-history-scan-${Date.now()}`
+  );
+  writeFileIn(root, "package.json", JSON.stringify({ name: "cli-history-scan-fixture" }, null, 2));
+  writeFileIn(
+    root,
+    "src/history.ts",
+    [
+      "export function historyProbe(): string {",
+      "  return 'before';",
+      "}",
+      "",
+    ].join("\n")
+  );
+  runGitIn(root, ["init"]);
+  runGitIn(root, ["add", "."]);
+  runGitIn(root, [
+    "-c",
+    "user.email=ripple@test.local",
+    "-c",
+    "user.name=Ripple Test",
+    "commit",
+    "-m",
+    "baseline",
+  ]);
+  return root;
+}
+
+function proveCachedScanRecordsHistory() {
+  const root = setupHistoryScanFixture();
+
+  runCliIn(root, ["init"]);
+  runCliIn(root, ["scan", "."]);
+
+  writeFileIn(
+    root,
+    "src/history.ts",
+    [
+      "export function historyProbe(): string {",
+      "  return 'after';",
+      "}",
+      "",
+    ].join("\n")
+  );
+
+  runCliIn(root, ["scan", "."]);
+
+  const historyPath = path.join(root, ".ripple", "history.json");
+  const history = JSON.parse(fs.readFileSync(historyPath, "utf8"));
+  assert(
+    history.some((event) =>
+      event.type === "symbol_modified" &&
+      String(event.source).endsWith("src/history.ts::historyProbe")
+    ),
+    "cached scan should record symbol_modified in .ripple/history.json"
+  );
+}
+
 function assertFileListed(items, expectedFile, label) {
   assert(
     items.some((item) => item.file === expectedFile),
@@ -199,6 +262,7 @@ function assertFileListed(items, expectedFile, label) {
 
 function main() {
   setupFixture();
+  proveCachedScanRecordsHistory();
 
   const help = runCli(["--help"]);
   assert(help.includes("ripple init [--force] [--json]"), "help should show init command");
