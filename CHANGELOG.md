@@ -15,6 +15,15 @@ Ripple is a local-first AI-agent workflow engine for planning before edits, chec
 - Explain crossed boundaries with stronger evidence from saved intent, graph/blast-radius signals, policy risk, public-contract risk, and verification targets.
 - Update README and landing page language around unverifiable authorization, boundary risk, and evidence-based handoff.
 
+### Validation
+- Manually validated `@getripple/cli@1.0.7` on a local clone of `sindresorhus/ky` for saved intents, file-boundary drift, risk explanations, blast-radius evidence, repair handoff, policy-based human approval, CI blocking, and GitHub annotations.
+- Confirmed real-repo symbol discovery on `source/core/Ky.ts` and critical risk evidence for `source/types/options.ts` with 27 direct importers.
+
+### Fixed
+- Fix `.ripple/history.json` recording during cached `ripple scan` runs so stale files are refreshed through the core mutation paths that append structural history events.
+- Preserve architectural history after real repo changes by recording events such as `symbol_modified`, `symbol_created`, `symbol_deleted`, `import_added`, `import_removed`, `call_added`, and `call_removed` when scan detects changed files.
+- Add regression coverage proving a cached scan records semantic history after a file changes.
+
 ### Notes
 - JavaScript and TypeScript remain the deepest supported languages.
 - Python support remains basic: static imports/from-imports, functions, classes, methods, basic call signals, and file-level staged checks.
