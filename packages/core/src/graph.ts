@@ -2347,74 +2347,46 @@ export class GraphEngine {
 
     } else {
       const newFilesOnDisk = validFiles.filter((f) => !this.graph.files.has(f));
-      const newFilesOnDiskSet = new Set(newFilesOnDisk);
-      const repairSet = new Set<string>([...staleFiles, ...newFilesOnDisk]);
+      const deletedFiles = Array.from(this.graph.files.keys()).filter((fp) => !fs.existsSync(fp));
 
-      // Expand to the connected neighborhood until stable. Partial repair is
-      // risky because reverse edges can become stale if only one side is parsed.
-      let expanded = true;
-      while (expanded) {
-        expanded = false;
-        Array.from(repairSet).forEach((filePath) => {
-          const node = this.graph.files.get(filePath);
-          if (!node) {return;}
-          node.importedBy.forEach((importerPath) => {
-            if (!repairSet.has(importerPath)) {
-              repairSet.add(importerPath);
-              expanded = true;
-            }
-          });
-          node.imports.forEach((importedPath) => {
-            if (this.graph.files.has(importedPath) && !repairSet.has(importedPath)) {
-              repairSet.add(importedPath);
-              expanded = true;
-            }
-          });
-        });
-      }
-
-      repairSet.forEach((filePath) => {
-        const node = this.graph.files.get(filePath);
-        if (!node) {return;}
-        this.removeFileEdges(filePath, true);
-        node.importedBy.forEach((importerPath) => {
-          this.graph.files.get(importerPath)?.imports.delete(filePath);
-        });
-        node.importedBy.clear();
-      });
-
-      const repairArray = Array.from(repairSet).filter((f) => fs.existsSync(f));
-      console.log(`[Ripple] Cache repair: ${staleFiles.length} stale + expanded to ${repairArray.length} files`);
-
-      const knownFilePaths = new Set(
-        this.history.events
-          .filter(e => e.type === "file_created")
-          .map(e => e.source)
+      console.log(
+        `[Ripple] Cache repair: ${staleFiles.length} stale + ${newFilesOnDisk.length} new + ${deletedFiles.length} deleted`
       );
 
+      // Cached scans must still flow through the same incremental mutation
+      // paths as file watchers and editor integrations. updateFile/addFile/
+      // removeFile are the only paths that compute semantic history events;
+      // direct reparsing refreshes the cache but silently skips history.json.
+      this.isScanning = false;
+
       let scanned = 0;
-      const total = repairArray.length * 2;
+      const total = staleFiles.length + newFilesOnDisk.length + deletedFiles.length;
 
-      for (const fp of repairArray) {this.ensureFileNode(fp);}
-
-      for (const fp of repairArray) {
-        try {
-          const isNew = newFilesOnDiskSet.has(fp) && !knownFilePaths.has(fp);
-          this.parseImportsAndExports(fp, isNew);
-        } catch { console.warn("[Ripple] Repair parse error:", fp); }
+      for (const fp of staleFiles) {
+        if (fs.existsSync(fp)) {
+          this.updateFile(fp);
+        } else {
+          this.removeFile(fp);
+        }
         scanned++;
         onProgress?.(scanned, total);
       }
 
-      for (const fp of repairArray) {
-        try { this.parseCallsOnly(fp); }
-        catch { console.warn("[Ripple] Repair call error:", fp); }
+      for (const fp of newFilesOnDisk) {
+        if (fs.existsSync(fp)) {
+          this.addFile(fp);
+        }
         scanned++;
         onProgress?.(scanned, total);
       }
 
-      const deleted = Array.from(this.graph.files.keys()).filter((fp) => !fs.existsSync(fp));
-      deleted.forEach((fp) => this.removeFile(fp));
+      for (const fp of deletedFiles) {
+        this.removeFile(fp);
+        scanned++;
+        onProgress?.(scanned, total);
+      }
+
+      this.isScanning = true;
     }
 
     this.isScanning = false;
