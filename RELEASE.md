@@ -111,18 +111,18 @@ Live mode runs read-only npm commands:
 ```bash
 npm whoami
 npm access ls-packages @getripple --json
-npm view @getripple/core@1.0.7 version --json
-npm view @getripple/cli@1.0.7 version --json
-npm view @getripple/mcp@1.0.7 version --json
+npm view @getripple/core@1.0.8 version --json
+npm view @getripple/cli@1.0.8 version --json
+npm view @getripple/mcp@1.0.8 version --json
 ```
 
 Expected result before publishing a new version:
 
 ```txt
 npm whoami succeeds
-@getripple/core@1.0.7 is not found
-@getripple/cli@1.0.7 is not found
-@getripple/mcp@1.0.7 is not found
+@getripple/core@1.0.8 is not found
+@getripple/cli@1.0.8 is not found
+@getripple/mcp@1.0.8 is not found
 ```
 
 Stop if:
