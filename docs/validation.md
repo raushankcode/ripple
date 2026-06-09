@@ -1,21 +1,63 @@
 # Ripple Validation Report
 
-Validation date: May 19, 2026
+Validation date: June 9, 2026
+Validated package: `@getripple/cli@1.0.7`
+Validation target: local clone of `sindresorhus/ky`
+Environment: Windows PowerShell
 
-This report documents the real-project proof used for Ripple's launch materials.
-It is intended to be a clear, technical companion to the landing-page demo video
-and README demo GIF.
+This document records the current honest validation state for Ripple before the
+`1.0.7` npm release. It focuses on what was tested, what worked, what was not
+proven, and what limitation was found.
+
+Ripple's current validated promise is:
+
+```txt
+Plan before edit.
+Save intent.
+Choose a trust boundary.
+Check after edit.
+Catch drift.
+Explain risk with evidence.
+Return continue / repair / human-review.
+```
+
+This validation does not imply endorsement by the Ky project or its maintainers.
+Ky was used only as a real-world open-source TypeScript codebase for local
+testing.
+
+---
 
 ## Summary
 
-Ripple was tested on a local clone of the open-source Ky TypeScript project.
+Ripple was manually tested on a cloned copy of `sindresorhus/ky`, a real
+open-source TypeScript HTTP client repository. This was not a toy fixture.
 
-This was not a synthetic fixture. Ky is a real JavaScript/TypeScript library with
-runtime source files, type files, tests, ESM-style `.js` import specifiers, and
-barrel exports.
+The validation confirmed that Ripple can:
 
-Ripple successfully scanned the project and generated impact, focus, history,
-and verification context.
+```txt
+- initialize inside a real TypeScript repo
+- scan the repo and build graph/cache signals
+- detect symbols in real source files
+- create saved file and function boundaries
+- detect file-boundary drift after staged edits
+- explain risk with concrete evidence
+- surface blast-radius evidence from downstream importers
+- return repair actions and verification targets
+- require and record human approval for high-risk policy paths
+- block CI with GitHub annotations when a staged change crosses the approved boundary
+```
+
+The validation also found one important limitation:
+
+```txt
+.ripple/history.json recorded the baseline snapshot, but did not append
+structural history events from `ripple scan` after adding/modifying a symbol.
+```
+
+So the gate/risk workflow is validated, but `history.json` should not yet be
+described as a complete architectural change log.
+
+---
 
 ## Project Tested
 
@@ -23,287 +65,443 @@ and verification context.
 Project: sindresorhus/ky
 Test type: local clone
 Language: TypeScript
+Package tested: @getripple/cli@1.0.7
+Environment: Windows PowerShell
 ```
 
-This validation does not imply endorsement by the Ky project or its maintainers.
-Ky was used as a real-world open-source codebase for local testing.
+Ky was chosen because it is a real TypeScript project with runtime source files,
+type files, tests, shared utility code, ESM-style imports, and enough dependency
+structure to make boundary and blast-radius testing meaningful.
 
-## Scan Result
+---
+
+## Baseline Scan
+
+Ripple initialized and scanned the repo. The observed baseline was:
 
 ```txt
-Files scanned: 52
-Symbols found: 103
-Import edges: 349
+Files: 52
+Symbols: 103
 Call edges: 41
+History event: baseline_snapshot initial_scan
+Metadata: files:52|symbols:103
 ```
 
-Ripple also generated:
+The baseline confirmed that Ripple could read the repository and generate its
+initial local graph/cache state.
+
+---
+
+## Symbol Detection Proof
+
+The command below was run on a real Ky source file:
+
+```bash
+ripple symbols source/core/Ky.ts
+```
+
+Ripple detected 8 symbols:
 
 ```txt
-.ripple/history.json
-.ripple/WORKFLOW.md
-.ripple/.cache/context.json
-.ripple/.cache/context.files.json
-.ripple/.cache/context.symbols.json
-.ripple/.cache/focus/*.json
+source/core/Ky.ts::cloneInitHookOptions
+source/core/Ky.ts::cloneRetryOptions
+source/core/Ky.ts::cloneSearchParametersForInitHook
+source/core/Ky.ts::createTextDecoder
+source/core/Ky.ts::isRequestInstance
+source/core/Ky.ts::isResponseInstance
+source/core/Ky.ts::Ky
+source/core/Ky.ts::validateJsonWithSchema
 ```
 
-## Change Scenario
+This validates that the JS/TS adapter can extract real symbols from Ky's source
+code, not only from small fixtures.
 
-The test changed a high-impact logic file:
+---
+
+## File Boundary Drift Proof
+
+A saved file-boundary intent was created for:
 
 ```txt
-source/utils/merge.ts::mergeHeaders
+Allowed file: source/core/Ky.ts
+Task: adjust retry behavior in Ky core
+Control mode: file
 ```
 
-Why this target was chosen:
+Then a staged change intentionally touched both:
 
 ```txt
-source/utils/merge.ts
-imported by: 19 files
-symbols: 13
+source/core/Ky.ts          allowed
+source/types/options.ts    outside approved boundary
 ```
 
-The absolute top imported file in the project was type-heavy, so `merge.ts` was
-selected because it represents a clearer real editing scenario: shared runtime
-logic with executable symbols.
-
-The temporary edit was restored after testing.
-
-## Without Ripple
-
-Using normal manual text search, the demo runs:
+Ripple gate returned a closed repair/handoff decision and the JSON risk summary
+included:
 
 ```txt
-git grep -l "mergeHeaders" -- source test
+Risk: CRITICAL 100/100
+Summary: Agent changed files outside the approved Ripple boundary.
 ```
 
-This command searches literal text only. It is not a full impact-analysis command.
-
-That search surfaced the files that directly contain the edited symbol name:
+Risk evidence included:
 
 ```txt
-Changed files from simple diff: 1
-Direct text-match files surfaced by git grep: 2
+allowed file: source/core/Ky.ts
+changed outside boundary: source/types/options.ts
+unplanned file: source/types/options.ts
+source/types/options.ts is marked dangerous by Ripple graph risk
+importer count: 27
+27 direct importers may be affected
 ```
 
-Files surfaced by direct search:
+This validates the main risk explanation layer:
 
 ```txt
-source/core/Ky.ts
-source/utils/merge.ts
+The agent crossed the approved boundary.
+Ripple showed what was allowed.
+Ripple showed what changed outside approval.
+Ripple explained why it mattered.
+Ripple gave evidence and required actions.
 ```
 
-Manual search did not provide:
+---
+
+## Repair Handoff Proof
+
+After the boundary drift, the repair command was run:
+
+```bash
+ripple repair --agent --intent latest
+```
+
+Ripple returned:
 
 ```txt
-Exact downstream blast radius
-Caller context such as cloneShallow()
-Risk level
-Changed-symbol history
-Verification targets
-Portable AI-agent context
+can_continue: false
+must_stop: true
+needs_human: false
+decision: repair
+next_required_action: Apply the repair actions, then rerun ripple check --staged --agent --intent latest.
 ```
 
-## With Ripple
-
-For the same temporary change, Ripple reported:
+It also returned exact repair guidance:
 
 ```txt
-Changed file: source/utils/merge.ts
-Changed symbol: mergeHeaders
-File-level downstream paths before update: 19
-File-level downstream paths after update: 19
-Importer graph preserved: true
-Risk: dangerous
-History event: symbol_modified
+Unstage source/types/options.ts, or create a new saved intent if editing this file is intentional.
+Unstage file outside boundary: source/types/options.ts
+Ask the human to approve a wider boundary before keeping these changes.
 ```
 
-The demo also shows caller context for nearby shared logic, including:
+And the concrete command:
+
+```bash
+git restore --staged -- source/types/options.ts
+```
+
+This validates the agent handoff loop:
 
 ```txt
-source/utils/merge.ts::cloneShallow
-High blast radius: 3 callers
+stop -> repair -> unstage or replan -> check again
 ```
 
-Sample downstream files surfaced by Ripple:
+---
+
+## Function / Class Boundary Planning Proof
+
+A function-boundary intent was created for the `Ky` class:
+
+```bash
+ripple plan --file source/core/Ky.ts --symbol Ky --task "inspect Ky class boundary behavior" --mode function --agent --save
+```
+
+Ripple returned:
 
 ```txt
-source/core/Ky.ts
-source/index.ts
-source/types/hooks.ts
-source/utils/options.ts
-test/base-url.ts
-test/browser.ts
-test/bytes.ts
-test/context.ts
-test/fetch.ts
-test/formdata-searchparams.ts
-test/headers.ts
-test/hooks.ts
+control_mode: function
+allowed_files:
+- source/core/Ky.ts
+
+allowed_symbols:
+- source/core/Ky.ts::Ky
 ```
 
-Verification targets generated by Ripple:
+It also returned useful context and verification signals such as:
 
 ```txt
-source/types/hooks.ts
-source/index.ts
-source/core/Ky.ts
-source/utils/options.ts
-test/base-url.ts
+read_first:
+- source/core/Ky.ts
+- source/utils/merge.ts
+- source/index.ts
+
+verify:
+- test/browser.ts
+- test/retry.ts
+- test/stream.ts
+- test/http-error.ts
+- test/main.ts
+- test/base-url.ts
+- source/index.ts
+- source/core/Ky.ts::cloneRetryOptions (1 callers)
+- source/core/Ky.ts::cloneSearchParametersForInitHook (1 callers)
 ```
 
-## Value Shown
+The gate later returned `continue` when no staged change existed. That is
+correct behavior, because there was no staged edit to compare against the saved
+function boundary.
+
+This test validated function-boundary planning, not a full function-boundary
+drift scenario. A separate staged edit inside/outside specific symbols should be
+used for deeper function-boundary regression testing.
+
+---
+
+## Policy-Based Human Approval Proof
+
+A policy was added requiring human approval before editing high-risk paths:
+
+```json
+{
+  "riskRules": [
+    {
+      "paths": ["source/core/**"],
+      "risk": "high",
+      "requireHumanBeforeEdit": true
+    },
+    {
+      "paths": ["source/types/**"],
+      "risk": "high",
+      "requireHumanBeforeEdit": true
+    }
+  ]
+}
+```
+
+Planning against `source/core/Ky.ts` correctly returned:
 
 ```txt
-Manual git grep surfaced: 2 direct text-match files
-Ripple file graph surfaced: 19 potentially impacted paths for source/utils/merge.ts
-Additional file-level paths surfaced beyond direct text matches: 17
+human_gate: required-before-edit
+human_required: true
+boundary_risk: high
+policy_matches: riskRules[0] paths=source/core/** risk=high
 ```
 
-This is the central proof:
-
-> A normal search found the obvious text references. Ripple exposed broader
-> local blast-radius context, caller context, the exact changed symbol, risk
-> level, history event, and verification route.
-
-## Issues Found During Validation
-
-The real-project test found two launch-level issues, both fixed before launch:
-
-1. NodeNext/ESM import resolution
-
-   Ky imports TypeScript source files with runtime `.js` specifiers, for example:
-
-   ```txt
-   ../utils/normalize.js
-   ```
-
-   Ripple now resolves those runtime specifiers back to source files such as:
-
-   ```txt
-   source/utils/normalize.ts
-   ```
-
-2. Barrel re-export incremental updates
-
-   Ripple now preserves importer relationships when a file is reached through a
-   barrel re-export during incremental updates.
-
-## History Validation
-
-Ripple's history system was tested for every event type:
+Before approval, Ripple gate stopped with:
 
 ```txt
-baseline_snapshot
-file_created
-file_deleted
-symbol_created
-symbol_modified
-symbol_deleted
-import_added
-import_removed
-call_added
-call_removed
+Decision: human-review
+Approval: missing
 ```
 
-The test verifies:
+After approval was recorded with:
+
+```bash
+ripple approve --intent latest --gate before-risky-edit --reason "Ky real repo proof"
+```
+
+Ripple gate returned:
 
 ```txt
-Correct source and target
-Correct changeGroup
-Correct fileHash
-Correct symbolHash
-Correct previousHash
-Correct targetCallerCount
-Project-relative paths in saved history.json
-Reload conversion back to exact internal paths
+Decision: continue
+Approval: approved
 ```
 
-Design decision:
+This validates the human approval gate on a real repo path.
+
+---
+
+## CI / GitHub Annotation Proof
+
+A staged boundary violation was checked with:
+
+```bash
+ripple ci --base HEAD --intent latest --github-annotations
+```
+
+Ripple returned:
 
 ```txt
-Internal runtime graph: absolute filesystem paths
-Persisted history/context: project-relative paths
+Status: human-review-required
+Decision: human-review
+Can proceed: false
+drift: DANGER
+boundary: DANGER
+policy drift: PASS
+readiness drift: PASS
 ```
 
-This gives Ripple exact local execution while keeping saved project history
-portable and privacy-friendly.
+It also emitted GitHub annotation lines, including examples like:
+
+```txt
+::error file=source/types/options.ts,title=Ripple intent drift
+::error file=source/types/options.ts,title=Ripple boundary drift
+::warning file=test/retry.ts,title=Ripple verify before commit
+```
+
+This validates that Ripple can act as a CI gate for agent boundary drift.
+
+---
+
+## History Validation Result
+
+The history test found a limitation.
+
+Initial history worked:
+
+```json
+[
+  {
+    "type": "baseline_snapshot",
+    "source": "initial_scan",
+    "metadata": "files:52|symbols:103"
+  }
+]
+```
+
+Then a new function was added to `source/utils/merge.ts`:
+
+```ts
+export function rippleHistoryProbe(): string {
+  return "ripple-history-probe";
+}
+```
+
+After running:
+
+```bash
+ripple scan .
+```
+
+Ripple reported:
+
+```txt
+Files: 52
+Symbols: 104
+```
+
+So the scanner did see the new symbol.
+
+However, `ripple history --last 10` and `.ripple/history.json` still showed only
+the original `baseline_snapshot` event.
+
+Then the symbol body was modified and an import was added. `ripple scan .` still
+updated the graph/cache view, but history remained baseline-only.
+
+Conclusion:
+
+```txt
+CLI scan refreshes graph/cache and detects the new symbol count,
+but `.ripple/history.json` does not currently append structural history events
+from `ripple scan` reliably.
+```
+
+Launch claim adjustment:
+
+```txt
+Do not claim history.json is a complete architectural change log yet.
+It is safe to claim that Ripple creates an initial baseline snapshot and uses
+local graph/cache signals for planning, gate checks, risk, and repair.
+```
+
+---
+
+## What Was Validated
+
+Validated:
+
+```txt
+- npm package execution through @getripple/cli@1.0.7
+- repo initialization
+- baseline scan
+- symbol extraction from real TypeScript source
+- saved file boundary
+- saved function/class boundary planning
+- staged file-boundary drift detection
+- risk explanation with evidence
+- blast-radius evidence from importer count
+- repair handoff
+- policy-based human approval
+- approval recording
+- CI blocking
+- GitHub annotations
+```
+
+Not fully validated in this run:
+
+```txt
+- deep function-boundary drift with precise inside/outside symbol edits
+- Python behavior on a real Python repo
+- full product-flow intelligence across framework routes
+- history.json as a complete structural event log
+```
+
+---
+
+## Current Honest Product Claim
+
+Based on this validation, Ripple can honestly claim:
+
+```txt
+Ripple checks whether an AI coding agent stayed inside the approved task and,
+when it did not, explains the risk with evidence and required actions.
+```
+
+Ripple should not yet claim:
+
+```txt
+Ripple perfectly understands every affected product flow.
+Ripple replaces tests, code review, CI, or human judgment.
+Ripple's history.json is a complete architectural change log.
+```
+
+---
 
 ## Privacy Notes
 
-Ripple stores generated project context locally under:
+The Ky validation was local.
 
 ```txt
-.ripple/
+No code was uploaded by Ripple.
+No account was required by Ripple.
+No remote model call was required by Ripple.
+No telemetry was required by Ripple.
 ```
 
-Static source inspection found no direct network request APIs such as:
+Generated Ripple state lived under local repo files such as:
 
 ```txt
-axios
-XMLHttpRequest
-http.request
-https.request
-telemetry
-analytics
-SecretStorage
+.ripple/policy.json
+.ripple/history.json
+.ripple/intents/latest.json
+.ripple/approvals/
+.ripple/.cache/
+.github/workflows/ripple.yml
 ```
 
-The string `fetch` appears in source only as part of code-pattern detection and
-generated guidance, not as a network call.
+The temporary test edits were restored after validation.
 
-Ripple does use Node `child_process` for local git checks in Safety Check, such
-as reading staged file names with git. This is local process execution, not
-telemetry.
-
-Production dependency audit:
-
-```txt
-npm audit --omit=dev
-found 0 vulnerabilities
-```
-
-## Verification Commands
-
-The following checks passed after validation changes:
-
-```txt
-npm run compile
-npm run lint
-npm test
-npm audit --omit=dev
-npm run package
-```
-
-Package result:
-
-```txt
-ripple-1.0.2.vsix
-```
-
-## Validation Summary
-
-The Ky validation compared manual search with Ripple's structural analysis:
-
-```txt
-Manual search: 2 direct text-match files
-Ripple: 19 file-level impact paths for source/utils/merge.ts
-Caller context: cloneShallow()
-Risk: dangerous
-History: symbol_modified
-Verification targets generated
-```
+---
 
 ## Conclusion
 
-Ripple is ready for a staged launch with this proof:
+The Ky validation is strong evidence that Ripple's current core loop works on a
+real TypeScript repository:
 
 ```txt
-Real project tested
-Core value demonstrated
-History events verified
-Privacy posture documented
-Launch checks passing
-VSIX package generated successfully
+plan -> save intent -> edit -> gate -> risk explanation -> repair / human-review -> CI block
 ```
+
+The strongest validated behavior is:
+
+```txt
+Allowed: source/core/Ky.ts
+Agent also changed: source/types/options.ts
+Ripple: STOP / repair or human-review
+Risk: CRITICAL 100/100
+Evidence: outside boundary + 27 direct importers
+Action: unstage outside file or create a wider human-approved intent
+```
+
+This is real value for AI-agent coding workflows.
+
+The main launch note is that `history.json` should be described carefully until
+structural history event recording from `ripple scan` is fixed.
