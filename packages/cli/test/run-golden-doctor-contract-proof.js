@@ -94,7 +94,7 @@ function setupFixture() {
       "    runs-on: ubuntu-latest",
       "    steps:",
       "      - uses: actions/checkout@v4",
-      "      - run: ripple ci --base origin/main --intent latest --github-annotations",
+      "      - run: ripple ci --base origin/main --github-annotations",
       "",
     ].join("\n")
   );

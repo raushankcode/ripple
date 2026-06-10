@@ -116,7 +116,7 @@ export function buildRippleReadinessSummary(
     .filter((fix): fix is string => Boolean(fix));
 
   if (nextSteps.length === 0) {
-    nextSteps.push("Run ripple ci --base origin/main --intent latest --github-annotations.");
+    nextSteps.push("Run ripple ci --base origin/main --github-annotations.");
   }
 
   const status = Object.values(checks).every((check) => check.ok) ? "ready" : "needs_setup";

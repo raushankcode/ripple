@@ -326,7 +326,7 @@ function main() {
     "help should show changed CI example"
   );
   assert(
-    help.includes("ripple ci --base origin/main --intent latest --github-annotations"),
+    help.includes("ripple ci --base origin/main --github-annotations"),
     "help should show ci command example"
   );
   assert(help.includes("ripple init"), "help should show init example");
@@ -415,9 +415,9 @@ function main() {
   );
   assert(
     printedWorkflow.includes(
-      "npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --intent latest --github-annotations"
+      "npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --github-annotations"
     ),
-    "init-ci --print should include the strict annotated Ripple CI command"
+    "init-ci --print should include the policy-audit annotated Ripple CI command"
   );
 
   const printedWorkflowJson = runCliJson(["init-ci", "--print"]);
@@ -621,7 +621,7 @@ function main() {
   );
   assert(agentGuide.includes("CI gate:"), "agent guide should show CI gate section");
   assert(
-    agentGuide.includes("ripple ci --base <ref> --intent latest --github-annotations"),
+    agentGuide.includes("ripple ci --base <ref> --github-annotations"),
     "agent guide should show CI gate command"
   );
   assert(
@@ -730,7 +730,7 @@ function main() {
   );
   assert.strictEqual(
     agentWorkflow.commands.ciGate,
-    "ripple ci --base <ref> --intent latest --github-annotations",
+    "ripple ci --base <ref> --github-annotations",
     "agent JSON should expose the CI gate command"
   );
   assert.strictEqual(
@@ -1025,7 +1025,7 @@ function main() {
     "agent JSON should include the repair workflow example"
   );
   assert(
-    agentWorkflow.example.includes("ripple ci --base origin/main --intent latest --github-annotations"),
+    agentWorkflow.example.includes("ripple ci --base origin/main --github-annotations"),
     "agent JSON should include the CI gate example"
   );
 

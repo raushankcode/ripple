@@ -221,7 +221,7 @@ function usage(): string {
     "  --changed     Check JS/TS files changed against --base",
     "  --base REF    Base git ref for --changed checks (default: HEAD)",
     "  --save        Save a change intent from ripple plan",
-    "  --intent REF  Validate changes against saved intent (latest, id, or path; ci default: latest)",
+    "  --intent REF  Validate changes against saved intent (latest, id, or path; local checks only)",
     "  --strict      Exit non-zero when check/repair detects missing intent, drift, or contract danger",
     "  --github-annotations  Emit GitHub Actions annotations for CI findings",
     "  --print       Print generated setup content instead of writing files",
@@ -245,7 +245,7 @@ function usage(): string {
     "  ripple repair --agent --intent latest",
     "  ripple check --staged --intent latest --strict",
     "  ripple check --changed --base origin/main --strict",
-    "  ripple ci --base origin/main --intent latest --github-annotations",
+    "  ripple ci --base origin/main --github-annotations",
     "  ripple init",
     "  ripple init-ci",
     "  ripple policy init",
@@ -745,7 +745,7 @@ function githubActionsWorkflow(): string {
     "        with:",
     "          node-version: 20",
     "      - name: Ripple CI",
-    "        run: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --intent latest --github-annotations",
+    "        run: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --github-annotations",
     "",
   ].join("\n");
 }
@@ -763,7 +763,7 @@ function defaultInitNextSteps(readiness?: RippleReadinessSummary): string[] {
     ...(readiness?.nextSteps ?? []),
     "Run ripple plan --file <file> --task \"<task>\" --mode file --agent --save.",
     "Run ripple doctor --agent --strict after saving the first intent.",
-    "Commit .ripple/policy.json, .ripple/intents/latest.json, approvals when needed, and .github/workflows/ripple.yml.",
+    "Commit .ripple/policy.json, approvals when needed, and .github/workflows/ripple.yml. Keep local intents out of PRs.",
   ]);
 }
 
@@ -828,7 +828,7 @@ function intentLoadFailureMessage(intentRef: string, error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   return [
     `Could not load Ripple change intent '${intentRef}'.`,
-    "Run ripple plan --save and include .ripple/intents/latest.json in the PR, or pass a valid --intent path.",
+    "Run ripple plan --save for local intent-based checks, or pass a valid --intent path. Do not commit local latest intents into PRs.",
     detail,
   ].join(" ");
 }
@@ -3736,7 +3736,7 @@ function initCiCommand(options: CliOptions): void {
 
   console.log(existed ? "Ripple CI workflow overwritten" : "Ripple CI workflow written");
   console.log(`Path: ${relativeTargetPath}`);
-  console.log("Command: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --intent latest --github-annotations");
+  console.log("Command: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --github-annotations");
 }
 
 function policyCommand(args: string[], options: CliOptions): void {

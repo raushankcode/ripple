@@ -137,7 +137,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       gateCurrentChange: "ripple gate --agent --intent latest",
       checkApproval: "ripple approval --intent latest --agent",
       approveHumanGate: "ripple approve --intent latest --gate before-risky-edit",
-      ciGate: "ripple ci --base <ref> --intent latest --github-annotations",
+      ciGate: "ripple ci --base <ref> --github-annotations",
       repairIntentDrift: "ripple repair --agent --intent latest",
     },
     mcpTools: {
@@ -488,7 +488,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       "ripple gate --agent --intent latest",
       "ripple doctor --agent --strict",
       "ripple check --changed --base origin/main --agent --intent latest",
-      "ripple ci --base origin/main --intent latest --github-annotations",
+      "ripple ci --base origin/main --github-annotations",
       "ripple repair --agent --intent latest",
     ],
   };
