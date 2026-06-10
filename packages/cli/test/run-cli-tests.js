@@ -332,6 +332,7 @@ function main() {
   assert(help.includes("ripple init"), "help should show init example");
   assert(help.includes("ripple workflow"), "help should show workflow example");
   assert(help.includes("ripple init-ci"), "help should show init-ci example");
+  assert(help.includes("ripple hook install"), "help should show hook install example");
 
   const initWorkspace = setupInitFixture();
   const printedInit = runCliIn(initWorkspace, ["init", "--print"]);
@@ -420,6 +421,29 @@ function main() {
     "init-ci --print should include the policy-audit annotated Ripple CI command"
   );
 
+  const printedHook = runCli(["hook", "install", "--print"]);
+  assert(
+    printedHook.includes("npx -y @getripple/cli@latest gate --staged --intent latest --agent --strict"),
+    "hook install --print should include active-intent gate command"
+  );
+  assert(
+    printedHook.includes("npx -y @getripple/cli@latest check --staged --agent"),
+    "hook install --print should include no-intent staged awareness command"
+  );
+  assert(
+    printedHook.includes("git commit --no-verify"),
+    "hook install --print should include the human escape hatch"
+  );
+
+  const printedHookJson = runCliJson(["hook", "install", "--print"]);
+  assert.strictEqual(printedHookJson.protocol, "ripple-hook-install");
+  assert.strictEqual(printedHookJson.path, ".git/hooks/pre-commit");
+  assert.strictEqual(printedHookJson.written, false);
+  assert(
+    printedHookJson.content.includes("[RIPPLE STOP]"),
+    "hook install --print --json should expose agent-readable stop output"
+  );
+
   const printedWorkflowJson = runCliJson(["init-ci", "--print"]);
   assert.strictEqual(
     printedWorkflowJson.path,
@@ -442,6 +466,19 @@ function main() {
   assert(
     fs.readFileSync(workflowPath, "utf8").includes("pull_request:"),
     "init-ci should write a pull request workflow"
+  );
+
+  const hookWorkspace = setupInitFixture();
+  const hookInstall = runCliIn(hookWorkspace, ["hook", "install"]);
+  const preCommitHookPath = path.join(hookWorkspace, ".git", "hooks", "pre-commit");
+  assert(fs.existsSync(preCommitHookPath), "hook install should write .git/hooks/pre-commit");
+  assert(
+    hookInstall.includes("Ripple pre-commit hook installed"),
+    "hook install should confirm pre-commit hook installation"
+  );
+  assert(
+    fs.readFileSync(preCommitHookPath, "utf8").includes("[RIPPLE STOP]"),
+    "hook install should write agent-readable stop instructions"
   );
 
   const duplicateInitCi = runCliResult(["init-ci"]);
