@@ -492,7 +492,7 @@ function main() {
   assert(fs.existsSync(preCommitHookPath), "hook install should write .git/hooks/pre-commit");
   assert(fs.existsSync(postCommitHookPath), "hook install should write .git/hooks/post-commit");
   assert(
-    hookInstall.includes("Ripple Git hooks installed"),
+    hookInstall.includes("Ripple Git hooks integrated"),
     "hook install should confirm Git hook installation"
   );
   assert(
@@ -502,6 +502,85 @@ function main() {
   assert(
     fs.readFileSync(postCommitHookPath, "utf8").includes("Consumed and cleared local intent"),
     "hook install should write post-commit ghost-intent cleanup"
+  );
+
+  assert(
+    fs.readFileSync(preCommitHookPath, "utf8").includes(">>> ripple pre-commit hook"),
+    "hook install should write an idempotent pre-commit marker"
+  );
+  assert(
+    fs.readFileSync(postCommitHookPath, "utf8").includes(">>> ripple post-commit hook"),
+    "hook install should write an idempotent post-commit marker"
+  );
+
+  const hookInstallAgainJson = JSON.parse(runCliIn(hookWorkspace, ["hook", "install", "--json"]));
+  assert.strictEqual(
+    hookInstallAgainJson.preCommitAction,
+    "already-present",
+    "hook install should not duplicate an existing Ripple pre-commit block"
+  );
+  assert.strictEqual(
+    hookInstallAgainJson.postCommitAction,
+    "already-present",
+    "hook install should not duplicate an existing Ripple post-commit block"
+  );
+
+  const existingHookWorkspace = setupInitFixture();
+  const existingPreCommitPath = path.join(existingHookWorkspace, ".git", "hooks", "pre-commit");
+  writeFileIn(
+    existingHookWorkspace,
+    ".git/hooks/pre-commit",
+    [
+      "#!/bin/sh",
+      "echo existing lint hook",
+      "",
+    ].join("\n")
+  );
+  const existingHookInstallJson = JSON.parse(runCliIn(existingHookWorkspace, ["hook", "install", "--json"]));
+  assert.strictEqual(
+    existingHookInstallJson.preCommitAction,
+    "appended",
+    "hook install should append to an existing .git pre-commit hook"
+  );
+  const existingPreCommit = fs.readFileSync(existingPreCommitPath, "utf8");
+  assert(
+    existingPreCommit.includes("echo existing lint hook"),
+    "hook install should preserve existing .git pre-commit contents"
+  );
+  assert(
+    existingPreCommit.includes(">>> ripple pre-commit hook"),
+    "hook install should append the Ripple pre-commit block to existing hooks"
+  );
+
+  const huskyHookWorkspace = setupInitFixture();
+  writeFileIn(
+    huskyHookWorkspace,
+    ".husky/pre-commit",
+    [
+      "#!/bin/sh",
+      "npm test",
+      "",
+    ].join("\n")
+  );
+  const huskyInstallJson = JSON.parse(runCliIn(huskyHookWorkspace, ["hook", "install", "--json"]));
+  assert.strictEqual(
+    huskyInstallJson.path,
+    ".husky/pre-commit",
+    "hook install should prefer an existing Husky pre-commit hook"
+  );
+  assert.strictEqual(
+    huskyInstallJson.preCommitAction,
+    "appended",
+    "hook install should append to an existing Husky pre-commit hook"
+  );
+  const huskyPreCommit = fs.readFileSync(path.join(huskyHookWorkspace, ".husky", "pre-commit"), "utf8");
+  assert(
+    huskyPreCommit.includes("npm test"),
+    "hook install should preserve existing Husky hook contents"
+  );
+  assert(
+    huskyPreCommit.includes(">>> ripple pre-commit hook"),
+    "hook install should append the Ripple block to Husky hooks"
   );
 
   const duplicateInitCi = runCliResult(["init-ci"]);
