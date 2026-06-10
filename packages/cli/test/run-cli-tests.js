@@ -434,6 +434,14 @@ function main() {
     printedHook.includes("git commit --no-verify"),
     "hook install --print should include the human escape hatch"
   );
+  assert(
+    printedHook.includes("--- ripple-post-commit ---"),
+    "hook install --print should include the post-commit hook separator"
+  );
+  assert(
+    printedHook.includes("Consumed and cleared local intent"),
+    "hook install --print should include ghost-intent cleanup behavior"
+  );
 
   const printedHookJson = runCliJson(["hook", "install", "--print"]);
   assert.strictEqual(printedHookJson.protocol, "ripple-hook-install");
@@ -442,6 +450,15 @@ function main() {
   assert(
     printedHookJson.content.includes("[RIPPLE STOP]"),
     "hook install --print --json should expose agent-readable stop output"
+  );
+  assert.strictEqual(
+    printedHookJson.postCommitPath,
+    ".git/hooks/post-commit",
+    "hook install --print --json should expose the post-commit hook path"
+  );
+  assert(
+    printedHookJson.postCommitContent.includes("Consumed and cleared local intent"),
+    "hook install --print --json should expose ghost-intent cleanup output"
   );
 
   const printedWorkflowJson = runCliJson(["init-ci", "--print"]);
@@ -471,14 +488,20 @@ function main() {
   const hookWorkspace = setupInitFixture();
   const hookInstall = runCliIn(hookWorkspace, ["hook", "install"]);
   const preCommitHookPath = path.join(hookWorkspace, ".git", "hooks", "pre-commit");
+  const postCommitHookPath = path.join(hookWorkspace, ".git", "hooks", "post-commit");
   assert(fs.existsSync(preCommitHookPath), "hook install should write .git/hooks/pre-commit");
+  assert(fs.existsSync(postCommitHookPath), "hook install should write .git/hooks/post-commit");
   assert(
-    hookInstall.includes("Ripple pre-commit hook installed"),
-    "hook install should confirm pre-commit hook installation"
+    hookInstall.includes("Ripple Git hooks installed"),
+    "hook install should confirm Git hook installation"
   );
   assert(
     fs.readFileSync(preCommitHookPath, "utf8").includes("[RIPPLE STOP]"),
     "hook install should write agent-readable stop instructions"
+  );
+  assert(
+    fs.readFileSync(postCommitHookPath, "utf8").includes("Consumed and cleared local intent"),
+    "hook install should write post-commit ghost-intent cleanup"
   );
 
   const duplicateInitCi = runCliResult(["init-ci"]);
