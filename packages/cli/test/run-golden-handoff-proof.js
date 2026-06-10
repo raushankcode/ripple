@@ -109,8 +109,9 @@ function setupCleanWorkflowFixture() {
       "",
     ].join("\n"),
   );
-  commitBaseline(workspaceRoot);
+  writeFile(workspaceRoot, ".gitignore", ".ripple/.cache/\n");
   runCli(workspaceRoot, ["init-ci"]);
+  commitBaseline(workspaceRoot);
   return workspaceRoot;
 }
 
@@ -388,3 +389,4 @@ function main() {
 }
 
 main();
+

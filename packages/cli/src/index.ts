@@ -896,6 +896,83 @@ function writeGithubAuditStepSummary(audit: RippleAuditSummary): void {
   }
 }
 
+function writeGithubPolicyAuditStepSummary(summary: StagedCheckSummary): void {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY?.trim();
+  if (!summaryPath) {
+    return;
+  }
+
+  try {
+    fs.appendFileSync(summaryPath, buildGithubPolicyAuditStepSummary(summary), "utf8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Ripple CLI warning: Could not write GitHub step summary: ${message}`);
+  }
+}
+
+function buildGithubPolicyAuditStepSummary(summary: StagedCheckSummary): string {
+  const pushList = (lines: string[], title: string, items: string[], limit: number): void => {
+    lines.push(`#### ${title}`);
+    if (items.length === 0) {
+      lines.push("- none");
+      return;
+    }
+    items.slice(0, limit).forEach((item) => lines.push(`- ${item}`));
+    if (items.length > limit) {
+      lines.push(`- ...and ${items.length - limit} more`);
+    }
+  };
+  const lines = [
+    "## Ripple architecture gate",
+    "",
+    "Status: audit",
+    "Mode: policy-only",
+    "Blocking: false",
+    "Intent: none (local intents are not required in CI audit mode)",
+    `Checked files: ${summary.checkedFiles}`,
+    `Highest risk: ${summary.highestRisk}`,
+    `Requires attention: ${summary.requiresAttention}`,
+    "",
+  ];
+
+  if (summary.baseRef) {
+    lines.splice(5, 0, `Base ref: ${summary.baseRef}`);
+  }
+
+  if (summary.files.length > 0) {
+    lines.push("### Changed files", "");
+    summary.files.slice(0, 20).forEach((file) => {
+      lines.push(`- ${file.file} (${file.modificationRisk}, importers: ${file.importerCount})`);
+    });
+    if (summary.files.length > 20) {
+      lines.push(`- ...and ${summary.files.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  lines.push("### Agent actions", "");
+  pushList(lines, "Trusted findings", summary.agentActions.trustedFindings, 12);
+  lines.push("");
+  pushList(lines, "Verify before merge", summary.agentActions.verifyBeforeCommit, 12);
+  lines.push("");
+  pushList(lines, "Manual review recommended", summary.agentActions.manualReviewRequired, 12);
+  lines.push("");
+
+  const verificationTargets = uniqueItems(
+    summary.files.flatMap((file) => file.verificationTargets)
+  );
+  if (verificationTargets.length > 0) {
+    lines.push("### Verify", "");
+    verificationTargets.slice(0, 20).forEach((target) => lines.push(`- ${target}`));
+    if (verificationTargets.length > 20) {
+      lines.push(`- ...and ${verificationTargets.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 function buildGithubStepSummary(input: {
   summary: StagedCheckWithIntentSummary;
   intentLoadError?: string;
@@ -1273,13 +1350,13 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
   }
 
   if (validation.policyDrift.status === "changed") {
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file: validation.targetFile,
       title: "Ripple policy drift",
       message: validation.policyDrift.summary,
     });
     validation.policyDrift.changedFields.slice(0, 8).forEach((field) => {
-      printGithubErrorAnnotation({
+      printGithubWarningAnnotation({
         file: validation.targetFile,
         title: "Ripple policy drift",
         message: field,
@@ -1288,13 +1365,13 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
   }
 
   if (validation.readinessDrift.status === "weakened") {
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file: validation.targetFile,
       title: "Ripple readiness drift",
       message: validation.readinessDrift.summary,
     });
     validation.readinessDrift.weakenedFields.slice(0, 8).forEach((field) => {
-      printGithubErrorAnnotation({
+      printGithubWarningAnnotation({
         file: validation.targetFile,
         title: "Ripple readiness drift",
         message: `Weakened readiness field: ${field}`,
@@ -1303,7 +1380,7 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
   }
 
   validation.unplannedFiles.forEach((file) => {
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file,
       title: "Ripple intent drift",
       message: `Unplanned file changed: ${file}`,
@@ -1312,7 +1389,7 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
 
   validation.unplannedSymbols.forEach((symbol) => {
     const file = symbolFile(symbol);
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file,
       title: "Ripple symbol drift",
       message: `Unplanned symbol changed: ${symbol}`,
@@ -1373,9 +1450,39 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
   });
 
   summary.agentActions.manualReviewRequired.slice(0, 12).forEach((action) => {
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file: actionFile(action),
       title: "Ripple manual review required",
+      message: action,
+    });
+  });
+}
+
+function printGithubPolicyAuditAnnotations(summary: StagedCheckSummary): void {
+  if (summary.requiresAttention) {
+    printGithubWarningAnnotation({
+      title: "Ripple policy audit",
+      message: `Policy audit detected ${summary.highestRisk} risk changes. Ripple is in audit mode, so this does not block merge. Ensure human review before merging.`,
+    });
+  } else {
+    printGithubNoticeAnnotation({
+      title: "Ripple policy audit",
+      message: "Policy audit completed without high-risk findings.",
+    });
+  }
+
+  summary.agentActions.verifyBeforeCommit.slice(0, 12).forEach((action) => {
+    printGithubWarningAnnotation({
+      file: actionFile(action),
+      title: "Ripple verify before merge",
+      message: action,
+    });
+  });
+
+  summary.agentActions.manualReviewRequired.slice(0, 12).forEach((action) => {
+    printGithubWarningAnnotation({
+      file: actionFile(action),
+      title: "Ripple manual review recommended",
       message: action,
     });
   });
@@ -1384,14 +1491,14 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
 function printGithubAuditAnnotations(audit: RippleAuditSummary): void {
   const gate = buildRippleGateSummary(audit);
   if (audit.status !== "pass") {
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file: audit.intent.targetFile,
       title: "Ripple gate closed",
       message: `${gate.status}/${gate.decision}: next=${gate.nextRequiredPhase}. ${gate.nextRequiredAction}`,
     });
   }
   if (audit.approvalStatus.required && !audit.approvalStatus.approved) {
-    printGithubErrorAnnotation({
+    printGithubWarningAnnotation({
       file: audit.intent.targetFile,
       title: "Ripple approval required",
       message: audit.approvalStatus.summary,
@@ -3459,9 +3566,54 @@ function approvalCommand(options: CliOptions): void {
 async function ciCommand(options: CliOptions): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(".");
   const baseRef = options.base ?? defaultCiBaseRef();
+  const hasExplicitIntent = Boolean(options.intent);
   const intentRef = options.intent ?? "latest";
   const files = listGitChangedFiles(workspaceRoot, baseRef);
   const emitGithubAnnotations = shouldEmitGithubAnnotations(options);
+
+  if (!hasExplicitIntent) {
+    const summary = await buildCheckSummaryForFiles({
+      workspaceRoot,
+      files,
+      mode: "changed",
+      baseRef,
+      tokenBudget: options.budget,
+    });
+
+    if (options.json) {
+      printJson({
+        ...summary,
+        protocol: "ripple-ci-policy-audit",
+        version: 1,
+        auditMode: true,
+        blocking: false,
+        intentRequired: false,
+      });
+    } else if (options.agent) {
+      printAgentStagedCheckSummary(summary);
+      console.log("");
+      console.log("ci_mode: policy-audit");
+      console.log("blocking: false");
+      console.log("intent_required: false");
+      console.log("next_required_action: Review policy-risk findings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
+    } else {
+      console.log("Ripple CI policy audit");
+      console.log("Status: audit");
+      console.log("Blocking: false");
+      console.log("Intent: none (local intents are not required in CI audit mode)");
+      console.log("");
+      printStagedCheckSummary(summary);
+      console.log("");
+      console.log("Next action: Review policy-risk findings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
+    }
+
+    if (emitGithubAnnotations && !options.json) {
+      printGithubPolicyAuditAnnotations(summary);
+    }
+    writeGithubPolicyAuditStepSummary(summary);
+    return;
+  }
+
   let intent: ChangeIntent;
 
   try {
@@ -3506,7 +3658,7 @@ async function ciCommand(options: CliOptions): Promise<void> {
       printGithubIntentLoadError(message);
     }
     writeGithubStepSummary({ summary, intentLoadError: message });
-    process.exitCode = 1;
+    applyStrictExit(options.strict);
     return;
   }
 
@@ -3534,7 +3686,7 @@ async function ciCommand(options: CliOptions): Promise<void> {
     printGithubAuditAnnotations(audit);
   }
   writeGithubAuditStepSummary(audit);
-  applyStrictExit(strictAuditShouldFail(audit));
+  applyStrictExit(options.strict && strictAuditShouldFail(audit));
 }
 
 async function doctorCommand(options: CliOptions): Promise<void> {

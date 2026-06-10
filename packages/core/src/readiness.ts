@@ -182,7 +182,8 @@ function buildEnforcementReadiness(input: {
 }): RippleEnforcementReadiness {
   const canGuideAgents = input.graphOk;
   const canDetectDrift = input.graphOk && input.gitOk;
-  const canBlockInCi = canDetectDrift && input.ciWorkflowOk;
+  const permanentSetupReady = input.gitIgnoreOk && input.ciWorkflowOk;
+  const canBlockInCi = canDetectDrift && permanentSetupReady;
   const level = enforcementLevel({
     canGuideAgents,
     canDetectDrift,

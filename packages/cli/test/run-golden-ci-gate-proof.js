@@ -230,12 +230,12 @@ function proveDriftedCiGateCloses() {
       GITHUB_STEP_SUMMARY: summaryPath,
     },
   );
-  assert.strictEqual(result.status, 1, "drifted CI gate should fail");
+  assert.strictEqual(result.status, 0, "drifted CI gate should audit-pass by default");
   assert(result.stdout.includes("Ripple audit"));
   assert(result.stdout.includes("Gate:"));
   assert(result.stdout.includes("  status: closed"));
   assert(result.stdout.includes("  decision: repair"));
-  assert(result.stdout.includes("::error"));
+  assert(result.stdout.includes("::warning"));
   assert(
     result.stdout.includes("title=Ripple gate closed"),
     "CI annotations should use gate language",
@@ -253,7 +253,7 @@ function proveDriftedCiGateCloses() {
     "latest",
     "--json",
   ]);
-  assert.strictEqual(jsonResult.status, 1, "closed CI gate JSON should fail CI");
+  assert.strictEqual(jsonResult.status, 0, "closed CI gate JSON should audit-pass by default");
   const json = parseJsonOutput(jsonResult, [
     "ci",
     "--base",
@@ -279,6 +279,9 @@ function proveDriftedCiGateCloses() {
     json.gate.commands.repair.includes("ripple repair --agent --intent latest"),
     "closed CI gate should tell the agent how to repair",
   );
+
+  const strictResult = runCliResult(["ci", "--base", "HEAD", "--intent", "latest", "--strict"]);
+  assert.strictEqual(strictResult.status, 1, "strict drifted CI gate should fail");
 
   const summary = assertSummaryHasGate(summaryPath, {
     status: "closed",

@@ -520,13 +520,13 @@ function main() {
   );
   assert.strictEqual(
     doctorNeedsIntent.enforcement.level,
-    "ci-gate-ready",
-    "doctor should show CI-ready enforcement without requiring a local intent"
+    "drift-check-ready",
+    "doctor should keep drift-check readiness while permanent CI setup gaps remain"
   );
   assert.strictEqual(
     doctorNeedsIntent.enforcement.canBlockInCi,
-    true,
-    "doctor should allow CI blocking when permanent setup is ready"
+    false,
+    "doctor should not claim CI blocking while permanent setup gaps remain"
   );
   assert(
     !doctorNeedsIntent.enforcement.gaps.some((gap) => gap.includes("No latest saved intent")),
@@ -558,12 +558,12 @@ function main() {
     "doctor --agent should include the next required action"
   );
   assert(
-    doctorNeedsIntentAgent.includes("enforcement_level: ci-gate-ready"),
-    "doctor --agent should expose CI-ready enforcement"
+    doctorNeedsIntentAgent.includes("enforcement_level: drift-check-ready"),
+    "doctor --agent should expose drift-check-ready enforcement while permanent setup gaps remain"
   );
   assert(
-    doctorNeedsIntentAgent.includes("can_block_in_ci: true"),
-    "doctor --agent should expose CI blocking readiness without requiring local intent without requiring local intent"
+    doctorNeedsIntentAgent.includes("can_block_in_ci: false"),
+    "doctor --agent should expose missing CI blocking readiness while permanent setup gaps remain"
   );
   assert(
     doctorNeedsIntentAgent.includes("why:"),
@@ -1422,6 +1422,22 @@ function main() {
     doctorReady.nextSteps.some((step) => step.includes("ripple ci")),
     "ready doctor should suggest running Ripple CI"
   );
+  const refreshedReadyPlan = runCliJson([
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "change trim behavior",
+    "--budget",
+    "1200",
+    "--save",
+  ]);
+  assert.strictEqual(
+    refreshedReadyPlan.changeIntent.readinessSnapshot.canBlockInCi,
+    true,
+    "refreshed saved intent should capture CI-ready enforcement after permanent setup is complete"
+  );
+
   const doctorText = runCli(["doctor"]);
   assert(doctorText.includes("Ripple doctor"), "doctor text should include title");
   assert(doctorText.includes("Status: ready"), "doctor text should include ready status");
@@ -2081,18 +2097,23 @@ function main() {
     const missingIntentCi = runCliResult(["ci", "--base", "HEAD", "--github-annotations"], {
       GITHUB_STEP_SUMMARY: missingIntentSummaryPath,
     });
-    assert.strictEqual(missingIntentCi.status, 1, "CI gate should fail when latest intent is missing");
+    assert.strictEqual(missingIntentCi.status, 0, "CI policy audit should not fail when local intent is missing");
     assert(
-      missingIntentCi.stdout.includes("Intent error: Could not load Ripple change intent 'latest'."),
-      "CI gate should explain missing latest intent"
+      missingIntentCi.stdout.includes("Ripple CI policy audit"),
+      "CI should clearly run policy-audit mode without a committed local intent"
     );
     assert(
-      missingIntentCi.stdout.includes("Next required phase: plan_before_edit"),
-      "CI gate should show missing-intent next phase"
+      missingIntentCi.stdout.includes("Blocking: false"),
+      "CI policy audit should not hard-block by default"
     );
     assert(
-      missingIntentCi.stdout.includes("::error title=Ripple intent required::next=plan_before_edit."),
-      "CI gate should annotate missing latest intent for GitHub Actions"
+      missingIntentCi.stdout.includes("Intent: none"),
+      "CI policy audit should explain that local intents are not required"
+    );
+    assert(
+      missingIntentCi.stdout.includes("::notice title=Ripple policy audit::") ||
+        missingIntentCi.stdout.includes("::warning title=Ripple policy audit::"),
+      "CI policy audit should annotate GitHub Actions visibly"
     );
     const missingIntentSummary = fs.readFileSync(missingIntentSummaryPath, "utf8");
     assert(
@@ -2100,32 +2121,20 @@ function main() {
       "CI gate should write a GitHub step summary for missing intent"
     );
     assert(
-      missingIntentSummary.includes("Status: failed"),
-      "missing intent step summary should show failed status"
+      missingIntentSummary.includes("Status: audit"),
+      "missing intent step summary should show audit status"
     );
     assert(
-      missingIntentSummary.includes("Gate status: closed"),
-      "missing intent step summary should show closed gate status"
+      missingIntentSummary.includes("Mode: policy-only"),
+      "missing intent step summary should show policy-only mode"
     );
     assert(
-      missingIntentSummary.includes("Gate decision: create-intent"),
-      "missing intent step summary should tell agents to create an intent"
+      missingIntentSummary.includes("Blocking: false"),
+      "missing intent step summary should not block continuation"
     );
     assert(
-      missingIntentSummary.includes("Can continue: false"),
-      "missing intent step summary should block continuation"
-    );
-    assert(
-      missingIntentSummary.includes("Next required phase: plan_before_edit"),
-      "missing intent step summary should show next required phase"
-    );
-    assert(
-      missingIntentSummary.includes("Create a saved Ripple plan"),
-      "missing intent step summary should show the next required action"
-    );
-    assert(
-      missingIntentSummary.includes("Could not load Ripple change intent 'latest'."),
-      "missing intent step summary should explain the missing intent"
+      missingIntentSummary.includes("Intent: none"),
+      "missing intent step summary should explain that no local intent is required"
     );
   } finally {
     fs.renameSync(hiddenIntentPath, latestIntentPath);
@@ -2322,10 +2331,10 @@ function main() {
       GITHUB_STEP_SUMMARY: policyDriftSummaryPath,
     }
   );
-  assert.strictEqual(policyDriftCiCheck.status, 1, "policy drift CI gate should fail");
+  assert.strictEqual(policyDriftCiCheck.status, 0, "policy drift CI gate should audit-pass by default");
   assert(
     policyDriftCiCheck.stdout.includes(
-      "::error file=src/util.ts,title=Ripple policy drift::DRIFT: current repo policy differs from the policy snapshot saved with this intent."
+      "::warning file=src/util.ts,title=Ripple policy drift::DRIFT: current repo policy differs from the policy snapshot saved with this intent."
     ),
     "policy drift CI gate should emit a target-file GitHub Actions error"
   );
@@ -2397,7 +2406,7 @@ function main() {
   );
 
   const driftCiCheck = runCliResult(["ci", "--base", "HEAD", "--intent", "latest"]);
-  assert.strictEqual(driftCiCheck.status, 1, "drifted CI gate should fail");
+  assert.strictEqual(driftCiCheck.status, 0, "drifted CI gate should audit-pass by default");
   assert(
     driftCiCheck.stdout.includes("Status: human-review-required"),
     "drifted CI gate should print audit human-review status"
@@ -2420,10 +2429,10 @@ function main() {
     "latest",
     "--github-annotations",
   ]);
-  assert.strictEqual(driftAnnotatedCiCheck.status, 1, "annotated drifted CI gate should fail");
+  assert.strictEqual(driftAnnotatedCiCheck.status, 0, "annotated drifted CI gate should audit-pass by default");
   assert(
     driftAnnotatedCiCheck.stdout.includes(
-      "::error file=src/changed-other.ts,title=Ripple intent drift::Unplanned file changed: src/changed-other.ts"
+      "::warning file=src/changed-other.ts,title=Ripple intent drift::Unplanned file changed: src/changed-other.ts"
     ),
     "annotated CI gate should emit a file-level GitHub Actions error"
   );
@@ -2437,10 +2446,10 @@ function main() {
     GITHUB_ACTIONS: "true",
     GITHUB_STEP_SUMMARY: driftSummaryPath,
   });
-  assert.strictEqual(driftGithubEnvCiCheck.status, 1, "GitHub Actions drifted CI gate should fail");
+  assert.strictEqual(driftGithubEnvCiCheck.status, 0, "GitHub Actions drifted CI gate should audit-pass by default");
   assert(
     driftGithubEnvCiCheck.stdout.includes(
-      "::error file=src/changed-other.ts,title=Ripple intent drift::Unplanned file changed: src/changed-other.ts"
+      "::warning file=src/changed-other.ts,title=Ripple intent drift::Unplanned file changed: src/changed-other.ts"
     ),
     "CI gate should auto-emit GitHub Actions errors when GITHUB_ACTIONS=true"
   );
