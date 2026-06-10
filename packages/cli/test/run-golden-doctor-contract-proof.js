@@ -126,44 +126,38 @@ function assertAgentSectionNone(output, section) {
   );
 }
 
-function proveDoctorBlocksBeforeSavedIntent() {
+function proveDoctorIsReadyBeforeSavedIntent() {
   const doctor = runCliJson(["doctor"]);
-  assert.strictEqual(doctor.status, "needs_setup");
-  assert.strictEqual(doctor.decision, "setup-required");
-  assert.strictEqual(doctor.canContinue, false);
-  assert.strictEqual(doctor.mustStop, true);
+  assert.strictEqual(doctor.status, "ready");
+  assert.strictEqual(doctor.decision, "continue");
+  assert.strictEqual(doctor.canContinue, true);
+  assert.strictEqual(doctor.mustStop, false);
   assert.strictEqual(
     doctor.nextRequiredAction,
-    "Stop autonomous agent work until Ripple readiness gaps are fixed."
+    "Continue with the saved-intent workflow and keep the Ripple CI gate enabled."
   );
+  assert.deepStrictEqual(doctor.fixNow, []);
+  assert.strictEqual(doctor.checks.latestIntent.ok, false);
   assert(
-    doctor.why.some((reason) => reason.includes("No latest saved intent exists")),
-    "doctor JSON should explain the missing saved intent"
-  );
-  assert(
-    doctor.fixNow.some((fix) => fix.includes("ripple plan --file")),
-    "doctor JSON should tell the agent how to create a saved intent"
+    doctor.why.some((reason) => reason.includes("detect drift, and fail CI")),
+    "doctor JSON should explain policy-audit readiness"
   );
 
   const agent = runCli(["doctor", "--agent"]);
   assertContractHeader(agent, [
     "RIPPLE_DOCTOR",
-    "status: needs_setup",
-    "decision: setup-required",
-    "can_continue: false",
-    "must_stop: true",
-    "next_required_action: Stop autonomous agent work until Ripple readiness gaps are fixed.",
+    "status: ready",
+    "decision: continue",
+    "can_continue: true",
+    "must_stop: false",
+    "next_required_action: Continue with the saved-intent workflow and keep the Ripple CI gate enabled.",
   ]);
   assertAgentSectionContains(
     agent,
     "why",
-    "No latest saved intent exists, so Ripple cannot compare agent work to a plan."
+    "Ripple can guide agents, detect drift, and fail CI when the saved intent or boundary is violated."
   );
-  assertAgentSectionContains(
-    agent,
-    "fix_now",
-    'Run ripple plan --file <file> --task "<task>" --save before CI.'
-  );
+  assertAgentSectionNone(agent, "fix_now");
 }
 
 function saveIntent() {
@@ -218,13 +212,13 @@ function proveDoctorAllowsAfterSavedIntent() {
 
 function main() {
   setupFixture();
-  proveDoctorBlocksBeforeSavedIntent();
+  proveDoctorIsReadyBeforeSavedIntent();
   saveIntent();
   proveDoctorAllowsAfterSavedIntent();
 
   console.log("Ripple golden doctor contract proof passed");
   console.log(`Workspace: ${workspaceRoot}`);
-  console.log("Before saved intent: setup-required / must_stop");
+  console.log("Before saved intent: ready / can_continue");
   console.log("After saved intent: continue / can_continue");
 }
 

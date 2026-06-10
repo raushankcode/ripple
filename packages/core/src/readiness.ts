@@ -96,10 +96,8 @@ export function buildRippleReadinessSummary(
       ok: latestIntentOk,
       detail: latestIntentOk
         ? formatWorkspacePath(workspaceRoot, latestIntentPath)
-        : "Missing .ripple/intents/latest.json",
-      fix: latestIntentOk
-        ? undefined
-        : "Run ripple plan --file <file> --task \"<task>\" --save before CI.",
+        : "No active local intent found; this is normal until an agent creates a saved plan.",
+      fix: undefined,
     },
   };
   const enforcement = buildEnforcementReadiness({
@@ -119,7 +117,8 @@ export function buildRippleReadinessSummary(
     nextSteps.push("Run ripple ci --base origin/main --github-annotations.");
   }
 
-  const status = Object.values(checks).every((check) => check.ok) ? "ready" : "needs_setup";
+  const requiredChecks = [checks.graph, checks.git, checks.gitIgnore, checks.ciWorkflow];
+  const status = requiredChecks.every((check) => check.ok) ? "ready" : "needs_setup";
   const contract = readinessContract(status, enforcement, nextSteps);
 
   return {
@@ -182,7 +181,7 @@ function buildEnforcementReadiness(input: {
   explicitPolicyOk: boolean;
 }): RippleEnforcementReadiness {
   const canGuideAgents = input.graphOk;
-  const canDetectDrift = input.graphOk && input.gitOk && input.latestIntentOk;
+  const canDetectDrift = input.graphOk && input.gitOk;
   const canBlockInCi = canDetectDrift && input.ciWorkflowOk;
   const level = enforcementLevel({
     canGuideAgents,
@@ -258,9 +257,6 @@ function enforcementGaps(input: {
   }
   if (!input.gitIgnoreOk) {
     gaps.push("Missing .gitignore hygiene for .ripple/.cache/; generated cache files may be committed accidentally.");
-  }
-  if (!input.latestIntentOk) {
-    gaps.push("No latest saved intent exists, so Ripple cannot compare agent work to a plan.");
   }
   if (!input.ciWorkflowOk) {
     gaps.push("Ripple setup is missing the CI workflow, so unsafe changes cannot be blocked in PR checks.");

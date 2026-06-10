@@ -125,10 +125,10 @@ function proveInitCreatesAgentControlSetup() {
   assert.strictEqual(summary.readiness.checks.ciWorkflow.ok, true);
   assert.strictEqual(summary.readiness.enforcement.explicitPolicy.ok, true);
   assert.strictEqual(summary.readiness.checks.latestIntent.ok, false);
-  assert.strictEqual(summary.readiness.enforcement.canBlockInCi, false);
+  assert.strictEqual(summary.readiness.enforcement.canBlockInCi, true);
   assert(
-    summary.nextSteps.some((step) => step.includes("ripple plan --file")),
-    "ripple init should tell the user to save the first intent next",
+    summary.nextSteps.some((step) => step.includes("ripple ci --base origin/main --github-annotations")),
+    "ripple init should tell the user to run the policy-audit CI command next",
   );
 }
 

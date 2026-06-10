@@ -385,8 +385,8 @@ function main() {
   assert.strictEqual(initJson.readiness.enforcement.explicitPolicy.ok, true);
   assert.strictEqual(initJson.readiness.checks.latestIntent.ok, false);
   assert(
-    initJson.nextSteps.some((step) => step.includes("ripple plan --file")),
-    "init should tell the user to create a saved plan next"
+    initJson.nextSteps.some((step) => step.includes("ripple ci --base origin/main --github-annotations")),
+    "init should tell the user to run the policy-audit CI command next"
   );
 
   const duplicateInitJson = runCliJsonIn(initWorkspace, ["init"]);
@@ -458,7 +458,7 @@ function main() {
   );
 
   const doctorNeedsIntent = runCliJson(["doctor"]);
-  assert.strictEqual(doctorNeedsIntent.status, "needs_setup", "doctor should require latest intent");
+  assert.strictEqual(doctorNeedsIntent.status, "needs_setup", "doctor should still require permanent setup gaps to be fixed");
   assert.strictEqual(doctorNeedsIntent.decision, "setup-required", "doctor should expose setup-required decision");
   assert.strictEqual(doctorNeedsIntent.canContinue, false, "doctor should not allow continuing before setup is ready");
   assert.strictEqual(doctorNeedsIntent.mustStop, true, "doctor should require stop before setup is ready");
@@ -467,8 +467,8 @@ function main() {
     "doctor should expose next required action for agents"
   );
   assert(
-    doctorNeedsIntent.fixNow.some((step) => step.includes("ripple plan")),
-    "doctor should expose setup fixes through fixNow"
+    doctorNeedsIntent.fixNow.some((step) => step.includes("initialize git") || step.includes(".ripple/.cache/")),
+    "doctor should expose permanent setup fixes through fixNow"
   );
   assert.strictEqual(doctorNeedsIntent.checks.graph.ok, true, "doctor should validate graph scan");
   assert.strictEqual(
@@ -479,25 +479,25 @@ function main() {
   assert.strictEqual(
     doctorNeedsIntent.checks.latestIntent.ok,
     false,
-    "doctor should detect missing latest intent"
+    "doctor should report missing local intent without making it a permanent setup requirement"
   );
   assert.strictEqual(
     doctorNeedsIntent.enforcement.level,
-    "advisory",
-    "doctor should show advisory enforcement before a saved intent exists"
+    "ci-gate-ready",
+    "doctor should show CI-ready enforcement without requiring a local intent"
   );
   assert.strictEqual(
     doctorNeedsIntent.enforcement.canBlockInCi,
-    false,
-    "doctor should not claim CI blocking is ready without a saved intent"
+    true,
+    "doctor should allow CI blocking when permanent setup is ready"
   );
   assert(
-    doctorNeedsIntent.enforcement.gaps.some((gap) => gap.includes("No latest saved intent")),
-    "doctor should explain the missing saved intent enforcement gap"
+    !doctorNeedsIntent.enforcement.gaps.some((gap) => gap.includes("No latest saved intent")),
+    "doctor should not treat missing local intent as an enforcement gap"
   );
   assert(
-    doctorNeedsIntent.nextSteps.some((step) => step.includes("ripple plan")),
-    "doctor should explain how to create the latest intent"
+    doctorNeedsIntent.nextSteps.some((step) => step.includes("initialize git") || step.includes(".ripple/.cache/")),
+    "doctor should explain how to fix permanent setup gaps"
   );
   const doctorNeedsIntentAgent = runCli(["doctor", "--agent"]);
   assert(
@@ -521,12 +521,12 @@ function main() {
     "doctor --agent should include the next required action"
   );
   assert(
-    doctorNeedsIntentAgent.includes("enforcement_level: advisory"),
-    "doctor --agent should expose advisory enforcement"
+    doctorNeedsIntentAgent.includes("enforcement_level: ci-gate-ready"),
+    "doctor --agent should expose CI-ready enforcement"
   );
   assert(
-    doctorNeedsIntentAgent.includes("can_block_in_ci: false"),
-    "doctor --agent should expose CI blocking readiness"
+    doctorNeedsIntentAgent.includes("can_block_in_ci: true"),
+    "doctor --agent should expose CI blocking readiness without requiring local intent without requiring local intent"
   );
   assert(
     doctorNeedsIntentAgent.includes("why:"),
@@ -2445,3 +2445,5 @@ function main() {
 }
 
 main();
+
+
