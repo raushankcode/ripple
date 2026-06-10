@@ -6,7 +6,7 @@ Validation target: local clone of `sindresorhus/ky`
 Environment: Windows PowerShell
 
 This document records the current honest validation state for Ripple before the
-`1.0.7` npm release. It focuses on what was tested, what worked, what was not
+`1.0.8` npm release. It focuses on what was tested, what worked, what was not
 proven, and what limitation was found.
 
 Ripple's current validated promise is:

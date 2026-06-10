@@ -788,9 +788,9 @@ Required actions          what the agent or human must do before continuing
 
 ## Language Support
 
-| Language                | Status | Tracks                                                                                   |
-| ----------------------- | ------ | ---------------------------------------------------------------------------------------- |
-| TypeScript / JavaScript | Deep   | Imports, exports, symbols, call edges, blast radius, risk, focused context, staged drift |
+| Language                | Status | Tracks                                                                                                  |
+| ----------------------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| TypeScript / JavaScript | Deep   | Imports, exports, symbols, call edges, blast radius, risk, focused context, staged drift                |
 | Python                  | Basic  | Static imports, from-imports, functions, classes, methods, basic call signals, file-level staged checks |
 
 The strongest current experience is JavaScript and TypeScript.
