@@ -143,8 +143,33 @@ function assertIncludes(output, expected, label) {
   );
 }
 
+function proveAgentSetupWritesMcpInstructions() {
+  const setup = JSON.parse(runCli(["agent", "setup", "--json"]));
+  assert.strictEqual(setup.protocol, "ripple-agent-setup");
+  assert.strictEqual(setup.version, 1);
+  assert.strictEqual(setup.workspace, workspaceRoot);
+  assert.strictEqual(setup.mcp.serverName, "ripple");
+  assert.strictEqual(setup.mcp.command, "npx");
+  assert(setup.mcp.args.includes("@getripple/mcp"));
+  assert(setup.mcp.args.includes("--workspace"));
+  assert(setup.mcp.args.includes(workspaceRoot));
+  assert(setup.files.some((file) => file.path === "AGENTS.md" && file.written === true));
+  assert(setup.files.some((file) => file.path === "CLAUDE.md" && file.written === true));
+  assert(setup.files.some((file) => file.path === ".cursorrules" && file.written === true));
+
+  const agents = fs.readFileSync(path.join(workspaceRoot, "AGENTS.md"), "utf8");
+  assertIncludes(agents, "ripple_plan_context", "AGENTS.md");
+  assertIncludes(agents, "ripple_gate", "AGENTS.md");
+  assertIncludes(agents, "Do not claim Ripple passed unless you actually called", "AGENTS.md");
+  assertIncludes(agents, "@getripple/mcp", "AGENTS.md");
+
+  const repeated = JSON.parse(runCli(["agent", "setup", "--json"]));
+  assert(repeated.files.every((file) => file.status === "exists" && file.written === false));
+}
+
 function main() {
   setupFixture();
+  proveAgentSetupWritesMcpInstructions();
 
   // Agent output must expose the saved control boundary before edits begin.
   const plan = runCli([

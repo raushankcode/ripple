@@ -134,6 +134,22 @@ type RippleWorkflowSummary = {
   nextSteps: string[];
 };
 
+type RippleAgentSetupSummary = {
+  protocol: "ripple-agent-setup";
+  version: 1;
+  workspace: string;
+  files: RippleInitFileSummary[];
+  mcp: {
+    serverName: "ripple";
+    command: "npx";
+    args: string[];
+    workspace: string;
+    config: Record<string, unknown>;
+  };
+  setupRequired: string[];
+  nextSteps: string[];
+};
+
 type SavedChangeIntent = {
   intent: ChangeIntent;
   path: string;
@@ -187,6 +203,7 @@ function usage(): string {
     "  ripple policy init [--print] [--force]",
     "  ripple policy explain --file <file>",
     "  ripple agent",
+    "  ripple agent setup [--print] [--force]",
     "",
     "Options:",
     "  --json, -j    Print machine-readable JSON",
@@ -216,6 +233,7 @@ function usage(): string {
     "  ripple workflow",
     "  ripple doctor --agent",
     "  ripple agent",
+    "  ripple agent setup",
     "  ripple agent --json",
     "  ripple plan --file src/auth.ts --task \"change token refresh behavior\" --mode file --agent --save",
     "  ripple plan --file src/auth.ts --symbol refreshToken --task \"fix retry behavior\" --mode function --agent --save",
@@ -291,6 +309,173 @@ function agentWorkflowGuide(): string {
     "Example:",
     ...workflow.example.map((command) => `  ${command}`),
   ].join("\n");
+}
+
+function mcpServerConfig(workspaceRoot: string): Record<string, unknown> {
+  return {
+    mcpServers: {
+      ripple: {
+        command: "npx",
+        args: ["-y", "@getripple/mcp", "--workspace", workspaceRoot],
+      },
+    },
+  };
+}
+
+function mcpServerConfigJson(workspaceRoot: string): string {
+  return JSON.stringify(mcpServerConfig(workspaceRoot), null, 2);
+}
+
+function agentInstructionMarkdown(workspaceRoot: string, fileName: "AGENTS.md" | "CLAUDE.md" | ".cursorrules"): string {
+  const workflow = getAgentWorkflowSummary();
+  const title = fileName === ".cursorrules" ? "Ripple Cursor Agent Rules" : "Ripple Agent Instructions";
+  return [
+    `# ${title}`,
+    "",
+    "Ripple is the local authorization gate for this repo's AI coding work.",
+    "",
+    "## Non-negotiable workflow",
+    "",
+    "Before editing code:",
+    `- Use MCP tool \`${workflow.mcpTools.planBeforeEditing}\` to create a plan and save the local intent.`,
+    "- Do not ask the human to run `ripple plan` if the MCP tool is available. Call the tool yourself.",
+    "- Treat `.ripple/policy.json` as the permanent human/team policy.",
+    "",
+    "After editing code:",
+    `- Use MCP tool \`${workflow.mcpTools.gateCurrentChange}\` or \`${workflow.mcpTools.checkChangedAgainstBase}\` before handoff.`,
+    "- If Ripple returns `mustStop: true`, stop immediately.",
+    "- Do not retry the same unsafe edit or commit loop.",
+    `- Use MCP tool \`${workflow.mcpTools.repairIntentDrift}\` when Ripple returns repair guidance.`,
+    "",
+    "Never:",
+    "- Do not widen your own scope by editing `.ripple` policy, cache, approval, or intent files.",
+    "- Do not ignore a Ripple `repair` or `human-review` decision.",
+    "- Do not claim Ripple passed unless you actually called the Ripple MCP tool.",
+    "",
+    "Allowed source of truth:",
+    "- Policy is permanent.",
+    "- Intent is local and ephemeral.",
+    "- Git is truth.",
+    "- MCP is guidance.",
+    "- Hook is enforcement.",
+    "- CI starts as audit, then becomes governance.",
+    "",
+    "## MCP server config",
+    "",
+    "Connect this repo to Ripple MCP in your agent/IDE settings:",
+    "",
+    "```json",
+    mcpServerConfigJson(workspaceRoot),
+    "```",
+    "",
+    "## Human setup reminder",
+    "",
+    "If the Ripple MCP tools are not visible to you, tell the human to connect the MCP server first.",
+    "Do not pretend the tools exist when they are not available.",
+    "",
+  ].join("\n");
+}
+
+function agentSetupFiles(workspaceRoot: string): Array<{ path: string; absolutePath: string; content: string }> {
+  return ["AGENTS.md", "CLAUDE.md", ".cursorrules"].map((fileName) => ({
+    path: fileName,
+    absolutePath: path.join(workspaceRoot, fileName),
+    content: agentInstructionMarkdown(workspaceRoot, fileName as "AGENTS.md" | "CLAUDE.md" | ".cursorrules"),
+  }));
+}
+
+function buildAgentSetupSummary(
+  workspaceRoot: string,
+  files: RippleInitFileSummary[]
+): RippleAgentSetupSummary {
+  const mcpArgs = ["-y", "@getripple/mcp", "--workspace", workspaceRoot];
+  return {
+    protocol: "ripple-agent-setup",
+    version: 1,
+    workspace: workspaceRoot,
+    files,
+    mcp: {
+      serverName: "ripple",
+      command: "npx",
+      args: mcpArgs,
+      workspace: workspaceRoot,
+      config: mcpServerConfig(workspaceRoot),
+    },
+    setupRequired: [
+      "Open your agent or IDE MCP settings.",
+      "Add a new MCP server named ripple.",
+      `Use command: npx ${mcpArgs.join(" ")}`,
+      "Restart or reload the agent so Ripple MCP tools become available.",
+    ],
+    nextSteps: [
+      "Ask the agent to call ripple_get_agent_workflow to confirm MCP connectivity.",
+      "Before edits, the agent should call ripple_plan_context with saveIntent enabled.",
+      "After edits, the agent should call ripple_gate or ripple_check_changed before handoff.",
+    ],
+  };
+}
+
+function printAgentSetupSummary(summary: RippleAgentSetupSummary): void {
+  console.log("Ripple agent setup");
+  console.log(`Workspace: ${summary.workspace}`);
+  console.log("");
+  console.log("Generated files:");
+  summary.files.forEach((file) => {
+    console.log(`  - ${file.path}: ${file.status}`);
+  });
+  console.log("");
+  console.log("ACTION REQUIRED: connect Ripple MCP to your agent/IDE.");
+  console.log("");
+  console.log("MCP server:");
+  console.log("  name: ripple");
+  console.log("  command: npx");
+  console.log(`  args: ${summary.mcp.args.join(" ")}`);
+  console.log("");
+  console.log("Paste this MCP config if your client accepts JSON:");
+  console.log(mcpServerConfigJson(summary.workspace));
+  console.log("");
+  console.log("Cursor / Claude / agent steps:");
+  summary.setupRequired.forEach((step, index) => console.log(`  ${index + 1}. ${step}`));
+  console.log("");
+  console.log("Next:");
+  summary.nextSteps.forEach((step) => console.log(`  - ${step}`));
+}
+
+function agentSetupCommand(options: CliOptions): void {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const files = agentSetupFiles(workspaceRoot);
+
+  if (options.print) {
+    const summary = buildAgentSetupSummary(
+      workspaceRoot,
+      files.map((file) => ({
+        path: file.path,
+        status: "printed",
+        written: false,
+        overwritten: false,
+        content: file.content,
+      }))
+    );
+    if (options.json) {
+      printJson(summary);
+      return;
+    }
+    process.stdout.write(
+      files
+        .flatMap((file) => [`# ${file.path}`, file.content.trimEnd(), ""])
+        .join("\n")
+    );
+    return;
+  }
+
+  const writtenFiles = files.map((file) => writeInitFile(file, options.force));
+  const summary = buildAgentSetupSummary(workspaceRoot, writtenFiles);
+
+  if (options.json) {
+    printJson(summary);
+  } else {
+    printAgentSetupSummary(summary);
+  }
 }
 
 function parseCliArgs(argv: string[]): ParsedCliArgs {
@@ -3986,6 +4171,13 @@ async function main(): Promise<void> {
   }
 
   if (command === "agent") {
+    if (arg === "setup") {
+      agentSetupCommand(options);
+      return;
+    }
+    if (arg && arg !== "setup") {
+      throw new Error("Usage: ripple agent or ripple agent setup [--print] [--force]");
+    }
     if (options.json) {
       printJson(getAgentWorkflowSummary());
     } else {
