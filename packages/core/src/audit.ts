@@ -5,6 +5,7 @@ import type {
   IntentDriftRepairPlan,
   RippleAgentHandoffDecision,
   RippleAgentHandoffVerdict,
+  RippleReviewPacket,
   StagedCheckWithIntentSummary,
 } from "./change-intent";
 import { buildAgentHandoffVerdict } from "./change-intent";
@@ -51,6 +52,7 @@ export type RippleAuditSummary = {
   changedFiles: string[];
   verificationTargets: string[];
   risk: RippleRiskSummary;
+  reviewPacket: RippleReviewPacket;
   handoff: RippleAgentHandoffVerdict;
 };
 
@@ -83,6 +85,7 @@ export type RippleGateSummary = {
   askHuman: string[];
   commands: RippleAgentHandoffVerdict["commands"];
   risk: RippleRiskSummary;
+  reviewPacket: RippleReviewPacket;
 };
 
 export function buildRippleAuditSummary(input: {
@@ -154,6 +157,7 @@ export function buildRippleAuditSummary(input: {
     nextSteps,
     changedFiles: input.stagedCheck.files.map((file) => file.file),
     verificationTargets: input.repairPlan.verificationTargets,
+    reviewPacket: input.stagedCheck.reviewPacket ?? missingReviewPacket(input.stagedCheck, input.intent),
     risk: buildRippleRiskSummary({
       boundaryRisk: input.intent.boundaryRisk,
       allowedFiles: validation.editableFiles,
@@ -208,6 +212,61 @@ export function buildRippleGateSummary(audit: RippleAuditSummary): RippleGateSum
     askHuman: handoff.askHuman,
     commands: handoff.commands,
     risk: audit.risk,
+    reviewPacket: audit.reviewPacket,
+  };
+}
+
+function missingReviewPacket(
+  stagedCheck: StagedCheckWithIntentSummary,
+  intent: ChangeIntent
+): RippleReviewPacket {
+  const validation = stagedCheck.intentValidation;
+  if (!validation) {
+    throw new Error("Review packet requires a validated saved intent.");
+  }
+  return {
+    protocol: "ripple-review-packet",
+    version: 1,
+    intentId: intent.id,
+    originalTask: intent.task,
+    mode: stagedCheck.mode,
+    declaredScope: {
+      controlMode: intent.controlMode,
+      targetFile: intent.targetFile,
+      allowedFiles: validation.editableFiles,
+      allowedSymbols: validation.allowedSymbols,
+      humanGate: validation.humanGate,
+      boundaryRisk: validation.boundaryRisk,
+    },
+    actualChanges: {
+      changedFiles: stagedCheck.files.map((file) => file.file),
+      changedSymbols: stagedCheck.changedSymbols.map((symbol) => symbol.symbol),
+      contractRiskSymbols: stagedCheck.contractRisks.map((risk) => risk.symbol),
+      skippedFiles: stagedCheck.skippedFiles,
+      missingFiles: stagedCheck.missingFiles,
+    },
+    scopeFindings: {
+      plannedFilesChanged: validation.plannedFilesChanged,
+      contextFilesChanged: validation.contextFilesChanged,
+      outsideBoundaryFiles: validation.boundaryVerdict.changedOutsideBoundaryFiles,
+      outsideBoundarySymbols: validation.boundaryVerdict.changedOutsideBoundarySymbols,
+      protectedContractChanges: validation.protectedContractChanges,
+      unplannedContractChanges: validation.unplannedContractChanges,
+    },
+    verification: {
+      expectedCommands: stagedCheck.files.flatMap((file) => file.verificationTargets),
+      testsRun: "unknown",
+      note: "Ripple records expected verification, not proof that tests were run.",
+    },
+    decision: {
+      canContinue: validation.handoff.canContinue,
+      mustStop: validation.handoff.mustStop,
+      needsHuman: validation.handoff.needsHuman,
+      verdict: validation.verdict,
+      nextRequiredAction: validation.nextRequiredAction,
+      recommendedAction: validation.recommendedAction,
+    },
+    reviewerNotes: validation.nextSteps,
   };
 }
 

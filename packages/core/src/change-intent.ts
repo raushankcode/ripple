@@ -150,6 +150,51 @@ export type RippleAgentHandoffVerdict = {
   commands: RippleAgentHandoffCommands;
 };
 
+export type RippleReviewPacket = {
+  protocol: "ripple-review-packet";
+  version: 1;
+  intentId: string;
+  originalTask: string;
+  mode: StagedCheckSummary["mode"];
+  declaredScope: {
+    controlMode: ControlMode;
+    targetFile: string;
+    allowedFiles: string[];
+    allowedSymbols: string[];
+    humanGate: HumanGate;
+    boundaryRisk: ControlBoundaryRisk;
+  };
+  actualChanges: {
+    changedFiles: string[];
+    changedSymbols: string[];
+    contractRiskSymbols: string[];
+    skippedFiles: string[];
+    missingFiles: string[];
+  };
+  scopeFindings: {
+    plannedFilesChanged: string[];
+    contextFilesChanged: string[];
+    outsideBoundaryFiles: string[];
+    outsideBoundarySymbols: string[];
+    protectedContractChanges: string[];
+    unplannedContractChanges: string[];
+  };
+  verification: {
+    expectedCommands: string[];
+    testsRun: "unknown";
+    note: string;
+  };
+  decision: {
+    canContinue: boolean;
+    mustStop: boolean;
+    needsHuman: boolean;
+    verdict: ChangeIntentVerdict;
+    nextRequiredAction: string;
+    recommendedAction: string;
+  };
+  reviewerNotes: string[];
+};
+
 export type BoundaryVerdictStatus = "pass" | "drift" | "danger";
 export type BoundaryDecision =
   | "continue"
@@ -208,6 +253,7 @@ export type ChangeIntentValidationSummary = {
 
 export type StagedCheckWithIntentSummary = StagedCheckSummary & {
   intentValidation?: ChangeIntentValidationSummary;
+  reviewPacket?: RippleReviewPacket;
   nextRequiredPhase?: AgentRuntimeNextPhaseId;
   nextRequiredAction?: string;
 };
@@ -457,8 +503,83 @@ export function validateStagedCheckAgainstIntent(
     ...staged,
     requiresAttention: staged.requiresAttention || validation.requiresAttention,
     intentValidation: validation,
+    reviewPacket: buildRippleReviewPacket(staged, intent, validation),
     nextRequiredPhase: validation.nextRequiredPhase,
     nextRequiredAction: validation.nextRequiredAction,
+  };
+}
+
+export function buildRippleReviewPacket(
+  staged: StagedCheckSummary,
+  intent: ChangeIntent,
+  validation: ChangeIntentValidationSummary
+): RippleReviewPacket {
+  const changedFiles = uniqueItems([
+    ...staged.files.map((file) => file.file),
+    ...staged.skippedFiles,
+    ...staged.missingFiles,
+  ]);
+  const changedSymbols = uniqueItems(staged.changedSymbols.map((symbol) => symbol.symbol));
+  const contractRiskSymbols = uniqueItems(staged.contractRisks.map((risk) => risk.symbol));
+  const outsideBoundaryFiles = uniqueItems([
+    ...validation.unplannedFiles,
+    ...validation.boundaryVerdict.changedOutsideBoundaryFiles,
+  ]);
+  const outsideBoundarySymbols = uniqueItems([
+    ...validation.unplannedSymbols,
+    ...validation.boundaryVerdict.changedOutsideBoundarySymbols,
+  ]);
+  const verificationTargets = uniqueItems([
+    ...intent.verificationTargets,
+    ...staged.files.flatMap((file) => file.verificationTargets),
+  ]);
+  const mustStop = validation.handoff.mustStop;
+
+  return {
+    protocol: "ripple-review-packet",
+    version: 1,
+    intentId: intent.id,
+    originalTask: intent.task,
+    mode: staged.mode,
+    declaredScope: {
+      controlMode: intent.controlMode,
+      targetFile: intent.targetFile,
+      allowedFiles: validation.editableFiles,
+      allowedSymbols: validation.allowedSymbols,
+      humanGate: validation.humanGate,
+      boundaryRisk: validation.boundaryRisk,
+    },
+    actualChanges: {
+      changedFiles,
+      changedSymbols,
+      contractRiskSymbols,
+      skippedFiles: staged.skippedFiles,
+      missingFiles: staged.missingFiles,
+    },
+    scopeFindings: {
+      plannedFilesChanged: validation.plannedFilesChanged,
+      contextFilesChanged: validation.contextFilesChanged,
+      outsideBoundaryFiles,
+      outsideBoundarySymbols,
+      protectedContractChanges: validation.protectedContractChanges,
+      unplannedContractChanges: validation.unplannedContractChanges,
+    },
+    verification: {
+      expectedCommands: verificationTargets,
+      testsRun: "unknown",
+      note: verificationTargets.length > 0
+        ? "Ripple found verification targets, but it cannot prove they were run from this packet alone."
+        : "Ripple found no verification target; use the narrowest manual check before handoff.",
+    },
+    decision: {
+      canContinue: validation.handoff.canContinue,
+      mustStop,
+      needsHuman: validation.handoff.needsHuman,
+      verdict: validation.verdict,
+      nextRequiredAction: validation.nextRequiredAction,
+      recommendedAction: validation.recommendedAction,
+    },
+    reviewerNotes: buildReviewPacketNotes(validation, verificationTargets),
   };
 }
 
@@ -1018,6 +1139,37 @@ function buildIntentValidation(
     ...validation,
     handoff: buildValidationHandoff(validation),
   };
+}
+
+function buildReviewPacketNotes(
+  validation: ChangeIntentValidationSummary,
+  verificationTargets: string[]
+): string[] {
+  const notes: string[] = [];
+  if (validation.boundaryVerdict.changedOutsideBoundaryFiles.length > 0) {
+    notes.push("Patch scope crossed: review files outside the declared boundary before keeping this change.");
+  }
+  if (validation.boundaryVerdict.changedOutsideBoundarySymbols.length > 0) {
+    notes.push("Function scope crossed: review changed symbols outside the declared function boundary.");
+  }
+  if (validation.contextFilesChanged.length > 0) {
+    notes.push("Context-only files changed: approve a wider intent if those edits are valid.");
+  }
+  if (
+    validation.protectedContractChanges.length > 0 ||
+    validation.unplannedContractChanges.length > 0
+  ) {
+    notes.push("Behavior scope requires review: protected or unplanned contracts changed.");
+  }
+  if (verificationTargets.length > 0) {
+    notes.push("Verification evidence is required before handoff; this packet records expected checks, not proof that they ran.");
+  } else {
+    notes.push("No automated verification target was found; require a focused manual reviewer pass.");
+  }
+  if (validation.humanGate !== "none") {
+    notes.push(`Human gate applies: ${validation.humanGate}.`);
+  }
+  return uniqueItems(notes);
 }
 
 function validationNextRequiredPhase(input: {

@@ -44,6 +44,7 @@ import {
   RipplePolicyExplanation,
   RipplePolicyRiskRule,
   RippleReadinessSummary,
+  RippleReviewPacket,
   RIPPLE_CACHE_GITIGNORE_ENTRY,
   RIPPLE_CI_WORKFLOW_PATH,
   RIPPLE_GITIGNORE_PATH,
@@ -2340,6 +2341,10 @@ function printAgentStagedCheckSummary(summary: StagedCheckWithIntentSummary): vo
   console.log(`checked_js_ts_files: ${summary.stagedFiles}`);
   console.log(`checked_files: ${summary.checkedFiles}`);
   printAgentIntentValidation(summary.intentValidation);
+  if (summary.reviewPacket) {
+    console.log("");
+    printAgentReviewPacket(summary.reviewPacket);
+  }
 
   console.log("");
   printAgentList("trusted_findings", summary.agentActions.trustedFindings);
@@ -2638,6 +2643,8 @@ function printAgentAuditSummary(summary: RippleAuditSummary): void {
   console.log(`repair_status: ${summary.repairPlan.status}`);
   console.log(`recommended_action: ${summary.recommendedAction}`);
   console.log("");
+  printAgentReviewPacket(summary.reviewPacket);
+  console.log("");
   printAgentHandoffBlock("handoff", summary.handoff);
   if (summary.approvalStatus.approval) {
     console.log(`approved_by: ${summary.approvalStatus.approval.approvedBy}`);
@@ -2696,6 +2703,8 @@ function printAgentGateSummary(summary: RippleGateSummary): void {
   console.log(`risk_score: ${summary.risk.score}`);
   console.log(`risk_summary: ${summary.risk.summary}`);
   console.log("");
+  printAgentReviewPacket(summary.reviewPacket);
+  console.log("");
   printAgentList("risk_reasons", compactGateRiskReasons(summary));
   console.log("");
   printAgentList("risk_evidence", compactGateRiskEvidence(summary));
@@ -2748,6 +2757,9 @@ function printGateSummary(summary: RippleGateSummary): void {
     outsideBoundary.length > 0 ? "Changed outside boundary:" : "Changed files:",
     outsideBoundary.length > 0 ? outsideBoundary : summary.changedFiles
   );
+  console.log("");
+  printReviewPacketSummary(summary.reviewPacket);
+  console.log("");
   printHumanList("Why:", compactGateReasons(summary));
   printHumanList("Fix now:", compactGateFixes(summary));
   if (summary.canContinue) {
@@ -2860,6 +2872,8 @@ function printAuditSummary(summary: RippleAuditSummary): void {
   console.log(`  next required phase: ${gate.nextRequiredPhase}`);
   console.log(`  next required action: ${gate.nextRequiredAction}`);
   console.log(`  summary: ${gate.summary}`);
+  console.log("");
+  printReviewPacketSummary(summary.reviewPacket);
   console.log("");
   console.log("Approval:");
   console.log(`  status: ${summary.approvalStatus.status}`);
@@ -3023,6 +3037,47 @@ function printHumanList(title: string, items: string[]): void {
   items.forEach((item) => console.log(`  - ${item}`));
 }
 
+function printReviewPacketSummary(packet: RippleReviewPacket): void {
+  console.log("Review packet:");
+  console.log(`  protocol: ${packet.protocol}`);
+  console.log(`  task: ${packet.originalTask}`);
+  console.log(`  declared scope: ${packet.declaredScope.controlMode} ${packet.declaredScope.targetFile}`);
+  console.log(`  human gate: ${packet.declaredScope.humanGate}`);
+  console.log(`  boundary risk: ${packet.declaredScope.boundaryRisk}`);
+  printHumanList("  changed files", packet.actualChanges.changedFiles);
+  printHumanList("  outside boundary files", packet.scopeFindings.outsideBoundaryFiles);
+  printHumanList("  outside boundary symbols", packet.scopeFindings.outsideBoundarySymbols);
+  printHumanList("  verification expected", packet.verification.expectedCommands);
+  console.log(`  tests run: ${packet.verification.testsRun}`);
+  console.log(`  can continue: ${formatYesNo(packet.decision.canContinue)}`);
+  console.log(`  must stop: ${formatYesNo(packet.decision.mustStop)}`);
+  console.log(`  needs human: ${formatYesNo(packet.decision.needsHuman)}`);
+  printHumanList("  reviewer notes", packet.reviewerNotes);
+}
+
+function printAgentReviewPacket(packet: RippleReviewPacket): void {
+  console.log(`review_packet_protocol: ${packet.protocol}`);
+  console.log(`review_packet_version: ${packet.version}`);
+  console.log(`review_packet_task: ${packet.originalTask}`);
+  console.log(`review_packet_scope: ${packet.declaredScope.controlMode} ${packet.declaredScope.targetFile}`);
+  console.log(`review_packet_human_gate: ${packet.declaredScope.humanGate}`);
+  console.log(`review_packet_boundary_risk: ${packet.declaredScope.boundaryRisk}`);
+  console.log(`review_packet_tests_run: ${packet.verification.testsRun}`);
+  console.log(`review_packet_can_continue: ${packet.decision.canContinue}`);
+  console.log(`review_packet_must_stop: ${packet.decision.mustStop}`);
+  console.log(`review_packet_needs_human: ${packet.decision.needsHuman}`);
+  console.log("");
+  printAgentList("review_packet_changed_files", packet.actualChanges.changedFiles);
+  console.log("");
+  printAgentList("review_packet_outside_boundary_files", packet.scopeFindings.outsideBoundaryFiles);
+  console.log("");
+  printAgentList("review_packet_outside_boundary_symbols", packet.scopeFindings.outsideBoundarySymbols);
+  console.log("");
+  printAgentList("review_packet_verification_expected", packet.verification.expectedCommands);
+  console.log("");
+  printAgentList("review_packet_reviewer_notes", packet.reviewerNotes);
+}
+
 function printStagedCheckSummary(summary: StagedCheckWithIntentSummary): void {
   const adapter = summary.adapterSupport.primaryAdapter;
   console.log(summary.mode === "changed" ? "Ripple changed-files check" : summary.mode === "worktree" ? "Ripple worktree check" : "Ripple staged check");
@@ -3053,6 +3108,10 @@ function printStagedCheckSummary(summary: StagedCheckWithIntentSummary): void {
     printPolicyDriftSummary("Policy drift:", summary.intentValidation.policyDrift);
     printReadinessDriftSummary("Readiness drift:", summary.intentValidation.readinessDrift);
     console.log(`Planned scope: ${summary.intentValidation.plannedScope}`);
+  }
+  if (summary.reviewPacket) {
+    console.log("");
+    printReviewPacketSummary(summary.reviewPacket);
   }
 
   if (summary.skippedFiles.length > 0) {
