@@ -422,6 +422,71 @@ function main() {
     "init should not duplicate the post-commit Ripple block"
   );
 
+  const existingAgentWorkspace = setupInitFixture();
+  writeFileIn(existingAgentWorkspace, "AGENTS.md", "# Team Agent Rules\n\nUse pnpm.\nDo not edit migrations without approval.");
+  const existingAgentInitJson = runCliJsonIn(existingAgentWorkspace, ["init"]);
+  const existingAgentSummary = existingAgentInitJson.agentSetup.files.find((file) => file.path === "AGENTS.md");
+  assert.strictEqual(
+    existingAgentSummary.status,
+    "appended",
+    "init should append Ripple rules into an existing AGENTS.md instead of skipping it"
+  );
+  const existingAgentContents = fs.readFileSync(path.join(existingAgentWorkspace, "AGENTS.md"), "utf8");
+  assert(
+    existingAgentContents.includes("Use pnpm."),
+    "init should preserve existing AGENTS.md content"
+  );
+  assert(
+    existingAgentContents.includes("<!-- RIPPLE:START -->") &&
+      existingAgentContents.includes("<!-- RIPPLE:END -->"),
+    "init should add a managed Ripple section to existing AGENTS.md"
+  );
+  assert(
+    existingAgentContents.includes("ripple_plan_context"),
+    "init should add Ripple MCP workflow rules to existing AGENTS.md"
+  );
+
+  const secondExistingAgentInitJson = runCliJsonIn(existingAgentWorkspace, ["init"]);
+  const secondExistingAgentSummary = secondExistingAgentInitJson.agentSetup.files.find((file) => file.path === "AGENTS.md");
+  assert.strictEqual(
+    secondExistingAgentSummary.status,
+    "exists",
+    "init should not duplicate the managed Ripple section in existing AGENTS.md"
+  );
+  const secondExistingAgentContents = fs.readFileSync(path.join(existingAgentWorkspace, "AGENTS.md"), "utf8");
+  assert.strictEqual(
+    (secondExistingAgentContents.match(/<!-- RIPPLE:START -->/g) || []).length,
+    1,
+    "init should keep exactly one Ripple managed section"
+  );
+
+  const staleAgentWorkspace = setupInitFixture();
+  writeFileIn(
+    staleAgentWorkspace,
+    "CLAUDE.md",
+    [
+      "# Team Claude Rules",
+      "",
+      "Keep responses short.",
+      "",
+      "<!-- RIPPLE:START -->",
+      "old ripple instructions",
+      "<!-- RIPPLE:END -->",
+      "",
+    ].join("\n")
+  );
+  const staleAgentInitJson = runCliJsonIn(staleAgentWorkspace, ["init"]);
+  const staleAgentSummary = staleAgentInitJson.agentSetup.files.find((file) => file.path === "CLAUDE.md");
+  assert.strictEqual(
+    staleAgentSummary.status,
+    "updated",
+    "init should update only the managed Ripple section when markers already exist"
+  );
+  const staleAgentContents = fs.readFileSync(path.join(staleAgentWorkspace, "CLAUDE.md"), "utf8");
+  assert(staleAgentContents.includes("Keep responses short."), "init should preserve content outside Ripple markers");
+  assert(!staleAgentContents.includes("old ripple instructions"), "init should replace stale Ripple marker content");
+  assert(staleAgentContents.includes("ripple_plan_context"), "init should refresh Ripple marker content");
+
   const forcedInitJson = runCliJsonIn(initWorkspace, ["init", "--force"]);
   assert(
     forcedInitJson.files

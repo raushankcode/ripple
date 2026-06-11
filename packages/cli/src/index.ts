@@ -107,7 +107,7 @@ type ScanSummary = {
 
 type RippleInitFileSummary = {
   path: string;
-  status: "written" | "updated" | "overwritten" | "exists" | "printed";
+  status: "written" | "updated" | "appended" | "overwritten" | "exists" | "printed";
   written: boolean;
   overwritten: boolean;
   content?: string;
@@ -398,11 +398,25 @@ function agentInstructionMarkdown(workspaceRoot: string, fileName: "AGENTS.md" |
   ].join("\n");
 }
 
+const RIPPLE_AGENT_SECTION_START = "<!-- RIPPLE:START -->";
+const RIPPLE_AGENT_SECTION_END = "<!-- RIPPLE:END -->";
+
+function rippleAgentManagedSection(content: string): string {
+  return [
+    RIPPLE_AGENT_SECTION_START,
+    content.trimEnd(),
+    RIPPLE_AGENT_SECTION_END,
+    "",
+  ].join("\n");
+}
+
 function agentSetupFiles(workspaceRoot: string): Array<{ path: string; absolutePath: string; content: string }> {
   return ["AGENTS.md", "CLAUDE.md", ".cursorrules"].map((fileName) => ({
     path: fileName,
     absolutePath: path.join(workspaceRoot, fileName),
-    content: agentInstructionMarkdown(workspaceRoot, fileName as "AGENTS.md" | "CLAUDE.md" | ".cursorrules"),
+    content: rippleAgentManagedSection(
+      agentInstructionMarkdown(workspaceRoot, fileName as "AGENTS.md" | "CLAUDE.md" | ".cursorrules")
+    ),
   }));
 }
 
@@ -490,7 +504,7 @@ function agentSetupCommand(options: CliOptions): void {
     return;
   }
 
-  const writtenFiles = files.map((file) => writeInitFile(file, options.force));
+  const writtenFiles = files.map((file) => writeAgentSetupFile(file, options.force));
   const summary = buildAgentSetupSummary(workspaceRoot, writtenFiles);
 
   if (options.json) {
@@ -3829,7 +3843,7 @@ async function initCommand(options: CliOptions): Promise<void> {
   );
   const agentSetup = buildAgentSetupSummary(
     workspaceRoot,
-    agentSetupFiles(workspaceRoot).map((file) => writeInitFile(file, options.force))
+    agentSetupFiles(workspaceRoot).map((file) => writeAgentSetupFile(file, options.force))
   );
   const hooks = installRippleHooks(workspaceRoot);
   const engine = createCliEngine(workspaceRoot);
@@ -3856,6 +3870,80 @@ async function initCommand(options: CliOptions): Promise<void> {
   } finally {
     engine.dispose();
   }
+}
+
+function writeAgentSetupFile(
+  file: {
+    path: string;
+    absolutePath: string;
+    content: string;
+  },
+  force: boolean
+): RippleInitFileSummary {
+  const existed = fs.existsSync(file.absolutePath);
+  const nextSection = normalizeLf(file.content);
+
+  if (!existed || force) {
+    fs.mkdirSync(path.dirname(file.absolutePath), { recursive: true });
+    fs.writeFileSync(file.absolutePath, ensureTrailingLf(nextSection), "utf8");
+    return {
+      path: file.path,
+      status: existed ? "overwritten" : "written",
+      written: true,
+      overwritten: existed,
+    };
+  }
+
+  const existing = fs.readFileSync(file.absolutePath, "utf8");
+  const updated = mergeRippleManagedSection(existing, nextSection);
+  if (updated.content === existing) {
+    return {
+      path: file.path,
+      status: "exists",
+      written: false,
+      overwritten: false,
+    };
+  }
+
+  fs.writeFileSync(file.absolutePath, updated.content, "utf8");
+  return {
+    path: file.path,
+    status: updated.action,
+    written: true,
+    overwritten: false,
+  };
+}
+
+function mergeRippleManagedSection(
+  existing: string,
+  nextSection: string
+): { content: string; action: "updated" | "appended" } {
+  const start = existing.indexOf(RIPPLE_AGENT_SECTION_START);
+  const end = existing.indexOf(RIPPLE_AGENT_SECTION_END);
+
+  if (start !== -1 && end !== -1 && end > start) {
+    const afterEnd = end + RIPPLE_AGENT_SECTION_END.length;
+    const before = existing.slice(0, start);
+    const after = existing.slice(afterEnd).replace(/^\r?\n/, "");
+    return {
+      content: `${before}${ensureTrailingLf(nextSection)}${after}`,
+      action: "updated",
+    };
+  }
+
+  const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
+  return {
+    content: `${existing}${separator}${ensureTrailingLf(nextSection)}`,
+    action: "appended",
+  };
+}
+
+function normalizeLf(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function ensureTrailingLf(value: string): string {
+  return value.endsWith("\n") ? value : `${value}\n`;
 }
 
 function writeInitFile(
