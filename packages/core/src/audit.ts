@@ -259,6 +259,7 @@ function missingReviewPacket(
       status: validation.verificationVerdict.status,
       decision: validation.verificationVerdict.decision,
       reportedCommands: [],
+      executedCommands: [],
       evidence: [],
       note: "Ripple records expected verification, not proof that tests were run.",
     },

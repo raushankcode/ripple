@@ -47,7 +47,11 @@ export type RippleVerificationEvidence = {
   command: string;
   status: RippleVerificationStatus;
   recordedAt: string;
-  source: "reported";
+  source: "reported" | "executed";
+  exitCode?: number;
+  durationMs?: number;
+  stdoutTail?: string;
+  stderrTail?: string;
   note?: string;
 };
 
@@ -205,10 +209,11 @@ export type RippleReviewPacket = {
   };
   verification: {
     expectedCommands: string[];
-    testsRun: "unknown" | "reported";
+    testsRun: "unknown" | "reported" | "executed";
     status: VerificationVerdictStatus;
     decision: VerificationVerdictDecision;
     reportedCommands: string[];
+    executedCommands: string[];
     evidence: RippleVerificationEvidence[];
     note: string;
   };
@@ -568,6 +573,12 @@ export function buildRippleReviewPacket(
   ]);
   const mustStop = validation.handoff.mustStop;
   const verificationEvidence = normalizeVerificationEvidence(intent.verificationEvidence);
+  const reportedVerificationCommands = verificationEvidence
+    .filter((evidence) => evidence.source === "reported")
+    .map((evidence) => evidence.command);
+  const executedVerificationCommands = verificationEvidence
+    .filter((evidence) => evidence.source === "executed")
+    .map((evidence) => evidence.command);
 
   return {
     protocol: "ripple-review-packet",
@@ -600,13 +611,20 @@ export function buildRippleReviewPacket(
     },
     verification: {
       expectedCommands: verificationTargets,
-      testsRun: verificationEvidence.length > 0 ? "reported" : "unknown",
+      testsRun: verificationEvidence.length > 0
+        ? executedVerificationCommands.length > 0
+          ? "executed"
+          : "reported"
+        : "unknown",
       status: validation.verificationVerdict.status,
       decision: validation.verificationVerdict.decision,
-      reportedCommands: verificationEvidence.map((evidence) => evidence.command),
+      reportedCommands: reportedVerificationCommands,
+      executedCommands: executedVerificationCommands,
       evidence: verificationEvidence,
       note: verificationEvidence.length > 0
-        ? "Ripple recorded reported verification evidence; it did not independently execute these commands."
+        ? executedVerificationCommands.length > 0
+          ? "Ripple executed at least one verification command and recorded its exit code."
+          : "Ripple recorded reported verification evidence; it did not independently execute these commands."
         : verificationTargets.length > 0
         ? "Ripple found verification targets, but it cannot prove they were run from this packet alone."
         : "Ripple found no verification target; use the narrowest manual check before handoff.",
@@ -1605,7 +1623,7 @@ function buildVerificationVerdict(
       status: "failed",
       decision: "repair",
       label: "FAILED",
-      summary: "FAILED: reported verification evidence includes failing checks.",
+      summary: "FAILED: verification evidence includes failing checks.",
       why: failed.map((item) => verificationEvidenceWhy(item)),
       fix: failed.map((item) => verificationEvidenceFix(item)),
       evidence,
@@ -1621,7 +1639,7 @@ function buildVerificationVerdict(
       decision: "human-review",
       label: "REVIEW",
       summary:
-        "REVIEW: reported verification evidence is skipped or unknown, so a human must review before handoff.",
+        "REVIEW: verification evidence is skipped or unknown, so a human must review before handoff.",
       why: incomplete.map((item) => verificationEvidenceWhy(item)),
       fix: incomplete.map((item) => verificationEvidenceFix(item)),
       evidence,
@@ -1632,7 +1650,7 @@ function buildVerificationVerdict(
     status: "pass",
     decision: "continue",
     label: "PASS",
-    summary: "PASS: all reported verification evidence was marked passed.",
+    summary: "PASS: all verification evidence was marked passed.",
     why: evidence.map((item) => verificationEvidenceWhy(item)),
     fix: ["Keep the passing verification evidence with the final handoff."],
     evidence,
@@ -1641,7 +1659,10 @@ function buildVerificationVerdict(
 
 function verificationEvidenceWhy(evidence: RippleVerificationEvidence): string {
   const note = evidence.note ? ` Note: ${evidence.note}` : "";
-  return `Reported verification ${evidence.status}: ${evidence.command}.${note}`;
+  const sourceLabel = evidence.source === "executed" ? "Executed" : "Reported";
+  const exitCode = typeof evidence.exitCode === "number" ? ` exitCode=${evidence.exitCode}.` : "";
+  const duration = typeof evidence.durationMs === "number" ? ` durationMs=${evidence.durationMs}.` : "";
+  return `${sourceLabel} verification ${evidence.status}: ${evidence.command}.${exitCode}${duration}${note}`;
 }
 
 function verificationEvidenceFix(evidence: RippleVerificationEvidence): string {
@@ -1654,7 +1675,7 @@ function verificationEvidenceFix(evidence: RippleVerificationEvidence): string {
   if (evidence.status === "unknown") {
     return `Resolve the unknown verification result or ask the human to review it: ${evidence.command}`;
   }
-  return `Keep reported passing verification in the handoff: ${evidence.command}`;
+  return `Keep passing verification evidence in the handoff: ${evidence.command}`;
 }
 
 function buildPolicyDriftSummary(
@@ -2534,6 +2555,18 @@ export function appendRippleVerificationEvidence(
     status: isVerificationStatus(evidence.status) ? evidence.status : "unknown",
     recordedAt: evidence.recordedAt ?? new Date().toISOString(),
     source: evidence.source ?? "reported",
+    exitCode: typeof evidence.exitCode === "number" && Number.isFinite(evidence.exitCode)
+      ? Math.trunc(evidence.exitCode)
+      : undefined,
+    durationMs: typeof evidence.durationMs === "number" && Number.isFinite(evidence.durationMs)
+      ? Math.max(0, Math.trunc(evidence.durationMs))
+      : undefined,
+    stdoutTail: typeof evidence.stdoutTail === "string" && evidence.stdoutTail.trim().length > 0
+      ? evidence.stdoutTail
+      : undefined,
+    stderrTail: typeof evidence.stderrTail === "string" && evidence.stderrTail.trim().length > 0
+      ? evidence.stderrTail
+      : undefined,
     note: typeof evidence.note === "string" && evidence.note.trim().length > 0
       ? evidence.note.trim()
       : undefined,
@@ -2563,18 +2596,37 @@ function normalizeVerificationEvidence(value: unknown): RippleVerificationEviden
     const recordedAt = typeof item.recordedAt === "string" && item.recordedAt.trim().length > 0
       ? item.recordedAt
       : new Date(0).toISOString();
-    const source = item.source === "reported" ? "reported" : "reported";
+    const source = item.source === "executed" ? "executed" : "reported";
+    const exitCode = typeof item.exitCode === "number" && Number.isFinite(item.exitCode)
+      ? Math.trunc(item.exitCode)
+      : undefined;
+    const durationMs = typeof item.durationMs === "number" && Number.isFinite(item.durationMs)
+      ? Math.max(0, Math.trunc(item.durationMs))
+      : undefined;
+    const stdoutTail = typeof item.stdoutTail === "string" && item.stdoutTail.trim().length > 0
+      ? item.stdoutTail
+      : undefined;
+    const stderrTail = typeof item.stderrTail === "string" && item.stderrTail.trim().length > 0
+      ? item.stderrTail
+      : undefined;
     const note = typeof item.note === "string" && item.note.trim().length > 0
       ? item.note.trim()
       : undefined;
-    return [{ command, status, recordedAt, source, note }];
+    return [{ command, status, recordedAt, source, exitCode, durationMs, stdoutTail, stderrTail, note }];
   }));
 }
 
 function uniqueVerificationEvidence(evidence: RippleVerificationEvidence[]): RippleVerificationEvidence[] {
   const seen = new Set<string>();
   return evidence.filter((item) => {
-    const key = [item.command, item.status, item.recordedAt, item.note ?? ""].join("\0");
+    const key = [
+      item.command,
+      item.status,
+      item.source,
+      String(item.exitCode ?? ""),
+      item.recordedAt,
+      item.note ?? "",
+    ].join("\0");
     if (seen.has(key)) {
       return false;
     }

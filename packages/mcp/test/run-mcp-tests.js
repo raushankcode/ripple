@@ -631,7 +631,7 @@ async function main() {
     );
     assert.strictEqual(
       workflow.data.commands.recordVerification,
-      "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest"
+      "ripple verify --run \"<command>\" --intent latest"
     );
     assert.strictEqual(
       workflow.data.commands.checkApproval,

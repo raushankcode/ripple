@@ -2,6 +2,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { spawnSync } from "child_process";
 import {
   appendRippleVerificationEvidence,
   buildChangeIntent,
@@ -82,6 +83,7 @@ type CliOptions = {
   reason?: string;
   approvedBy?: string;
   verificationCommand?: string;
+  verificationRunCommand?: string;
   verificationStatus?: RippleVerificationStatus;
   note?: string;
   intent?: string;
@@ -229,6 +231,16 @@ type RippleVerifyOutput = {
   nextSteps: string[];
 };
 
+type ExecutedVerificationResult = {
+  command: string;
+  status: Extract<RippleVerificationStatus, "passed" | "failed">;
+  exitCode: number;
+  durationMs: number;
+  stdoutTail?: string;
+  stderrTail?: string;
+  note?: string;
+};
+
 type ApprovalStatusOutput = RippleApprovalStatus & {
   intent: {
     id: string;
@@ -266,6 +278,7 @@ function usage(): string {
     "  ripple gate [--intent latest|path] [--worktree|--changed --base <ref>] [--strict]",
     "  ripple approval [--intent latest|path] [--gate before-risky-edit|before-merge]",
     "  ripple approve [--intent latest|path] [--gate before-risky-edit|before-merge] [--reason text]",
+    "  ripple verify --run <test command> [--intent latest|path] [--note text]",
     "  ripple verify --command <test command> --status passed|failed|skipped|unknown [--intent latest|path] [--note text]",
     "  ripple repair [--intent latest|path] [--strict]",
     "  ripple ci [--base <ref>] [--intent latest|path] [--github-annotations]",
@@ -677,6 +690,19 @@ function parseCliArgs(argv: string[]): ParsedCliArgs {
       options.gate = parseApprovalGate(token.slice("--gate=".length));
       continue;
     }
+    if (token === "--run") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --run");
+      }
+      options.verificationRunCommand = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--run=")) {
+      options.verificationRunCommand = token.slice("--run=".length);
+      continue;
+    }
     if (token === "--command") {
       const value = argv[i + 1];
       if (!value || value.startsWith("-")) {
@@ -1075,7 +1101,7 @@ function appendGithubReviewPacket(lines: string[], packet: RippleReviewPacket | 
   lines.push("");
   pushMarkdownList(lines, "Verification expected", packet.verification.expectedCommands, 20);
   lines.push("");
-  pushMarkdownList(lines, "Verification reported", packet.verification.evidence.map(formatVerificationEvidence), 20);
+  pushMarkdownList(lines, "Verification evidence", packet.verification.evidence.map(formatVerificationEvidence), 20);
   lines.push("");
   lines.push("#### Verification note");
   lines.push(`- ${packet.verification.note}`);
@@ -3178,7 +3204,9 @@ function printHumanList(title: string, items: string[]): void {
 
 function formatVerificationEvidence(evidence: RippleVerificationEvidence): string {
   const note = evidence.note ? ` note=${evidence.note}` : "";
-  return `${evidence.status}: ${evidence.command} (${evidence.source} ${evidence.recordedAt})${note}`;
+  const exitCode = typeof evidence.exitCode === "number" ? ` exitCode=${evidence.exitCode}` : "";
+  const duration = typeof evidence.durationMs === "number" ? ` durationMs=${evidence.durationMs}` : "";
+  return `${evidence.status}: ${evidence.command} (${evidence.source}${exitCode}${duration} ${evidence.recordedAt})${note}`;
 }
 
 function verificationEvidenceStatusLabel(evidence: RippleVerificationEvidence[]): string {
@@ -3212,7 +3240,7 @@ function printReviewPacketSummary(packet: RippleReviewPacket): void {
   if (packet.verification.evidence.length > 0) {
     console.log(`  verification status: ${verificationEvidenceStatusLabel(packet.verification.evidence)}`);
   }
-  printHumanList("  verification reported", packet.verification.evidence.map(formatVerificationEvidence));
+  printHumanList("  verification evidence", packet.verification.evidence.map(formatVerificationEvidence));
   console.log(`  can continue: ${formatYesNo(packet.decision.canContinue)}`);
   console.log(`  must stop: ${formatYesNo(packet.decision.mustStop)}`);
   console.log(`  needs human: ${formatYesNo(packet.decision.needsHuman)}`);
@@ -3885,22 +3913,79 @@ function approveCommand(options: CliOptions): void {
   printApprovalRecord(approval);
 }
 
+function executeVerificationCommand(
+  workspaceRoot: string,
+  command: string,
+  note?: string
+): ExecutedVerificationResult {
+  const startedAt = Date.now();
+  const result = spawnSync(command, {
+    cwd: workspaceRoot,
+    shell: true,
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+  });
+  const durationMs = Math.max(0, Date.now() - startedAt);
+  const exitCode = typeof result.status === "number" ? result.status : 1;
+  const stderr = [
+    typeof result.stderr === "string" ? result.stderr : "",
+    result.error ? result.error.message : "",
+  ].filter(Boolean).join("\n");
+
+  return {
+    command,
+    status: exitCode === 0 ? "passed" : "failed",
+    exitCode,
+    durationMs,
+    stdoutTail: outputTail(typeof result.stdout === "string" ? result.stdout : ""),
+    stderrTail: outputTail(stderr),
+    note,
+  };
+}
+
+function outputTail(value: string, maxLength = 4000): string | undefined {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return normalized.length > maxLength ? normalized.slice(-maxLength) : normalized;
+}
+
 
 function verifyCommand(options: CliOptions): void {
   const workspaceRoot = process.cwd();
   const intentRef = options.intent ?? "latest";
-  if (!options.verificationCommand || options.verificationCommand.trim().length === 0) {
-    throw new Error("Usage: ripple verify --command <test command> --status passed|failed|skipped|unknown [--intent latest|path]");
+  const reportedCommand = options.verificationCommand?.trim();
+  const runCommand = options.verificationRunCommand?.trim();
+  if (reportedCommand && runCommand) {
+    throw new Error("Use either --run for Ripple-executed evidence or --command/--status for reported evidence, not both.");
   }
-  const status = options.verificationStatus ?? "unknown";
+  if (!reportedCommand && !runCommand) {
+    throw new Error("Usage: ripple verify --run <test command> [--intent latest|path] or ripple verify --command <test command> --status passed|failed|skipped|unknown [--intent latest|path]");
+  }
+  if (runCommand && options.verificationStatus) {
+    throw new Error("--status is only valid with --command. Use --run to let Ripple compute passed/failed from the exit code.");
+  }
   const intent = loadChangeIntent(workspaceRoot, intentRef);
+  const executed = runCommand
+    ? executeVerificationCommand(workspaceRoot, runCommand, options.note)
+    : undefined;
   const updatedIntent = appendRippleVerificationEvidence(intent, {
-    command: options.verificationCommand,
-    status,
-    note: options.note,
+    command: executed?.command ?? reportedCommand ?? "",
+    status: executed?.status ?? options.verificationStatus ?? "unknown",
+    source: executed ? "executed" : "reported",
+    exitCode: executed?.exitCode,
+    durationMs: executed?.durationMs,
+    stdoutTail: executed?.stdoutTail,
+    stderrTail: executed?.stderrTail,
+    note: executed?.note ?? options.note,
   });
   const intentPath = saveChangeIntent(workspaceRoot, updatedIntent, intentRef);
   const evidence = updatedIntent.verificationEvidence[updatedIntent.verificationEvidence.length - 1];
+  const evidenceSourceLabel = evidence.source === "executed"
+    ? "Ripple executed this command and recorded its exit code."
+    : "Ripple recorded reported evidence only; it did not independently run this command.";
   const output: RippleVerifyOutput = {
     protocol: "ripple-verification-evidence",
     version: 1,
@@ -3911,7 +3996,10 @@ function verifyCommand(options: CliOptions): void {
     totalEvidence: updatedIntent.verificationEvidence.length,
     nextSteps: [
       "Run ripple gate --worktree --intent latest --json to include this evidence in the review packet.",
-      "Ripple records reported evidence only; it does not claim the command was independently executed.",
+      evidence.status === "failed"
+        ? "Fix the failing verification, rerun ripple verify --run, then run ripple gate again."
+        : "Run ripple gate again before handoff so the continue/stop decision includes this evidence.",
+      evidenceSourceLabel,
     ],
   };
 
@@ -3925,11 +4013,22 @@ function verifyCommand(options: CliOptions): void {
   console.log(`Intent path: ${path.relative(workspaceRoot, output.intentPath) || output.intentPath}`);
   console.log(`Status: ${output.evidence.status}`);
   console.log(`Command: ${output.evidence.command}`);
+  console.log(`Source: ${output.evidence.source}`);
+  if (typeof output.evidence.exitCode === "number") {
+    console.log(`Exit code: ${output.evidence.exitCode}`);
+  }
+  if (typeof output.evidence.durationMs === "number") {
+    console.log(`Duration ms: ${output.evidence.durationMs}`);
+  }
   console.log(`Recorded at: ${output.evidence.recordedAt}`);
   if (output.evidence.note) {
     console.log(`Note: ${output.evidence.note}`);
   }
-  console.log("Note: Ripple recorded reported evidence; it did not independently run this command.");
+  if (output.evidence.stderrTail) {
+    console.log("Stderr tail:");
+    console.log(output.evidence.stderrTail);
+  }
+  console.log(`Note: ${evidenceSourceLabel}`);
 }
 
 function approvalCommand(options: CliOptions): void {

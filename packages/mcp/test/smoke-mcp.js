@@ -268,7 +268,7 @@ function main() {
   assert.strictEqual(workflow.commands.gateCurrentChange, "ripple gate --agent --intent latest");
   assert.strictEqual(
     workflow.commands.recordVerification,
-    "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest"
+    "ripple verify --run \"<command>\" --intent latest"
   );
   assert.strictEqual(workflow.commands.checkApproval, "ripple approval --intent latest --agent");
   assert.strictEqual(workflow.mcpTools.checkApproval, "ripple_get_approval_status");

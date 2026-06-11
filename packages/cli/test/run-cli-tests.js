@@ -1217,7 +1217,7 @@ function main() {
     "agent guide should show verification evidence step"
   );
   assert(
-    agentGuide.includes("ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest"),
+    agentGuide.includes("ripple verify --run \"<command>\" --intent latest"),
     "agent guide should show verification evidence command"
   );
   assert(agentGuide.includes("Runtime contract:"), "agent guide should show runtime contract");
@@ -1306,7 +1306,7 @@ function main() {
   );
   assert.strictEqual(
     agentWorkflow.commands.recordVerification,
-    "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest",
+    "ripple verify --run \"<command>\" --intent latest",
     "agent JSON should expose the verification evidence command"
   );
   assert.strictEqual(
@@ -2987,14 +2987,109 @@ function main() {
     "verified CI review packet should show reported tests"
   );
   assert(
-    verifiedSummary.includes("#### Verification reported"),
-    "verified CI review packet should include verification reported bucket"
+    verifiedSummary.includes("#### Verification evidence"),
+    "verified CI review packet should include verification evidence bucket"
   );
   assert(
     verifiedSummary.includes("passed: npm test -- tests/util.test.ts"),
     "verified CI review packet should include reported command"
   );
 
+  runCliJson([
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "change trim behavior",
+    "--mode",
+    "file",
+    "--agent",
+    "--save",
+  ]);
+  const nodeCommand = `"${process.execPath}"`;
+  const passingRunCommand = `${nodeCommand} -e "process.exit(0)"`;
+  const executedVerifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--run",
+    passingRunCommand,
+    "--note",
+    "executed proof",
+  ]);
+  assert.strictEqual(executedVerifyJson.evidence.status, "passed");
+  assert.strictEqual(executedVerifyJson.evidence.source, "executed");
+  assert.strictEqual(executedVerifyJson.evidence.exitCode, 0);
+  assert.strictEqual(executedVerifyJson.evidence.command, passingRunCommand);
+  assert(
+    typeof executedVerifyJson.evidence.durationMs === "number",
+    "executed verification should record duration"
+  );
+  const executedCiJson = runCliJson(["ci", "--base", "HEAD", "--intent", "latest"]);
+  assert.strictEqual(
+    executedCiJson.reviewPacket.verification.testsRun,
+    "executed",
+    "review packet should distinguish Ripple-executed verification evidence"
+  );
+  assert(
+    executedCiJson.reviewPacket.verification.executedCommands.includes(passingRunCommand),
+    "review packet should list executed verification command"
+  );
+  assert.strictEqual(executedCiJson.gate.canContinue, true);
+
+  runCliJson([
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "change trim behavior",
+    "--mode",
+    "file",
+    "--agent",
+    "--save",
+  ]);
+  const failingRunCommand = `${nodeCommand} -e "process.exit(7)"`;
+  const failedExecutedVerifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--run",
+    failingRunCommand,
+    "--note",
+    "executed failure proof",
+  ]);
+  assert.strictEqual(failedExecutedVerifyJson.evidence.status, "failed");
+  assert.strictEqual(failedExecutedVerifyJson.evidence.source, "executed");
+  assert.strictEqual(failedExecutedVerifyJson.evidence.exitCode, 7);
+  const failedExecutedCiJson = runCliJson(["ci", "--base", "HEAD", "--intent", "latest"]);
+  assert.strictEqual(
+    failedExecutedCiJson.reviewPacket.verification.testsRun,
+    "executed",
+    "failed review packet should preserve executed verification proof"
+  );
+  assert.strictEqual(failedExecutedCiJson.status, "repair-required");
+  assert.strictEqual(failedExecutedCiJson.gate.status, "closed");
+  assert.strictEqual(failedExecutedCiJson.gate.decision, "repair");
+  assert.strictEqual(failedExecutedCiJson.gate.canContinue, false);
+  assert(
+    failedExecutedCiJson.gate.fixNow.some((fix) =>
+      fix.includes("Fix the failing verification") &&
+      fix.includes(failingRunCommand)
+    ),
+    "failed executed verification gate should tell the agent exactly what to repair"
+  );
+
+  runCliJson([
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "change trim behavior",
+    "--mode",
+    "file",
+    "--agent",
+    "--save",
+  ]);
   const failedVerifyJson = runCliJson([
     "verify",
     "--intent",
@@ -3071,7 +3166,7 @@ function main() {
   assert.strictEqual(unknownCiJson.gate.needsHuman, true);
   assert(
     unknownCiJson.gate.askHuman.some((ask) =>
-      ask.includes("reported verification evidence is skipped or unknown")
+      ask.includes("verification evidence is skipped or unknown")
     ),
     "unknown verification gate should ask the human to review incomplete evidence"
   );
