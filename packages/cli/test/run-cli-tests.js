@@ -342,7 +342,8 @@ function main() {
     "init --print should show workflow path"
   );
   assert(printedInit.includes("# .gitignore"), "init --print should show gitignore path");
-  assert(printedInit.includes("# AGENTS.md"), "init --print should show agent setup files");
+  assert(printedInit.includes("# .cursorrules"), "init --print should show the default agent setup target");
+  assert(!printedInit.includes("# AGENTS.md"), "init --print should not spam every agent setup file when none exist");
   assert(printedInit.includes("# .git hooks"), "init --print should show hook setup scripts");
   assert(
     printedInit.includes(".ripple/.cache/"),
@@ -351,7 +352,8 @@ function main() {
   const printedInitJson = runCliJsonIn(initWorkspace, ["init", "--print"]);
   assert.strictEqual(printedInitJson.protocol, "ripple-init");
   assert.strictEqual(printedInitJson.files.length, 3);
-  assert.strictEqual(printedInitJson.agentSetup.files.length, 3);
+  assert.strictEqual(printedInitJson.agentSetup.files.length, 1);
+  assert.strictEqual(printedInitJson.agentSetup.files[0].path, ".cursorrules");
   assert.strictEqual(printedInitJson.hooks.status, "printed");
   assert(
     printedInitJson.files.every((file) => file.status === "printed" && file.written === false),
@@ -361,7 +363,8 @@ function main() {
   const initJson = runCliJsonIn(initWorkspace, ["init"]);
   assert.strictEqual(initJson.protocol, "ripple-init");
   assert.strictEqual(initJson.files.length, 3);
-  assert.strictEqual(initJson.agentSetup.files.length, 3, "init should include agent setup file results");
+  assert.strictEqual(initJson.agentSetup.files.length, 1, "init should include only the selected agent setup file result");
+  assert.strictEqual(initJson.agentSetup.files[0].path, ".cursorrules", "init should default to .cursorrules when no agent files exist");
   assert.strictEqual(initJson.hooks.preCommitAction, "created", "init should install the pre-commit hook");
   assert.strictEqual(initJson.hooks.postCommitAction, "created", "init should install the post-commit hook");
   assert(
@@ -388,9 +391,12 @@ function main() {
     fs.readFileSync(path.join(initWorkspace, ".gitignore"), "utf8").includes(".ripple/.cache/"),
     "init should add .ripple/.cache/ to .gitignore"
   );
-  assert(fs.existsSync(path.join(initWorkspace, "AGENTS.md")), "init should create AGENTS.md for agent setup");
-  assert(fs.existsSync(path.join(initWorkspace, "CLAUDE.md")), "init should create CLAUDE.md for agent setup");
-  assert(fs.existsSync(path.join(initWorkspace, ".cursorrules")), "init should create .cursorrules for agent setup");
+  assert(!fs.existsSync(path.join(initWorkspace, "AGENTS.md")), "init should not create AGENTS.md when no agent files exist");
+  assert(!fs.existsSync(path.join(initWorkspace, "CLAUDE.md")), "init should not create CLAUDE.md when no agent files exist");
+  assert(fs.existsSync(path.join(initWorkspace, ".cursorrules")), "init should create only the default .cursorrules agent setup file");
+  const defaultCursorRules = fs.readFileSync(path.join(initWorkspace, ".cursorrules"), "utf8");
+  assert(defaultCursorRules.includes("# RIPPLE AGENT PROTOCOL"), "init should write dense Ripple agent instructions");
+  assert(!defaultCursorRules.includes("MCP server config"), "init should keep injected agent rules token-dense");
   assert(fs.existsSync(path.join(initWorkspace, ".git", "hooks", "pre-commit")), "init should install pre-commit hook");
   assert(fs.existsSync(path.join(initWorkspace, ".git", "hooks", "post-commit")), "init should install post-commit hook");
   assert.strictEqual(initJson.readiness.checks.ciWorkflow.ok, true);
@@ -445,6 +451,15 @@ function main() {
     existingAgentContents.includes("ripple_plan_context"),
     "init should add Ripple MCP workflow rules to existing AGENTS.md"
   );
+  assert(
+    existingAgentContents.trimEnd().endsWith("<!-- RIPPLE:END -->"),
+    "init should append Ripple rules at the bottom for LLM recency"
+  );
+  assert(
+    !fs.existsSync(path.join(existingAgentWorkspace, "CLAUDE.md")) &&
+      !fs.existsSync(path.join(existingAgentWorkspace, ".cursorrules")),
+    "init should update existing agent files without creating extra root prompt files"
+  );
 
   const secondExistingAgentInitJson = runCliJsonIn(existingAgentWorkspace, ["init"]);
   const secondExistingAgentSummary = secondExistingAgentInitJson.agentSetup.files.find((file) => file.path === "AGENTS.md");
@@ -486,6 +501,10 @@ function main() {
   assert(staleAgentContents.includes("Keep responses short."), "init should preserve content outside Ripple markers");
   assert(!staleAgentContents.includes("old ripple instructions"), "init should replace stale Ripple marker content");
   assert(staleAgentContents.includes("ripple_plan_context"), "init should refresh Ripple marker content");
+  assert(
+    staleAgentContents.trimEnd().endsWith("<!-- RIPPLE:END -->"),
+    "init should move refreshed Ripple marker content to the bottom"
+  );
 
   const forcedInitJson = runCliJsonIn(initWorkspace, ["init", "--force"]);
   assert(

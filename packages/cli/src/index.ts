@@ -348,53 +348,21 @@ function mcpServerConfigJson(workspaceRoot: string): string {
   return JSON.stringify(mcpServerConfig(workspaceRoot), null, 2);
 }
 
-function agentInstructionMarkdown(workspaceRoot: string, fileName: "AGENTS.md" | "CLAUDE.md" | ".cursorrules"): string {
+type RippleAgentSetupFileName = "AGENTS.md" | "CLAUDE.md" | ".cursorrules";
+
+const RIPPLE_AGENT_SETUP_FILE_NAMES: RippleAgentSetupFileName[] = ["AGENTS.md", "CLAUDE.md", ".cursorrules"];
+const RIPPLE_DEFAULT_AGENT_SETUP_FILE: RippleAgentSetupFileName = ".cursorrules";
+
+function agentInstructionMarkdown(_workspaceRoot: string, _fileName: RippleAgentSetupFileName): string {
   const workflow = getAgentWorkflowSummary();
-  const title = fileName === ".cursorrules" ? "Ripple Cursor Agent Rules" : "Ripple Agent Instructions";
   return [
-    `# ${title}`,
-    "",
-    "Ripple is the local authorization gate for this repo's AI coding work.",
-    "",
-    "## Non-negotiable workflow",
-    "",
-    "Before editing code:",
-    `- Use MCP tool \`${workflow.mcpTools.planBeforeEditing}\` to create a plan and save the local intent.`,
-    "- Do not ask the human to run `ripple plan` if the MCP tool is available. Call the tool yourself.",
-    "- Treat `.ripple/policy.json` as the permanent human/team policy.",
-    "",
-    "After editing code:",
-    `- Use MCP tool \`${workflow.mcpTools.gateCurrentChange}\` or \`${workflow.mcpTools.checkChangedAgainstBase}\` before handoff.`,
-    "- If Ripple returns `mustStop: true`, stop immediately.",
-    "- Do not retry the same unsafe edit or commit loop.",
-    `- Use MCP tool \`${workflow.mcpTools.repairIntentDrift}\` when Ripple returns repair guidance.`,
-    "",
-    "Never:",
-    "- Do not widen your own scope by editing `.ripple` policy, cache, approval, or intent files.",
-    "- Do not ignore a Ripple `repair` or `human-review` decision.",
-    "- Do not claim Ripple passed unless you actually called the Ripple MCP tool.",
-    "",
-    "Allowed source of truth:",
-    "- Policy is permanent.",
-    "- Intent is local and ephemeral.",
-    "- Git is truth.",
-    "- MCP is guidance.",
-    "- Hook is enforcement.",
-    "- CI starts as audit, then becomes governance.",
-    "",
-    "## MCP server config",
-    "",
-    "Connect this repo to Ripple MCP in your agent/IDE settings:",
-    "",
-    "```json",
-    mcpServerConfigJson(workspaceRoot),
-    "```",
-    "",
-    "## Human setup reminder",
-    "",
-    "If the Ripple MCP tools are not visible to you, tell the human to connect the MCP server first.",
-    "Do not pretend the tools exist when they are not available.",
-    "",
+    "# RIPPLE AGENT PROTOCOL",
+    "You are connected to Ripple MCP for this repo.",
+    `1. BEFORE editing: MUST call \`${workflow.mcpTools.planBeforeEditing}\` with saveIntent=true.`,
+    `2. AFTER editing: MUST call \`${workflow.mcpTools.gateCurrentChange}\` or \`${workflow.mcpTools.checkChangedAgainstBase}\`.`,
+    "3. If mustStop=true or needsHuman=true: STOP and ask the human.",
+    "4. DO NOT edit `.ripple/` policy/cache/intent files unless explicitly requested.",
+    "5. DO NOT claim Ripple passed unless you called a Ripple MCP tool.",
   ].join("\n");
 }
 
@@ -410,13 +378,16 @@ function rippleAgentManagedSection(content: string): string {
   ].join("\n");
 }
 
+function resolveAgentSetupFileNames(workspaceRoot: string): RippleAgentSetupFileName[] {
+  const existing = RIPPLE_AGENT_SETUP_FILE_NAMES.filter((fileName) => fs.existsSync(path.join(workspaceRoot, fileName)));
+  return existing.length > 0 ? existing : [RIPPLE_DEFAULT_AGENT_SETUP_FILE];
+}
+
 function agentSetupFiles(workspaceRoot: string): Array<{ path: string; absolutePath: string; content: string }> {
-  return ["AGENTS.md", "CLAUDE.md", ".cursorrules"].map((fileName) => ({
+  return resolveAgentSetupFileNames(workspaceRoot).map((fileName) => ({
     path: fileName,
     absolutePath: path.join(workspaceRoot, fileName),
-    content: rippleAgentManagedSection(
-      agentInstructionMarkdown(workspaceRoot, fileName as "AGENTS.md" | "CLAUDE.md" | ".cursorrules")
-    ),
+    content: rippleAgentManagedSection(agentInstructionMarkdown(workspaceRoot, fileName)),
   }));
 }
 
@@ -3918,24 +3889,29 @@ function mergeRippleManagedSection(
   existing: string,
   nextSection: string
 ): { content: string; action: "updated" | "appended" } {
-  const start = existing.indexOf(RIPPLE_AGENT_SECTION_START);
-  const end = existing.indexOf(RIPPLE_AGENT_SECTION_END);
+  const normalizedExisting = normalizeLf(existing);
+  const start = normalizedExisting.indexOf(RIPPLE_AGENT_SECTION_START);
+  const end = normalizedExisting.indexOf(RIPPLE_AGENT_SECTION_END);
 
   if (start !== -1 && end !== -1 && end > start) {
     const afterEnd = end + RIPPLE_AGENT_SECTION_END.length;
-    const before = existing.slice(0, start);
-    const after = existing.slice(afterEnd).replace(/^\r?\n/, "");
+    const withoutOldSection = `${normalizedExisting.slice(0, start)}${normalizedExisting.slice(afterEnd)}`;
     return {
-      content: `${before}${ensureTrailingLf(nextSection)}${after}`,
+      content: appendRippleSectionAtBottom(withoutOldSection, nextSection),
       action: "updated",
     };
   }
 
-  const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
   return {
-    content: `${existing}${separator}${ensureTrailingLf(nextSection)}`,
+    content: appendRippleSectionAtBottom(normalizedExisting, nextSection),
     action: "appended",
   };
+}
+
+function appendRippleSectionAtBottom(existing: string, nextSection: string): string {
+  const base = normalizeLf(existing).replace(/\n*$/, "");
+  const separator = base.length === 0 ? "" : "\n\n";
+  return `${base}${separator}${ensureTrailingLf(normalizeLf(nextSection))}`;
 }
 
 function normalizeLf(value: string): string {
