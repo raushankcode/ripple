@@ -342,6 +342,8 @@ function main() {
     "init --print should show workflow path"
   );
   assert(printedInit.includes("# .gitignore"), "init --print should show gitignore path");
+  assert(printedInit.includes("# AGENTS.md"), "init --print should show agent setup files");
+  assert(printedInit.includes("# .git hooks"), "init --print should show hook setup scripts");
   assert(
     printedInit.includes(".ripple/.cache/"),
     "init --print should include the Ripple cache gitignore entry"
@@ -349,6 +351,8 @@ function main() {
   const printedInitJson = runCliJsonIn(initWorkspace, ["init", "--print"]);
   assert.strictEqual(printedInitJson.protocol, "ripple-init");
   assert.strictEqual(printedInitJson.files.length, 3);
+  assert.strictEqual(printedInitJson.agentSetup.files.length, 3);
+  assert.strictEqual(printedInitJson.hooks.status, "printed");
   assert(
     printedInitJson.files.every((file) => file.status === "printed" && file.written === false),
     "init --print --json should not write setup files"
@@ -357,6 +361,9 @@ function main() {
   const initJson = runCliJsonIn(initWorkspace, ["init"]);
   assert.strictEqual(initJson.protocol, "ripple-init");
   assert.strictEqual(initJson.files.length, 3);
+  assert.strictEqual(initJson.agentSetup.files.length, 3, "init should include agent setup file results");
+  assert.strictEqual(initJson.hooks.preCommitAction, "created", "init should install the pre-commit hook");
+  assert.strictEqual(initJson.hooks.postCommitAction, "created", "init should install the post-commit hook");
   assert(
     initJson.files.some((file) => file.path === ".ripple/policy.json" && file.status === "written"),
     "init should write policy file"
@@ -381,6 +388,11 @@ function main() {
     fs.readFileSync(path.join(initWorkspace, ".gitignore"), "utf8").includes(".ripple/.cache/"),
     "init should add .ripple/.cache/ to .gitignore"
   );
+  assert(fs.existsSync(path.join(initWorkspace, "AGENTS.md")), "init should create AGENTS.md for agent setup");
+  assert(fs.existsSync(path.join(initWorkspace, "CLAUDE.md")), "init should create CLAUDE.md for agent setup");
+  assert(fs.existsSync(path.join(initWorkspace, ".cursorrules")), "init should create .cursorrules for agent setup");
+  assert(fs.existsSync(path.join(initWorkspace, ".git", "hooks", "pre-commit")), "init should install pre-commit hook");
+  assert(fs.existsSync(path.join(initWorkspace, ".git", "hooks", "post-commit")), "init should install post-commit hook");
   assert.strictEqual(initJson.readiness.checks.ciWorkflow.ok, true);
   assert.strictEqual(initJson.readiness.checks.gitIgnore.ok, true);
   assert.strictEqual(initJson.readiness.enforcement.explicitPolicy.ok, true);
@@ -395,6 +407,20 @@ function main() {
     duplicateInitJson.files.every((file) => file.status === "exists" && file.written === false),
     "init should be idempotent when setup files already exist"
   );
+  assert(
+    duplicateInitJson.agentSetup.files.every((file) => file.status === "exists" && file.written === false),
+    "init should not overwrite existing agent setup files by default"
+  );
+  assert.strictEqual(
+    duplicateInitJson.hooks.preCommitAction,
+    "already-present",
+    "init should not duplicate the pre-commit Ripple block"
+  );
+  assert.strictEqual(
+    duplicateInitJson.hooks.postCommitAction,
+    "already-present",
+    "init should not duplicate the post-commit Ripple block"
+  );
 
   const forcedInitJson = runCliJsonIn(initWorkspace, ["init", "--force"]);
   assert(
@@ -406,6 +432,10 @@ function main() {
   assert(
     forcedInitJson.files.some((file) => file.path === ".gitignore" && file.status === "exists"),
     "init --force should not overwrite an existing .gitignore"
+  );
+  assert(
+    forcedInitJson.agentSetup.files.every((file) => file.status === "overwritten" && file.overwritten === true),
+    "init --force should overwrite generated agent setup files"
   );
 
   const printedWorkflow = runCli(["init-ci", "--print"]);

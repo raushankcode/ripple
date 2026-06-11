@@ -118,6 +118,8 @@ type RippleInitSummary = {
   version: 1;
   workspace: string;
   files: RippleInitFileSummary[];
+  agentSetup?: RippleAgentSetupSummary;
+  hooks?: RippleHookInstallSummary;
   readiness?: RippleReadinessSummary;
   nextSteps: string[];
 };
@@ -1718,6 +1720,21 @@ function printInitSummary(summary: RippleInitSummary): void {
   summary.files.forEach((file) => {
     console.log(`  - ${file.path}: ${file.status}`);
   });
+  if (summary.agentSetup) {
+    console.log("");
+    console.log("Agent setup files:");
+    summary.agentSetup.files.forEach((file) => {
+      console.log(`  - ${file.path}: ${file.status}`);
+    });
+  }
+  if (summary.hooks) {
+    console.log("");
+    console.log("Git hooks:");
+    console.log(`  - ${summary.hooks.path}: ${summary.hooks.preCommitAction ?? summary.hooks.status}`);
+    if (summary.hooks.postCommitPath) {
+      console.log(`  - ${summary.hooks.postCommitPath}: ${summary.hooks.postCommitAction ?? summary.hooks.status}`);
+    }
+  }
   if (summary.readiness) {
     console.log("");
     console.log("Readiness after init:");
@@ -3743,6 +3760,35 @@ async function initCommand(options: CliOptions): Promise<void> {
   ];
 
   if (options.print) {
+    const agentFiles = agentSetupFiles(workspaceRoot);
+    const agentSetup = buildAgentSetupSummary(
+      workspaceRoot,
+      agentFiles.map((file) => ({
+        path: file.path,
+        status: "printed",
+        written: false,
+        overwritten: false,
+        content: file.content,
+      }))
+    );
+    const preCommitContent = ripplePreCommitHookScript();
+    const postCommitContent = ripplePostCommitHookScript();
+    const hookPath = preferredHookPath(workspaceRoot, "pre-commit");
+    const postCommitHookPath = preferredHookPath(workspaceRoot, "post-commit");
+    const hooks: RippleHookInstallSummary = {
+      protocol: "ripple-hook-install",
+      version: 1,
+      workspace: workspaceRoot,
+      path: normalizeHookPathForOutput(workspaceRoot, hookPath),
+      postCommitPath: normalizeHookPathForOutput(workspaceRoot, postCommitHookPath),
+      status: "printed",
+      written: false,
+      overwritten: false,
+      content: [preCommitContent, postCommitContent].join("\n--- ripple-post-commit ---\n"),
+      preCommitContent,
+      postCommitContent,
+      nextSteps: ["Review the hook scripts, then run ripple init to write the full local setup."],
+    };
     const summary: RippleInitSummary = {
       protocol: "ripple-init",
       version: 1,
@@ -3754,6 +3800,8 @@ async function initCommand(options: CliOptions): Promise<void> {
         overwritten: false,
         content: file.content,
       })),
+      agentSetup,
+      hooks,
       nextSteps: defaultInitNextSteps(),
     };
     if (options.json) {
@@ -3761,9 +3809,15 @@ async function initCommand(options: CliOptions): Promise<void> {
       return;
     }
     process.stdout.write(
-      files
-        .flatMap((file) => [`# ${file.path}`, file.content.trimEnd(), ""])
-        .join("\n")
+      [
+        ...files.flatMap((file) => [`# ${file.path}`, file.content.trimEnd(), ""]),
+        ...agentFiles.flatMap((file) => [`# ${file.path}`, file.content.trimEnd(), ""]),
+        "# .git hooks",
+        preCommitContent.trimEnd(),
+        "--- ripple-post-commit ---",
+        postCommitContent.trimEnd(),
+        "",
+      ].join("\n")
     );
     return;
   }
@@ -3773,6 +3827,11 @@ async function initCommand(options: CliOptions): Promise<void> {
       ? writeRippleGitIgnoreFile(file.absolutePath)
       : writeInitFile(file, options.force)
   );
+  const agentSetup = buildAgentSetupSummary(
+    workspaceRoot,
+    agentSetupFiles(workspaceRoot).map((file) => writeInitFile(file, options.force))
+  );
+  const hooks = installRippleHooks(workspaceRoot);
   const engine = createCliEngine(workspaceRoot);
 
   try {
@@ -3783,6 +3842,8 @@ async function initCommand(options: CliOptions): Promise<void> {
       version: 1,
       workspace: workspaceRoot,
       files: writtenFiles,
+      agentSetup,
+      hooks,
       readiness,
       nextSteps: defaultInitNextSteps(readiness),
     };
@@ -4012,6 +4073,47 @@ function installRippleHookBlock(input: {
     // chmod is best-effort on Windows.
   }
   return "appended";
+}
+
+function installRippleHooks(workspaceRoot: string): RippleHookInstallSummary {
+  if (!fs.existsSync(path.join(workspaceRoot, ".git"))) {
+    throw new Error("Cannot install Ripple hook because .git was not found. Run this inside a Git worktree.");
+  }
+
+  const hookPath = preferredHookPath(workspaceRoot, "pre-commit");
+  const postCommitHookPath = preferredHookPath(workspaceRoot, "post-commit");
+  const content = ripplePreCommitHookScript();
+  const postCommitContent = ripplePostCommitHookScript();
+  const preCommitAction = installRippleHookBlock({
+    hookPath,
+    fullScript: content,
+    block: ripplePreCommitHookBlock(),
+    marker: RIPPLE_PRE_COMMIT_HOOK_START,
+  });
+  const postCommitAction = installRippleHookBlock({
+    hookPath: postCommitHookPath,
+    fullScript: postCommitContent,
+    block: ripplePostCommitHookBlock(),
+    marker: RIPPLE_POST_COMMIT_HOOK_START,
+  });
+  const wroteSomething = preCommitAction !== "already-present" || postCommitAction !== "already-present";
+
+  return {
+    protocol: "ripple-hook-install",
+    version: 1,
+    workspace: workspaceRoot,
+    path: normalizeHookPathForOutput(workspaceRoot, hookPath),
+    postCommitPath: normalizeHookPathForOutput(workspaceRoot, postCommitHookPath),
+    status: wroteSomething ? "written" : "exists",
+    written: wroteSomething,
+    overwritten: false,
+    preCommitAction,
+    postCommitAction,
+    nextSteps: [
+      "Run ripple plan --file <file> --task \"<task>\" --mode file --agent --save before AI edits.",
+      "Commit normally; Ripple will block active-intent drift and clear consumed local intents after successful commits.",
+    ],
+  };
 }
 
 function hookInstallCommand(subcommand: string | undefined, options: CliOptions): void {
