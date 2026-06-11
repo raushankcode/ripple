@@ -3879,6 +3879,11 @@ function ripplePreCommitHookBlock(): string {
   return [
     RIPPLE_PRE_COMMIT_HOOK_START,
     `# Policy is permanent. Intent is local. Git staged diff is truth.
+ripple_previous_status=$?
+if [ "$ripple_previous_status" -ne 0 ]; then
+  exit "$ripple_previous_status"
+fi
+
 set +e
 
 if [ -f ".ripple/intents/latest.json" ]; then
@@ -3969,9 +3974,9 @@ function normalizeHookPathForOutput(workspaceRoot: string, hookPath: string): st
 }
 
 function preferredHookPath(workspaceRoot: string, hookName: "pre-commit" | "post-commit"): string {
-  const huskyPath = path.join(workspaceRoot, ".husky", hookName);
-  if (fs.existsSync(huskyPath)) {
-    return huskyPath;
+  const huskyDir = path.join(workspaceRoot, ".husky");
+  if (fs.existsSync(huskyDir) && fs.statSync(huskyDir).isDirectory()) {
+    return path.join(huskyDir, hookName);
   }
   return path.join(workspaceRoot, ".git", "hooks", hookName);
 }
@@ -4000,7 +4005,7 @@ function installRippleHookBlock(input: {
   }
 
   const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
-  fs.writeFileSync(hookPath, `${existing}${separator}\n${block}`, "utf8");
+  fs.writeFileSync(hookPath, `${existing}${separator}\n${block}\n`, "utf8");
   try {
     fs.chmodSync(hookPath, 0o755);
   } catch {

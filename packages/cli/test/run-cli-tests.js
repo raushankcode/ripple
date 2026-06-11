@@ -551,6 +551,60 @@ function main() {
     existingPreCommit.includes(">>> ripple pre-commit hook"),
     "hook install should append the Ripple pre-commit block to existing hooks"
   );
+  assert(
+    existingPreCommit.includes("ripple_previous_status=$?"),
+    "hook install should preserve previous hook failures before running Ripple"
+  );
+  assert(
+    !existingPreCommit.includes("\r"),
+    "hook install should write Ripple hook content with LF line endings"
+  );
+
+  const noNewlineHookWorkspace = setupInitFixture();
+  const noNewlinePreCommitPath = path.join(noNewlineHookWorkspace, ".git", "hooks", "pre-commit");
+  writeFileIn(noNewlineHookWorkspace, ".git/hooks/pre-commit", "#!/bin/sh\nnpm run lint");
+  runCliIn(noNewlineHookWorkspace, ["hook", "install"]);
+  const noNewlinePreCommit = fs.readFileSync(noNewlinePreCommitPath, "utf8");
+  assert(
+    noNewlinePreCommit.includes("npm run lint\n\n# >>> ripple pre-commit hook"),
+    "hook install should pad appended Ripple blocks with LF newlines"
+  );
+
+  const huskyDirectoryWorkspace = setupInitFixture();
+  writeFileIn(
+    huskyDirectoryWorkspace,
+    ".husky/commit-msg",
+    [
+      "#!/bin/sh",
+      "npx commitlint --edit $1",
+      "",
+    ].join("\n")
+  );
+  const huskyDirectoryInstallJson = JSON.parse(runCliIn(huskyDirectoryWorkspace, ["hook", "install", "--json"]));
+  assert.strictEqual(
+    huskyDirectoryInstallJson.path,
+    ".husky/pre-commit",
+    "hook install should target Husky pre-commit when the .husky directory exists"
+  );
+  assert.strictEqual(
+    huskyDirectoryInstallJson.preCommitAction,
+    "created",
+    "hook install should create a missing Husky pre-commit hook"
+  );
+  assert.strictEqual(
+    huskyDirectoryInstallJson.postCommitPath,
+    ".husky/post-commit",
+    "hook install should target Husky post-commit when the .husky directory exists"
+  );
+  const createdHuskyPreCommit = fs.readFileSync(path.join(huskyDirectoryWorkspace, ".husky", "pre-commit"), "utf8");
+  assert(
+    createdHuskyPreCommit.startsWith("#!/bin/sh\n"),
+    "hook install should create missing Husky hooks with a shell shebang"
+  );
+  assert(
+    !createdHuskyPreCommit.includes("\r"),
+    "created Husky hooks should use LF line endings"
+  );
 
   const huskyHookWorkspace = setupInitFixture();
   writeFileIn(
