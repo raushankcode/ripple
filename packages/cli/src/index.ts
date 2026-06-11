@@ -30,6 +30,7 @@ import {
   IntentDriftRepairPlan,
   listGitChangedFiles,
   listGitStagedFiles,
+  listGitWorktreeFiles,
   loadChangeIntent,
   loadRipplePolicy,
   RecentHistorySummary,
@@ -81,6 +82,7 @@ type CliOptions = {
   budget: number;
   staged: boolean;
   changed: boolean;
+  worktree: boolean;
   save: boolean;
   strict: boolean;
   githubAnnotations: boolean;
@@ -240,9 +242,10 @@ function usage(): string {
     "  ripple history [--last N]",
     "  ripple plan --file <file> --task <task> [--mode file|function|brainstorm|task|pr] [--symbol name] [--budget N] [--save]",
     "  ripple check --staged [--intent latest|path] [--strict]",
+    "  ripple check --worktree [--intent latest|path] [--strict]",
     "  ripple check --changed --base <ref> [--intent latest|path] [--strict]",
-    "  ripple audit [--intent latest|path] [--changed --base <ref>] [--strict]",
-    "  ripple gate [--intent latest|path] [--changed --base <ref>] [--strict]",
+    "  ripple audit [--intent latest|path] [--worktree|--changed --base <ref>] [--strict]",
+    "  ripple gate [--intent latest|path] [--worktree|--changed --base <ref>] [--strict]",
     "  ripple approval [--intent latest|path] [--gate before-risky-edit|before-merge]",
     "  ripple approve [--intent latest|path] [--gate before-risky-edit|before-merge] [--reason text]",
     "  ripple repair [--intent latest|path] [--strict]",
@@ -268,6 +271,7 @@ function usage(): string {
     "  --budget N    Token budget for plan (default: 4000)",
     "  --staged      Check currently staged JS/TS files",
     "  --changed     Check JS/TS files changed against --base",
+    "  --worktree    Check unstaged working-tree JS/TS changes",
     "  --base REF    Base git ref for --changed checks (default: HEAD)",
     "  --save        Save a change intent from ripple plan",
     "  --intent REF  Validate changes against saved intent (latest, id, or path; local checks only)",
@@ -287,6 +291,7 @@ function usage(): string {
     "  ripple plan --file src/auth.ts --task \"change token refresh behavior\" --mode file --agent --save",
     "  ripple plan --file src/auth.ts --symbol refreshToken --task \"fix retry behavior\" --mode function --agent --save",
     "  ripple check --staged --agent --intent latest",
+    "  ripple check --worktree --agent --intent latest",
     "  ripple audit --agent --intent latest",
     "  ripple gate --agent --intent latest",
     "  ripple approval --intent latest --agent",
@@ -522,6 +527,7 @@ function parseCliArgs(argv: string[]): ParsedCliArgs {
     budget: 4000,
     staged: false,
     changed: false,
+    worktree: false,
     save: false,
     strict: false,
     githubAnnotations: false,
@@ -545,6 +551,10 @@ function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (token === "--changed") {
       options.changed = true;
+      continue;
+    }
+    if (token === "--worktree") {
+      options.worktree = true;
       continue;
     }
     if (token === "--save") {
@@ -3008,7 +3018,7 @@ function printHumanList(title: string, items: string[]): void {
 
 function printStagedCheckSummary(summary: StagedCheckWithIntentSummary): void {
   const adapter = summary.adapterSupport.primaryAdapter;
-  console.log(summary.mode === "changed" ? "Ripple changed-files check" : "Ripple staged check");
+  console.log(summary.mode === "changed" ? "Ripple changed-files check" : summary.mode === "worktree" ? "Ripple worktree check" : "Ripple staged check");
   console.log(`Workspace: ${summary.workspace}`);
   console.log(`Mode: ${summary.mode}`);
   if (summary.baseRef) {
@@ -3053,7 +3063,9 @@ function printStagedCheckSummary(summary: StagedCheckWithIntentSummary): void {
     console.log(
       summary.mode === "changed"
         ? "No changed JS/TS files found."
-        : "No staged JS/TS files found."
+        : summary.mode === "worktree"
+          ? "No worktree JS/TS changes found."
+          : "No staged JS/TS files found."
     );
     return;
   }
@@ -3446,19 +3458,43 @@ async function buildCheckSummaryForFiles(input: {
   }
 }
 
-async function checkCommand(options: CliOptions): Promise<void> {
-  if (!options.staged && !options.changed) {
-    throw new Error("Missing check mode. Usage: ripple check --staged or ripple check --changed --base <ref>");
+function selectedChangeMode(options: CliOptions): StagedCheckSummary["mode"] {
+  if (options.changed) {
+    return "changed";
   }
-  if (options.staged && options.changed) {
-    throw new Error("Choose one check mode: --staged or --changed");
+  if (options.worktree) {
+    return "worktree";
+  }
+  return "staged";
+}
+
+function selectedChangeModeCount(options: CliOptions): number {
+  return [options.staged, options.changed, options.worktree].filter(Boolean).length;
+}
+
+function listFilesForChangeMode(
+  workspaceRoot: string,
+  mode: StagedCheckSummary["mode"],
+  baseRef: string
+): string[] {
+  if (mode === "changed") {
+    return listGitChangedFiles(workspaceRoot, baseRef);
+  }
+  if (mode === "worktree") {
+    return listGitWorktreeFiles(workspaceRoot);
+  }
+  return listGitStagedFiles(workspaceRoot);
+}
+
+async function checkCommand(options: CliOptions): Promise<void> {
+  if (selectedChangeModeCount(options) !== 1) {
+    throw new Error("Choose one check mode: --staged, --worktree, or --changed --base <ref>");
   }
 
   const workspaceRoot = resolveWorkspaceRoot(".");
   const baseRef = options.base ?? "HEAD";
-  const checkFiles = options.changed
-    ? listGitChangedFiles(workspaceRoot, baseRef)
-    : listGitStagedFiles(workspaceRoot);
+  const mode = selectedChangeMode(options);
+  const checkFiles = listFilesForChangeMode(workspaceRoot, mode, baseRef);
   const engine = createFastCheckEngine(workspaceRoot);
 
   try {
@@ -3466,8 +3502,8 @@ async function checkCommand(options: CliOptions): Promise<void> {
     const stagedSummary = buildStagedCheckSummary(engine, {
       workspaceRoot,
       stagedFiles: checkFiles,
-      mode: options.changed ? "changed" : "staged",
-      baseRef: options.changed ? baseRef : undefined,
+      mode,
+      baseRef: mode === "changed" ? baseRef : undefined,
       tokenBudget: options.budget,
     });
     let summary: StagedCheckWithIntentSummary = stagedSummary;
@@ -3542,17 +3578,15 @@ async function checkCommand(options: CliOptions): Promise<void> {
 }
 
 async function buildAuditFromCliOptions(options: CliOptions): Promise<RippleAuditSummary> {
-  if (options.staged && options.changed) {
-    throw new Error("Choose one gate/audit mode: --staged or --changed");
+  if (selectedChangeModeCount(options) > 1) {
+    throw new Error("Choose one gate/audit mode: --staged, --worktree, or --changed --base <ref>");
   }
 
   const workspaceRoot = resolveWorkspaceRoot(".");
   const intentRef = options.intent ?? "latest";
-  const mode = options.changed ? "changed" : "staged";
+  const mode = selectedChangeMode(options);
   const baseRef = options.base ?? "HEAD";
-  const files = mode === "changed"
-    ? listGitChangedFiles(workspaceRoot, baseRef)
-    : listGitStagedFiles(workspaceRoot);
+  const files = listFilesForChangeMode(workspaceRoot, mode, baseRef);
   const intent = loadChangeIntent(workspaceRoot, intentRef);
   const currentPolicyExplanation = currentPolicyExplanationForIntent(workspaceRoot, intent);
 

@@ -85,7 +85,7 @@ export type StagedCheckAgentActions = {
 
 export type StagedCheckSummary = {
   workspace: string;
-  mode: "staged" | "changed";
+  mode: "staged" | "changed" | "worktree";
   baseRef?: string;
   stagedFiles: number;
   checkedFiles: number;
@@ -103,7 +103,7 @@ export type StagedCheckSummary = {
 export type BuildStagedCheckSummaryOptions = {
   workspaceRoot: string;
   stagedFiles: string[];
-  mode?: "staged" | "changed";
+  mode?: "staged" | "changed" | "worktree";
   baseRef?: string;
   stagedDiff?: string;
   task?: string;
@@ -180,6 +180,39 @@ export function listGitStagedDiff(workspaceRoot: string): string {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Could not read staged diff with git diff --cached: ${message}`);
+  }
+}
+
+
+export function listGitWorktreeFiles(workspaceRoot: string): string[] {
+  try {
+    const output = execGit(workspaceRoot, [
+      "diff",
+      "--name-only",
+      "--diff-filter=ACMR",
+    ]);
+    return output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .concat(listGitUntrackedSourceFiles(workspaceRoot))
+      .filter(uniqueString);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not read worktree files with git diff: ${message}`);
+  }
+}
+
+export function listGitWorktreeDiff(workspaceRoot: string): string {
+  try {
+    return execGit(workspaceRoot, [
+      "diff",
+      "--unified=0",
+      "--no-ext-diff",
+    ]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not read worktree diff with git diff: ${message}`);
   }
 }
 
@@ -419,7 +452,9 @@ export function buildStagedCheckSummary(
     options.stagedDiff ??
       (mode === "changed"
         ? listGitChangedDiff(options.workspaceRoot, baseRef ?? "HEAD")
-        : listGitStagedDiff(options.workspaceRoot))
+        : mode === "worktree"
+          ? listGitWorktreeDiff(options.workspaceRoot)
+          : listGitStagedDiff(options.workspaceRoot))
   );
   const files: StagedCheckFileSummary[] = [];
   const missingFiles: string[] = [];
@@ -663,14 +698,14 @@ function getChangedSymbolsForFile(
   workspaceRoot: string,
   projectPath: string,
   diff: ParsedStagedFileDiff,
-  mode: "staged" | "changed",
+  mode: "staged" | "changed" | "worktree",
   baseRef?: string
 ): StagedCheckChangedSymbol[] {
   if (diff.changedLineRanges.length === 0) {
     return [];
   }
 
-  const content = mode === "changed"
+  const content = mode === "changed" || mode === "worktree"
     ? readWorkingTreeFileContent(workspaceRoot, projectPath)
     : readStagedFileContent(workspaceRoot, projectPath);
   if (content === null) {

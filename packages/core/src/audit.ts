@@ -16,7 +16,7 @@ import {
   resolveRippleApprovalStatus,
 } from "./approval";
 
-export type RippleAuditMode = "staged" | "changed";
+export type RippleAuditMode = "staged" | "changed" | "worktree";
 export type RippleAuditStatus = "pass" | "repair-required" | "human-review-required";
 export type RippleAuditDecision = "continue" | "repair" | "human-review";
 export type RippleGateStatus = "open" | "closed";

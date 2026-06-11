@@ -76,6 +76,19 @@ function runGitIn(root, args) {
   });
 }
 
+function runGitResultIn(root, args, extraEnv = {}) {
+  if (traceCommands) {
+    console.error(`${root}> git ${args.join(" ")}`);
+  }
+  return spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, ...extraEnv },
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: COMMAND_TIMEOUT_MS,
+  });
+}
+
 function stageFixtureFiles() {
   if (traceCommands) {
     console.error("git init");
@@ -166,6 +179,41 @@ function setupFixture() {
       "",
     ].join("\n")
   );
+}
+
+function writeFakeNpxForLocalRipple(root) {
+  const fakeBin = path.join(root, ".ripple-test-bin");
+  fs.mkdirSync(fakeBin, { recursive: true });
+  const fakeNpxPath = path.join(fakeBin, "npx");
+  const shellCliPath = cliPath.split(path.sep).join("/");
+  fs.writeFileSync(
+    fakeNpxPath,
+    [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"-y\" ]; then shift; fi",
+      "case \"$1\" in @getripple/cli*) shift ;; esac",
+      `exec node ${JSON.stringify(shellCliPath)} "$@"`,
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  fs.chmodSync(fakeNpxPath, 0o755);
+  if (process.platform === "win32") {
+    const fakeNpxCmdPath = path.join(fakeBin, "npx.cmd");
+    fs.writeFileSync(
+      fakeNpxCmdPath,
+      [
+        "@echo off",
+        "if \"%1\"==\"-y\" shift",
+        "echo %1 | findstr /b \"@getripple/cli\" >nul",
+        "if not errorlevel 1 shift",
+        `node "${cliPath}" %*`,
+        "",
+      ].join("\r\n"),
+      "utf8"
+    );
+  }
+  return fakeBin;
 }
 
 function setupInitFixture() {
@@ -269,6 +317,7 @@ function main() {
   assert(help.includes("ripple doctor"), "help should show doctor command");
   assert(help.includes("ripple workflow"), "help should show workflow command");
   assert(help.includes("ripple check --staged"), "help should show check --staged");
+  assert(help.includes("ripple check --worktree"), "help should show check --worktree");
   assert(help.includes("ripple check --changed --base <ref>"), "help should show changed mode");
   assert(help.includes("ripple repair"), "help should show repair command");
   assert(help.includes("ripple audit"), "help should show audit command");
@@ -712,6 +761,124 @@ function main() {
     hookInstallAgainJson.postCommitAction,
     "already-present",
     "hook install should not duplicate an existing Ripple post-commit block"
+  );
+
+  const hookBlockWorkspace = setupInitFixture();
+  writeFileIn(
+    hookBlockWorkspace,
+    "src/util.ts",
+    [
+      "export function trimName(value) {",
+      "  return value.trim();",
+      "}",
+      "",
+      "export function shout(value) {",
+      "  return value.toUpperCase();",
+      "}",
+      "",
+    ].join("\n")
+  );
+  runGitIn(hookBlockWorkspace, ["add", "."]);
+  runGitIn(hookBlockWorkspace, [
+    "-c",
+    "user.email=ripple@test.local",
+    "-c",
+    "user.name=Ripple Test",
+    "commit",
+    "-m",
+    "baseline",
+  ]);
+  runCliIn(hookBlockWorkspace, ["hook", "install"]);
+  runCliJsonIn(hookBlockWorkspace, [
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "tighten trim behavior only",
+    "--mode",
+    "function",
+    "--symbol",
+    "trimName",
+    "--save",
+  ]);
+  writeFileIn(
+    hookBlockWorkspace,
+    "src/util.ts",
+    [
+      "export function trimName(value) {",
+      "  return value.trim().replace(/\\s+/g, ' ');",
+      "}",
+      "",
+      "export function shout(value) {",
+      "  return value.trim().toUpperCase();",
+      "}",
+      "",
+    ].join("\n")
+  );
+  runGitIn(hookBlockWorkspace, ["add", "src/util.ts"]);
+  const fakeNpxPath = writeFakeNpxForLocalRipple(hookBlockWorkspace);
+  const hookEnv = { PATH: `${fakeNpxPath}${path.delimiter}${process.env.PATH ?? ""}` };
+  const blockedHookCommit = runGitResultIn(
+    hookBlockWorkspace,
+    [
+      "-c",
+      "user.email=ripple@test.local",
+      "-c",
+      "user.name=Ripple Test",
+      "commit",
+      "-m",
+      "agent crossed boundary",
+    ],
+    hookEnv
+  );
+  assert.notStrictEqual(blockedHookCommit.status, 0, "pre-commit hook should block crossed function boundary");
+  const blockedHookOutput = `${blockedHookCommit.stdout}\n${blockedHookCommit.stderr}`;
+  assert(
+    blockedHookOutput.includes("[RIPPLE STOP]"),
+    "blocked pre-commit hook should print the Ripple stop banner"
+  );
+  assert(
+    blockedHookOutput.includes("src/util.ts::shout"),
+    "blocked pre-commit hook should name the changed outside-boundary symbol"
+  );
+
+  writeFileIn(
+    hookBlockWorkspace,
+    "src/util.ts",
+    [
+      "export function trimName(value) {",
+      "  return value.trim().replace(/\\s+/g, ' ');",
+      "}",
+      "",
+      "export function shout(value) {",
+      "  return value.toUpperCase();",
+      "}",
+      "",
+    ].join("\n")
+  );
+  runGitIn(hookBlockWorkspace, ["add", "src/util.ts"]);
+  const allowedHookCommit = runGitResultIn(
+    hookBlockWorkspace,
+    [
+      "-c",
+      "user.email=ripple@test.local",
+      "-c",
+      "user.name=Ripple Test",
+      "commit",
+      "-m",
+      "agent stayed inside boundary",
+    ],
+    hookEnv
+  );
+  assert.strictEqual(
+    allowedHookCommit.status,
+    0,
+    `pre-commit hook should allow repaired in-boundary change:\n${allowedHookCommit.stdout}\n${allowedHookCommit.stderr}`
+  );
+  assert.strictEqual(
+    fs.existsSync(path.join(hookBlockWorkspace, ".ripple", "intents", "latest.json")),
+    false,
+    "post-commit hook should clear the consumed local intent after a successful commit"
   );
 
   const existingHookWorkspace = setupInitFixture();
@@ -2030,6 +2197,57 @@ function main() {
   assert.deepStrictEqual(intentCheck.intentValidation.editableFiles, ["src/util.ts"]);
   assert.strictEqual(intentCheck.intentValidation.contextFilesChanged.length, 0);
   assert.strictEqual(intentCheck.intentValidation.unplannedFiles.length, 0);
+
+  const worktreeRoot = path.join(workspaceRoot, "worktree-gate");
+  fs.mkdirSync(worktreeRoot, { recursive: true });
+  writeFileIn(worktreeRoot, "package.json", JSON.stringify({ name: "worktree-gate-fixture" }, null, 2));
+  writeFileIn(worktreeRoot, "src/util.ts", [
+    "export function trimName(value: string): string {",
+    "  return value.trim();",
+    "}",
+    "",
+  ].join("\n"));
+  writeFileIn(worktreeRoot, "src/other.ts", [
+    "export function other(value: string): string {",
+    "  return value;",
+    "}",
+    "",
+  ].join("\n"));
+  runGitIn(worktreeRoot, ["init"]);
+  runGitIn(worktreeRoot, ["add", "."]);
+  runGitIn(worktreeRoot, ["commit", "-m", "baseline"]);
+  runCliJsonIn(worktreeRoot, [
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "normalize trim behavior",
+    "--mode",
+    "file",
+    "--save",
+  ]);
+  writeFileIn(worktreeRoot, "src/util.ts", [
+    "export function trimName(value: string): string {",
+    "  return value.trim().toLowerCase();",
+    "}",
+    "",
+  ].join("\n"));
+  const worktreeCheck = runCliJsonIn(worktreeRoot, ["check", "--worktree", "--intent", "latest"]);
+  assert.strictEqual(worktreeCheck.mode, "worktree", "worktree check should report worktree mode");
+  assert.strictEqual(worktreeCheck.intentValidation.verdict, "matched", "planned worktree edit should match saved intent");
+  writeFileIn(worktreeRoot, "src/other.ts", [
+    "export function other(value: string): string {",
+    "  return value.trim();",
+    "}",
+    "",
+  ].join("\n"));
+  const worktreeGate = runCliJsonIn(worktreeRoot, ["gate", "--worktree", "--intent", "latest"]);
+  assert.strictEqual(worktreeGate.mode, "worktree", "worktree gate should report worktree mode");
+  assert.strictEqual(worktreeGate.mustStop, true, "worktree gate should stop on unplanned worktree drift");
+  assert(
+    worktreeGate.changedOutsideBoundaryFiles.includes("src/other.ts"),
+    "worktree gate should expose unplanned dirty worktree file"
+  );
   assert(
     intentCheck.intentValidation.recommendedAction.includes("Proceed"),
     "intent validation JSON should include recommended action"
