@@ -2919,6 +2919,131 @@ function main() {
     matchedSummary.includes("- Tests run: unknown"),
     "matched CI review packet should avoid claiming tests were run"
   );
+  const verifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--command",
+    "npm test -- tests/util.test.ts",
+    "--status",
+    "passed",
+    "--note",
+    "local proof",
+  ]);
+  assert.strictEqual(verifyJson.protocol, "ripple-verification-evidence");
+  assert.strictEqual(verifyJson.evidence.status, "passed");
+  assert.strictEqual(verifyJson.evidence.command, "npm test -- tests/util.test.ts");
+
+  const verifiedCiJson = runCliJson(["ci", "--base", "HEAD", "--intent", "latest"]);
+  assert.strictEqual(
+    verifiedCiJson.reviewPacket.verification.testsRun,
+    "reported",
+    "review packet should include reported verification evidence"
+  );
+  assert(
+    verifiedCiJson.reviewPacket.verification.reportedCommands.includes("npm test -- tests/util.test.ts"),
+    "review packet should list reported verification command"
+  );
+
+  const verifiedSummaryPath = path.join(workspaceRoot, "verified-ci-summary.md");
+  const verifiedSummaryCheck = runCliResult(["ci", "--base", "HEAD", "--intent", "latest"], {
+    GITHUB_STEP_SUMMARY: verifiedSummaryPath,
+  });
+  assert.strictEqual(verifiedSummaryCheck.status, 0, "verified CI gate with step summary should pass");
+  const verifiedSummary = fs.readFileSync(verifiedSummaryPath, "utf8");
+  assert(
+    verifiedSummary.includes("- Tests run: reported"),
+    "verified CI review packet should show reported tests"
+  );
+  assert(
+    verifiedSummary.includes("#### Verification reported"),
+    "verified CI review packet should include verification reported bucket"
+  );
+  assert(
+    verifiedSummary.includes("passed: npm test -- tests/util.test.ts"),
+    "verified CI review packet should include reported command"
+  );
+
+  const failedVerifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--command",
+    "npm test -- tests/util.test.ts",
+    "--status",
+    "failed",
+    "--note",
+    "failure proof",
+  ]);
+  assert.strictEqual(failedVerifyJson.evidence.status, "failed");
+  const failedCiJson = runCliJson(["ci", "--base", "HEAD", "--intent", "latest"]);
+  assert.strictEqual(
+    failedCiJson.reviewPacket.verification.status,
+    "failed",
+    "failed verification evidence should be visible in the review packet"
+  );
+  assert.strictEqual(
+    failedCiJson.status,
+    "repair-required",
+    "failed verification evidence should block CI as repair-required"
+  );
+  assert.strictEqual(failedCiJson.canProceed, false);
+  assert.strictEqual(failedCiJson.gate.status, "closed");
+  assert.strictEqual(failedCiJson.gate.decision, "repair");
+  assert.strictEqual(failedCiJson.gate.canContinue, false);
+  assert.strictEqual(failedCiJson.gate.mustStop, true);
+  assert(
+    failedCiJson.gate.fixNow.some((fix) =>
+      fix.includes("Fix the failing verification") &&
+      fix.includes("npm test -- tests/util.test.ts")
+    ),
+    "failed verification gate should tell the agent exactly what to repair"
+  );
+
+  runCliJson([
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "change trim behavior",
+    "--mode",
+    "file",
+    "--agent",
+    "--save",
+  ]);
+  const unknownVerifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--command",
+    "npm test -- tests/util.test.ts",
+    "--status",
+    "unknown",
+    "--note",
+    "agent did not report the result",
+  ]);
+  assert.strictEqual(unknownVerifyJson.evidence.status, "unknown");
+  const unknownCiJson = runCliJson(["ci", "--base", "HEAD", "--intent", "latest"]);
+  assert.strictEqual(
+    unknownCiJson.reviewPacket.verification.status,
+    "review",
+    "unknown verification evidence should be review-only"
+  );
+  assert.strictEqual(
+    unknownCiJson.status,
+    "human-review-required",
+    "unknown verification evidence should force human review"
+  );
+  assert.strictEqual(unknownCiJson.gate.status, "closed");
+  assert.strictEqual(unknownCiJson.gate.decision, "human-review");
+  assert.strictEqual(unknownCiJson.gate.canContinue, false);
+  assert.strictEqual(unknownCiJson.gate.needsHuman, true);
+  assert(
+    unknownCiJson.gate.askHuman.some((ask) =>
+      ask.includes("reported verification evidence is skipped or unknown")
+    ),
+    "unknown verification gate should ask the human to review incomplete evidence"
+  );
   assert(
     matchedSummary.includes("### Gate handoff"),
     "matched CI step summary should include compact gate handoff section"

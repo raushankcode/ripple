@@ -36,8 +36,32 @@ export type ChangeIntent = {
   expectedSymbols: string[];
   protectedContracts: string[];
   verificationTargets: string[];
+  verificationEvidence: RippleVerificationEvidence[];
   readinessSnapshot: ChangeIntentReadinessSnapshot;
   why: string;
+};
+
+export type RippleVerificationStatus = "passed" | "failed" | "skipped" | "unknown";
+
+export type RippleVerificationEvidence = {
+  command: string;
+  status: RippleVerificationStatus;
+  recordedAt: string;
+  source: "reported";
+  note?: string;
+};
+
+export type VerificationVerdictStatus = "pass" | "failed" | "review" | "not-reported";
+export type VerificationVerdictDecision = "continue" | "repair" | "human-review";
+
+export type VerificationVerdictSummary = {
+  status: VerificationVerdictStatus;
+  decision: VerificationVerdictDecision;
+  label: "PASS" | "FAILED" | "REVIEW" | "UNKNOWN";
+  summary: string;
+  why: string[];
+  fix: string[];
+  evidence: RippleVerificationEvidence[];
 };
 
 export type ChangeIntentReadinessSnapshot = {
@@ -181,7 +205,11 @@ export type RippleReviewPacket = {
   };
   verification: {
     expectedCommands: string[];
-    testsRun: "unknown";
+    testsRun: "unknown" | "reported";
+    status: VerificationVerdictStatus;
+    decision: VerificationVerdictDecision;
+    reportedCommands: string[];
+    evidence: RippleVerificationEvidence[];
     note: string;
   };
   decision: {
@@ -231,6 +259,7 @@ export type ChangeIntentValidationSummary = {
   policyExplanation: RipplePolicyExplanation;
   policyDrift: PolicyDriftSummary;
   readinessDrift: ReadinessDriftSummary;
+  verificationVerdict: VerificationVerdictSummary;
   plannedScope: ChangeIntentScope;
   editableFiles: string[];
   contextFiles: string[];
@@ -297,6 +326,7 @@ export type IntentDriftRepairPlan = {
   policyExplanation?: RipplePolicyExplanation;
   policyDrift?: PolicyDriftSummary;
   readinessDrift?: ReadinessDriftSummary;
+  verificationVerdict?: VerificationVerdictSummary;
   status: IntentDriftRepairStatus;
   summary: string;
   recommendedAction: string;
@@ -333,6 +363,7 @@ type RawChangeIntent = Omit<
   | "boundaryRisk"
   | "policyExplanation"
   | "readinessSnapshot"
+  | "verificationEvidence"
 > & {
   editableFiles?: string[];
   contextFiles?: string[];
@@ -345,6 +376,7 @@ type RawChangeIntent = Omit<
   policyMatches?: string[];
   policyExplanation?: RipplePolicyExplanation;
   readinessSnapshot?: Partial<ChangeIntentReadinessSnapshot>;
+  verificationEvidence?: RippleVerificationEvidence[];
 };
 
 export type BuildChangeIntentOptions = {
@@ -427,6 +459,7 @@ export function buildChangeIntent(
     expectedSymbols,
     protectedContracts,
     verificationTargets: plan.verificationTargets,
+    verificationEvidence: [],
     readinessSnapshot: options.readinessSnapshot ?? fallbackReadinessSnapshot(),
     why: plan.why,
   };
@@ -534,6 +567,7 @@ export function buildRippleReviewPacket(
     ...staged.files.flatMap((file) => file.verificationTargets),
   ]);
   const mustStop = validation.handoff.mustStop;
+  const verificationEvidence = normalizeVerificationEvidence(intent.verificationEvidence);
 
   return {
     protocol: "ripple-review-packet",
@@ -566,8 +600,14 @@ export function buildRippleReviewPacket(
     },
     verification: {
       expectedCommands: verificationTargets,
-      testsRun: "unknown",
-      note: verificationTargets.length > 0
+      testsRun: verificationEvidence.length > 0 ? "reported" : "unknown",
+      status: validation.verificationVerdict.status,
+      decision: validation.verificationVerdict.decision,
+      reportedCommands: verificationEvidence.map((evidence) => evidence.command),
+      evidence: verificationEvidence,
+      note: verificationEvidence.length > 0
+        ? "Ripple recorded reported verification evidence; it did not independently execute these commands."
+        : verificationTargets.length > 0
         ? "Ripple found verification targets, but it cannot prove they were run from this packet alone."
         : "Ripple found no verification target; use the narrowest manual check before handoff.",
     },
@@ -651,6 +691,7 @@ export function buildIntentDriftRepairPlan(
     policyExplanation: validation.policyExplanation,
     policyDrift: validation.policyDrift,
     readinessDrift: validation.readinessDrift,
+    verificationVerdict: validation.verificationVerdict,
     status: repairStatus(validation),
     summary: repairSummary(validation),
     recommendedAction: validation.recommendedAction,
@@ -758,6 +799,12 @@ function repairHandoffDecision(
   if (plan.readinessDrift?.status === "weakened") {
     return "restore-readiness";
   }
+  if (plan.verificationVerdict?.status === "review") {
+    return "human-review";
+  }
+  if (plan.verificationVerdict?.status === "failed") {
+    return "repair";
+  }
   if (needsHuman) {
     return "human-review";
   }
@@ -792,6 +839,12 @@ function repairHandoffNextRequiredAction(
   if (plan.readinessDrift?.status === "weakened") {
     return "Restore Ripple readiness with the listed commands or ask the human before continuing.";
   }
+  if (plan.verificationVerdict?.status === "failed") {
+    return "Repair failed verification evidence, record a passing rerun, then run Ripple again.";
+  }
+  if (plan.verificationVerdict?.status === "review") {
+    return "Ask the human to review incomplete verification evidence before continuing.";
+  }
   if (plan.status === "human-review-required" || plan.status === "contract-review-required") {
     return "Ask the human to review the blockers before keeping this change.";
   }
@@ -824,6 +877,9 @@ function repairHandoffAskHuman(plan: Omit<IntentDriftRepairPlan, "handoff">): st
   if (plan.readinessDrift?.status === "weakened") {
     askHuman.push("Approve continuing only if weaker Ripple readiness is intentional.");
   }
+  if (plan.verificationVerdict?.status === "review") {
+    askHuman.push(plan.verificationVerdict.summary);
+  }
   if (plan.boundaryVerdict?.humanRequired) {
     askHuman.push(
       `Human gate '${plan.boundaryVerdict.humanGate}' applies to this saved intent.`
@@ -839,6 +895,37 @@ function buildRepairActions(input: {
   verificationTargets: string[];
 }): IntentDriftRepairAction[] {
   const actions: IntentDriftRepairAction[] = [];
+
+  if (
+    input.validation.verificationVerdict.status === "failed" ||
+    input.validation.verificationVerdict.status === "review"
+  ) {
+    input.validation.verificationVerdict.evidence
+      .filter((evidence) => evidence.status !== "passed")
+      .forEach((evidence) => {
+        actions.push({
+          type: "verify",
+          priority: "blocker",
+          target: evidence.command,
+          command: evidence.command,
+          reason: `Reported verification status was ${evidence.status}.`,
+          instruction: verificationEvidenceFix(evidence),
+        });
+      });
+
+    if (actions.length === 0) {
+      input.validation.verificationVerdict.fix.forEach((instruction) => {
+        actions.push({
+          type: "verify",
+          priority: "blocker",
+          reason: input.validation.verificationVerdict.summary,
+          instruction,
+        });
+      });
+    }
+
+    return uniqueRepairActions(actions);
+  }
 
   if (input.validation.driftVerdict.status === "pass") {
     input.verificationTargets.slice(0, 8).forEach((target) => {
@@ -1070,9 +1157,14 @@ function buildIntentValidation(
     intent.readinessSnapshot,
     options.currentReadinessSnapshot
   );
+  const verificationVerdict = buildVerificationVerdict(intent.verificationEvidence);
   const boundaryGuidance = mergeBoundaryGuidance(guidance, boundaryVerdict);
   const policyGuidance = mergePolicyDriftGuidance(boundaryGuidance, policyDrift);
-  const effectiveGuidance = mergeReadinessDriftGuidance(policyGuidance, readinessDrift);
+  const readinessGuidance = mergeReadinessDriftGuidance(policyGuidance, readinessDrift);
+  const effectiveGuidance = mergeVerificationGuidance(
+    readinessGuidance,
+    verificationVerdict
+  );
   const driftVerdict = buildDriftVerdict({
     verdict,
     boundaryVerdict,
@@ -1093,6 +1185,7 @@ function buildIntentValidation(
     boundaryVerdict,
     policyDrift,
     readinessDrift,
+    verificationVerdict,
   });
   const nextRequiredAction = validationNextRequiredAction(nextRequiredPhase);
 
@@ -1112,6 +1205,7 @@ function buildIntentValidation(
     policyExplanation: intent.policyExplanation,
     policyDrift,
     readinessDrift,
+    verificationVerdict,
     plannedScope: unplannedFiles.length === 0 ? "matched" : "violated",
     editableFiles,
     contextFiles,
@@ -1132,7 +1226,9 @@ function buildIntentValidation(
       driftVerdict.status !== "pass" ||
       boundaryVerdict.humanRequired ||
       policyDrift.status === "changed" ||
-      readinessDrift.status === "weakened",
+      readinessDrift.status === "weakened" ||
+      verificationVerdict.status === "failed" ||
+      verificationVerdict.status === "review",
   };
 
   return {
@@ -1161,7 +1257,13 @@ function buildReviewPacketNotes(
   ) {
     notes.push("Behavior scope requires review: protected or unplanned contracts changed.");
   }
-  if (verificationTargets.length > 0) {
+  if (validation.verificationVerdict.status === "failed") {
+    notes.push("Verification failed: repair the failed reported check before handoff.");
+  } else if (validation.verificationVerdict.status === "review") {
+    notes.push("Verification incomplete: ask the human to review skipped or unknown reported evidence.");
+  } else if (validation.verificationVerdict.status === "pass") {
+    notes.push("Verification reported: all recorded verification evidence was reported as passed.");
+  } else if (verificationTargets.length > 0) {
     notes.push("Verification evidence is required before handoff; this packet records expected checks, not proof that they ran.");
   } else {
     notes.push("No automated verification target was found; require a focused manual reviewer pass.");
@@ -1177,10 +1279,13 @@ function validationNextRequiredPhase(input: {
   boundaryVerdict: BoundaryVerdictSummary;
   policyDrift: PolicyDriftSummary;
   readinessDrift?: ReadinessDriftSummary;
+  verificationVerdict?: VerificationVerdictSummary;
 }): AgentRuntimeNextPhaseId {
   if (
     input.policyDrift.status === "changed" ||
     input.readinessDrift?.status === "weakened" ||
+    input.verificationVerdict?.status === "failed" ||
+    input.verificationVerdict?.status === "review" ||
     input.boundaryVerdict.status !== "pass" ||
     input.driftVerdict.status !== "pass"
   ) {
@@ -1207,6 +1312,7 @@ function buildValidationHandoff(
     validation.driftVerdict.decision === "stop-and-ask-human" ||
     validation.policyDrift.status === "changed" ||
     validation.readinessDrift.status === "weakened" ||
+    validation.verificationVerdict.status === "review" ||
     validation.verdict === "dangerous";
   const canContinue =
     validation.driftVerdict.status === "pass" &&
@@ -1238,6 +1344,12 @@ function validationHandoffDecision(
   if (validation.readinessDrift.status === "weakened") {
     return "restore-readiness";
   }
+  if (validation.verificationVerdict.status === "review") {
+    return "human-review";
+  }
+  if (validation.verificationVerdict.status === "failed") {
+    return "repair";
+  }
   if (needsHuman) {
     return "human-review";
   }
@@ -1261,6 +1373,10 @@ function validationHandoffFixNow(
     ...validation.boundaryVerdict.fix,
     ...(validation.policyDrift.status === "changed" ? validation.policyDrift.fix : []),
     ...(validation.readinessDrift.status === "weakened" ? validation.readinessDrift.fix : []),
+    ...(validation.verificationVerdict.status === "failed" ||
+    validation.verificationVerdict.status === "review"
+      ? validation.verificationVerdict.fix
+      : []),
   ]);
 }
 
@@ -1278,6 +1394,9 @@ function validationHandoffAskHuman(
   }
   if (validation.readinessDrift.status === "weakened") {
     askHuman.push("Approve continuing only if the weaker Ripple readiness is intentional.");
+  }
+  if (validation.verificationVerdict.status === "review") {
+    askHuman.push(validation.verificationVerdict.summary);
   }
   if (validation.verdict === "dangerous") {
     askHuman.push("Review contract drift before keeping the staged change.");
@@ -1315,7 +1434,10 @@ function validationHandoffCommands(
       ...validation.contextFilesChanged,
       ...validation.boundaryVerdict.changedOutsideBoundaryFiles,
     ]).map((file) => `git restore --staged -- ${file}`),
-    verify: validation.driftVerdict.status === "pass"
+    verify: validation.verificationVerdict.status === "failed" ||
+      validation.verificationVerdict.status === "review"
+      ? validation.verificationVerdict.fix
+      : validation.driftVerdict.status === "pass"
       ? validation.driftVerdict.fix
       : validation.nextSteps,
   };
@@ -1422,6 +1544,117 @@ function mergeReadinessDriftGuidance(
       ...guidance.nextSteps,
     ]),
   };
+}
+
+function mergeVerificationGuidance(
+  guidance: {
+    recommendedAction: string;
+    blockingReasons: string[];
+    nextSteps: string[];
+  },
+  verificationVerdict: VerificationVerdictSummary
+): {
+  recommendedAction: string;
+  blockingReasons: string[];
+  nextSteps: string[];
+} {
+  if (
+    verificationVerdict.status !== "failed" &&
+    verificationVerdict.status !== "review"
+  ) {
+    return guidance;
+  }
+
+  return {
+    recommendedAction: guidance.blockingReasons.length > 0
+      ? guidance.recommendedAction
+      : verificationVerdict.status === "failed"
+      ? "Repair failed verification before continuing."
+      : "Ask the human to review incomplete verification evidence before continuing.",
+    blockingReasons: uniqueItems([
+      ...guidance.blockingReasons,
+      ...verificationVerdict.why,
+    ]),
+    nextSteps: uniqueItems([
+      ...verificationVerdict.fix,
+      ...guidance.nextSteps,
+    ]),
+  };
+}
+
+function buildVerificationVerdict(
+  value: unknown
+): VerificationVerdictSummary {
+  const evidence = normalizeVerificationEvidence(value);
+
+  if (evidence.length === 0) {
+    return {
+      status: "not-reported",
+      decision: "continue",
+      label: "UNKNOWN",
+      summary: "UNKNOWN: no verification evidence has been reported.",
+      why: [],
+      fix: [],
+      evidence,
+    };
+  }
+
+  const failed = evidence.filter((item) => item.status === "failed");
+  if (failed.length > 0) {
+    return {
+      status: "failed",
+      decision: "repair",
+      label: "FAILED",
+      summary: "FAILED: reported verification evidence includes failing checks.",
+      why: failed.map((item) => verificationEvidenceWhy(item)),
+      fix: failed.map((item) => verificationEvidenceFix(item)),
+      evidence,
+    };
+  }
+
+  const incomplete = evidence.filter((item) =>
+    item.status === "skipped" || item.status === "unknown"
+  );
+  if (incomplete.length > 0) {
+    return {
+      status: "review",
+      decision: "human-review",
+      label: "REVIEW",
+      summary:
+        "REVIEW: reported verification evidence is skipped or unknown, so a human must review before handoff.",
+      why: incomplete.map((item) => verificationEvidenceWhy(item)),
+      fix: incomplete.map((item) => verificationEvidenceFix(item)),
+      evidence,
+    };
+  }
+
+  return {
+    status: "pass",
+    decision: "continue",
+    label: "PASS",
+    summary: "PASS: all reported verification evidence was marked passed.",
+    why: evidence.map((item) => verificationEvidenceWhy(item)),
+    fix: ["Keep the passing verification evidence with the final handoff."],
+    evidence,
+  };
+}
+
+function verificationEvidenceWhy(evidence: RippleVerificationEvidence): string {
+  const note = evidence.note ? ` Note: ${evidence.note}` : "";
+  return `Reported verification ${evidence.status}: ${evidence.command}.${note}`;
+}
+
+function verificationEvidenceFix(evidence: RippleVerificationEvidence): string {
+  if (evidence.status === "failed") {
+    return `Fix the failing verification, rerun it, then record a passing result: ${evidence.command}`;
+  }
+  if (evidence.status === "skipped") {
+    return `Run the skipped verification or ask the human to approve the skip: ${evidence.command}`;
+  }
+  if (evidence.status === "unknown") {
+    return `Resolve the unknown verification result or ask the human to review it: ${evidence.command}`;
+  }
+  return `Keep reported passing verification in the handoff: ${evidence.command}`;
 }
 
 function buildPolicyDriftSummary(
@@ -1989,6 +2222,12 @@ function validationVerdict(input: {
 }
 
 function repairStatus(validation: ChangeIntentValidationSummary): IntentDriftRepairStatus {
+  if (validation.verificationVerdict.status === "failed") {
+    return "repair-required";
+  }
+  if (validation.verificationVerdict.status === "review") {
+    return "human-review-required";
+  }
   if (validation.driftVerdict.status === "pass") {
     return "no-repair-needed";
   }
@@ -2011,6 +2250,12 @@ function repairStatus(validation: ChangeIntentValidationSummary): IntentDriftRep
 }
 
 function repairSummary(validation: ChangeIntentValidationSummary): string {
+  if (validation.verificationVerdict.status === "failed") {
+    return "Reported verification failed; repair the failing check and record a passing rerun before continuing.";
+  }
+  if (validation.verificationVerdict.status === "review") {
+    return "Reported verification is skipped or unknown; ask the human to review before continuing.";
+  }
   if (validation.driftVerdict.status === "pass") {
     return "Staged changes match the saved intent; no drift repair is needed.";
   }
@@ -2268,8 +2513,78 @@ function normalizeChangeIntent(intent: RawChangeIntent): ChangeIntent {
     contextFiles,
     allowedFiles: uniqueItems([...editableFiles, ...contextFiles]),
     expectedFiles: uniqueItems(intent.expectedFiles.length > 0 ? intent.expectedFiles : editableFiles),
+    verificationEvidence: normalizeVerificationEvidence(intent.verificationEvidence),
     readinessSnapshot,
   };
+}
+
+export function appendRippleVerificationEvidence(
+  intent: ChangeIntent,
+  evidence: Omit<RippleVerificationEvidence, "recordedAt" | "source"> & {
+    recordedAt?: string;
+    source?: RippleVerificationEvidence["source"];
+  }
+): ChangeIntent {
+  const normalizedCommand = evidence.command.trim();
+  if (normalizedCommand.length === 0) {
+    throw new Error("Verification command cannot be empty.");
+  }
+  const normalizedEvidence: RippleVerificationEvidence = {
+    command: normalizedCommand,
+    status: isVerificationStatus(evidence.status) ? evidence.status : "unknown",
+    recordedAt: evidence.recordedAt ?? new Date().toISOString(),
+    source: evidence.source ?? "reported",
+    note: typeof evidence.note === "string" && evidence.note.trim().length > 0
+      ? evidence.note.trim()
+      : undefined,
+  };
+  return {
+    ...intent,
+    verificationEvidence: uniqueVerificationEvidence([
+      ...normalizeVerificationEvidence(intent.verificationEvidence),
+      normalizedEvidence,
+    ]),
+  };
+}
+
+function normalizeVerificationEvidence(value: unknown): RippleVerificationEvidence[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueVerificationEvidence(value.flatMap((item): RippleVerificationEvidence[] => {
+    if (!isRecord(item) || typeof item.command !== "string") {
+      return [];
+    }
+    const command = item.command.trim();
+    if (command.length === 0) {
+      return [];
+    }
+    const status = isVerificationStatus(item.status) ? item.status : "unknown";
+    const recordedAt = typeof item.recordedAt === "string" && item.recordedAt.trim().length > 0
+      ? item.recordedAt
+      : new Date(0).toISOString();
+    const source = item.source === "reported" ? "reported" : "reported";
+    const note = typeof item.note === "string" && item.note.trim().length > 0
+      ? item.note.trim()
+      : undefined;
+    return [{ command, status, recordedAt, source, note }];
+  }));
+}
+
+function uniqueVerificationEvidence(evidence: RippleVerificationEvidence[]): RippleVerificationEvidence[] {
+  const seen = new Set<string>();
+  return evidence.filter((item) => {
+    const key = [item.command, item.status, item.recordedAt, item.note ?? ""].join("\0");
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function isVerificationStatus(value: unknown): value is RippleVerificationStatus {
+  return value === "passed" || value === "failed" || value === "skipped" || value === "unknown";
 }
 
 function normalizeReadinessSnapshot(

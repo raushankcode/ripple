@@ -3,6 +3,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  appendRippleVerificationEvidence,
   buildChangeIntent,
   buildChangeIntentReadinessSnapshot,
   buildIntentDriftRepairPlan,
@@ -45,6 +46,8 @@ import {
   RipplePolicyRiskRule,
   RippleReadinessSummary,
   RippleReviewPacket,
+  RippleVerificationEvidence,
+  RippleVerificationStatus,
   RIPPLE_CACHE_GITIGNORE_ENTRY,
   RIPPLE_CI_WORKFLOW_PATH,
   RIPPLE_GITIGNORE_PATH,
@@ -78,6 +81,9 @@ type CliOptions = {
   gate?: RippleApprovalGate;
   reason?: string;
   approvedBy?: string;
+  verificationCommand?: string;
+  verificationStatus?: RippleVerificationStatus;
+  note?: string;
   intent?: string;
   base?: string;
   budget: number;
@@ -212,6 +218,17 @@ type PlanJsonOutput = ContextPlanSummary & {
   changeIntentPath?: string;
 };
 
+type RippleVerifyOutput = {
+  protocol: "ripple-verification-evidence";
+  version: 1;
+  workspace: string;
+  intentPath: string;
+  intentId: string;
+  evidence: RippleVerificationEvidence;
+  totalEvidence: number;
+  nextSteps: string[];
+};
+
 type ApprovalStatusOutput = RippleApprovalStatus & {
   intent: {
     id: string;
@@ -249,6 +266,7 @@ function usage(): string {
     "  ripple gate [--intent latest|path] [--worktree|--changed --base <ref>] [--strict]",
     "  ripple approval [--intent latest|path] [--gate before-risky-edit|before-merge]",
     "  ripple approve [--intent latest|path] [--gate before-risky-edit|before-merge] [--reason text]",
+    "  ripple verify --command <test command> --status passed|failed|skipped|unknown [--intent latest|path] [--note text]",
     "  ripple repair [--intent latest|path] [--strict]",
     "  ripple ci [--base <ref>] [--intent latest|path] [--github-annotations]",
     "  ripple init-ci [--print] [--force]",
@@ -656,6 +674,45 @@ function parseCliArgs(argv: string[]): ParsedCliArgs {
       options.gate = parseApprovalGate(token.slice("--gate=".length));
       continue;
     }
+    if (token === "--command") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --command");
+      }
+      options.verificationCommand = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--command=")) {
+      options.verificationCommand = token.slice("--command=".length);
+      continue;
+    }
+    if (token === "--status") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --status");
+      }
+      options.verificationStatus = parseVerificationStatus(value);
+      i++;
+      continue;
+    }
+    if (token.startsWith("--status=")) {
+      options.verificationStatus = parseVerificationStatus(token.slice("--status=".length));
+      continue;
+    }
+    if (token === "--note") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("Missing value for --note");
+      }
+      options.note = value;
+      i++;
+      continue;
+    }
+    if (token.startsWith("--note=")) {
+      options.note = token.slice("--note=".length);
+      continue;
+    }
     if (token === "--reason") {
       const value = argv[i + 1];
       if (!value || value.startsWith("-")) {
@@ -744,6 +801,13 @@ function parseControlMode(value: string): ControlMode {
     return value as ControlMode;
   }
   throw new Error(`--mode must be one of: ${CONTROL_MODES.join(", ")}`);
+}
+
+function parseVerificationStatus(value: string): RippleVerificationStatus {
+  if (value === "passed" || value === "failed" || value === "skipped" || value === "unknown") {
+    return value;
+  }
+  throw new Error("--status must be one of: passed, failed, skipped, unknown");
 }
 
 function parseApprovalGate(value: string): RippleApprovalGate {
@@ -975,6 +1039,9 @@ function appendGithubReviewPacket(lines: string[], packet: RippleReviewPacket | 
   lines.push(`- Human gate: ${packet.declaredScope.humanGate}`);
   lines.push(`- Boundary risk: ${packet.declaredScope.boundaryRisk}`);
   lines.push(`- Tests run: ${packet.verification.testsRun}`);
+  if (packet.verification.evidence.length > 0) {
+    lines.push(`- Verification status: ${verificationEvidenceStatusLabel(packet.verification.evidence)}`);
+  }
   lines.push(`- Decision: ${packet.decision.verdict}`);
   lines.push(`- Can continue: ${packet.decision.canContinue}`);
   lines.push(`- Must stop: ${packet.decision.mustStop}`);
@@ -1004,6 +1071,8 @@ function appendGithubReviewPacket(lines: string[], packet: RippleReviewPacket | 
   );
   lines.push("");
   pushMarkdownList(lines, "Verification expected", packet.verification.expectedCommands, 20);
+  lines.push("");
+  pushMarkdownList(lines, "Verification reported", packet.verification.evidence.map(formatVerificationEvidence), 20);
   lines.push("");
   lines.push("#### Verification note");
   lines.push(`- ${packet.verification.note}`);
@@ -3104,6 +3173,27 @@ function printHumanList(title: string, items: string[]): void {
   items.forEach((item) => console.log(`  - ${item}`));
 }
 
+function formatVerificationEvidence(evidence: RippleVerificationEvidence): string {
+  const note = evidence.note ? ` note=${evidence.note}` : "";
+  return `${evidence.status}: ${evidence.command} (${evidence.source} ${evidence.recordedAt})${note}`;
+}
+
+function verificationEvidenceStatusLabel(evidence: RippleVerificationEvidence[]): string {
+  if (evidence.length === 0) {
+    return "none";
+  }
+  if (evidence.some((item) => item.status === "failed")) {
+    return "failed";
+  }
+  if (evidence.some((item) => item.status === "unknown")) {
+    return "unknown";
+  }
+  if (evidence.some((item) => item.status === "skipped")) {
+    return "skipped";
+  }
+  return "passed";
+}
+
 function printReviewPacketSummary(packet: RippleReviewPacket): void {
   console.log("Review packet:");
   console.log(`  protocol: ${packet.protocol}`);
@@ -3116,6 +3206,10 @@ function printReviewPacketSummary(packet: RippleReviewPacket): void {
   printHumanList("  outside boundary symbols", packet.scopeFindings.outsideBoundarySymbols);
   printHumanList("  verification expected", packet.verification.expectedCommands);
   console.log(`  tests run: ${packet.verification.testsRun}`);
+  if (packet.verification.evidence.length > 0) {
+    console.log(`  verification status: ${verificationEvidenceStatusLabel(packet.verification.evidence)}`);
+  }
+  printHumanList("  verification reported", packet.verification.evidence.map(formatVerificationEvidence));
   console.log(`  can continue: ${formatYesNo(packet.decision.canContinue)}`);
   console.log(`  must stop: ${formatYesNo(packet.decision.mustStop)}`);
   console.log(`  needs human: ${formatYesNo(packet.decision.needsHuman)}`);
@@ -3130,6 +3224,7 @@ function printAgentReviewPacket(packet: RippleReviewPacket): void {
   console.log(`review_packet_human_gate: ${packet.declaredScope.humanGate}`);
   console.log(`review_packet_boundary_risk: ${packet.declaredScope.boundaryRisk}`);
   console.log(`review_packet_tests_run: ${packet.verification.testsRun}`);
+  console.log(`review_packet_verification_status: ${verificationEvidenceStatusLabel(packet.verification.evidence)}`);
   console.log(`review_packet_can_continue: ${packet.decision.canContinue}`);
   console.log(`review_packet_must_stop: ${packet.decision.mustStop}`);
   console.log(`review_packet_needs_human: ${packet.decision.needsHuman}`);
@@ -3141,6 +3236,8 @@ function printAgentReviewPacket(packet: RippleReviewPacket): void {
   printAgentList("review_packet_outside_boundary_symbols", packet.scopeFindings.outsideBoundarySymbols);
   console.log("");
   printAgentList("review_packet_verification_expected", packet.verification.expectedCommands);
+  console.log("");
+  printAgentList("review_packet_verification_reported", packet.verification.evidence.map(formatVerificationEvidence));
   console.log("");
   printAgentList("review_packet_reviewer_notes", packet.reviewerNotes);
 }
@@ -3783,6 +3880,53 @@ function approveCommand(options: CliOptions): void {
     return;
   }
   printApprovalRecord(approval);
+}
+
+
+function verifyCommand(options: CliOptions): void {
+  const workspaceRoot = process.cwd();
+  const intentRef = options.intent ?? "latest";
+  if (!options.verificationCommand || options.verificationCommand.trim().length === 0) {
+    throw new Error("Usage: ripple verify --command <test command> --status passed|failed|skipped|unknown [--intent latest|path]");
+  }
+  const status = options.verificationStatus ?? "unknown";
+  const intent = loadChangeIntent(workspaceRoot, intentRef);
+  const updatedIntent = appendRippleVerificationEvidence(intent, {
+    command: options.verificationCommand,
+    status,
+    note: options.note,
+  });
+  const intentPath = saveChangeIntent(workspaceRoot, updatedIntent, intentRef);
+  const evidence = updatedIntent.verificationEvidence[updatedIntent.verificationEvidence.length - 1];
+  const output: RippleVerifyOutput = {
+    protocol: "ripple-verification-evidence",
+    version: 1,
+    workspace: workspaceRoot,
+    intentPath,
+    intentId: updatedIntent.id,
+    evidence,
+    totalEvidence: updatedIntent.verificationEvidence.length,
+    nextSteps: [
+      "Run ripple gate --worktree --intent latest --json to include this evidence in the review packet.",
+      "Ripple records reported evidence only; it does not claim the command was independently executed.",
+    ],
+  };
+
+  if (options.json) {
+    printJson(output);
+    return;
+  }
+
+  console.log("Ripple verification evidence");
+  console.log(`Intent: ${output.intentId}`);
+  console.log(`Intent path: ${path.relative(workspaceRoot, output.intentPath) || output.intentPath}`);
+  console.log(`Status: ${output.evidence.status}`);
+  console.log(`Command: ${output.evidence.command}`);
+  console.log(`Recorded at: ${output.evidence.recordedAt}`);
+  if (output.evidence.note) {
+    console.log(`Note: ${output.evidence.note}`);
+  }
+  console.log("Note: Ripple recorded reported evidence; it did not independently run this command.");
 }
 
 function approvalCommand(options: CliOptions): void {
@@ -5293,6 +5437,11 @@ async function main(): Promise<void> {
 
   if (command === "gate") {
     await gateCommand(options);
+    return;
+  }
+
+  if (command === "verify") {
+    verifyCommand(options);
     return;
   }
 

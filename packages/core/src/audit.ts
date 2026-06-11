@@ -256,6 +256,10 @@ function missingReviewPacket(
     verification: {
       expectedCommands: stagedCheck.files.flatMap((file) => file.verificationTargets),
       testsRun: "unknown",
+      status: validation.verificationVerdict.status,
+      decision: validation.verificationVerdict.decision,
+      reportedCommands: [],
+      evidence: [],
       note: "Ripple records expected verification, not proof that tests were run.",
     },
     decision: {
@@ -356,6 +360,9 @@ function auditHandoffAskHuman(audit: Omit<RippleAuditSummary, "handoff">): strin
   if (validation?.readinessDrift.status === "weakened") {
     askHuman.push("Approve continuing only if weaker Ripple readiness is intentional.");
   }
+  if (validation?.verificationVerdict.status === "review") {
+    askHuman.push(validation.verificationVerdict.summary);
+  }
   return askHuman;
 }
 
@@ -374,12 +381,17 @@ export function rippleAuditStatus(
   if (
     validation.policyDrift.status === "changed" ||
     validation.readinessDrift.status === "weakened" ||
+    validation.verificationVerdict.status === "review" ||
     validation.boundaryVerdict.status === "danger" ||
     validation.driftVerdict.status === "danger" ||
     repairPlan.status === "human-review-required" ||
     repairPlan.status === "contract-review-required"
   ) {
     return "human-review-required";
+  }
+
+  if (validation.verificationVerdict.status === "failed") {
+    return "repair-required";
   }
 
   if (validation.boundaryVerdict.humanRequired && !approvalStatus.approved) {
@@ -420,6 +432,12 @@ export function rippleAuditRecommendedAction(
   if (validation.readinessDrift.status === "weakened") {
     return "Restore Ripple readiness or ask the human to approve continuing with weaker protection.";
   }
+  if (validation.verificationVerdict.status === "failed") {
+    return "Repair failed verification evidence and record a passing rerun before continuing.";
+  }
+  if (validation.verificationVerdict.status === "review") {
+    return "Ask the human to review skipped or unknown verification evidence before continuing.";
+  }
   if (status === "pass") {
     return "Proceed after running the listed verification targets.";
   }
@@ -441,6 +459,7 @@ export function rippleAuditNextRequiredPhase(
   if (
     validation.policyDrift.status === "changed" ||
     validation.readinessDrift.status === "weakened" ||
+    validation.verificationVerdict.status === "review" ||
     validation.boundaryVerdict.status === "danger" ||
     validation.driftVerdict.status === "danger" ||
     repairPlan.status === "human-review-required" ||
