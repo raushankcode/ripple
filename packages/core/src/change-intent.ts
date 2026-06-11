@@ -2203,6 +2203,9 @@ function normalizePolicyExplanationSnapshot(
     ? rawPolicySource
     : defaults.policySource;
   const rawPolicyRisk = raw?.policyRisk;
+  const requiredGateNextSteps = defaults.humanGate !== "none"
+    ? fallbackPolicyExplanationNextSteps(defaults.humanGate)
+    : [];
 
   return {
     protocol: "ripple-policy-explanation",
@@ -2222,7 +2225,7 @@ function normalizePolicyExplanationSnapshot(
     matchedRules,
     why: rawWhy.length > 0 ? rawWhy : fallbackPolicyExplanationWhy(defaults),
     nextSteps: rawNextSteps.length > 0
-      ? rawNextSteps
+      ? uniqueItems([...requiredGateNextSteps, ...rawNextSteps])
       : fallbackPolicyExplanationNextSteps(defaults.humanGate),
   };
 }
@@ -2245,10 +2248,10 @@ function fallbackPolicyExplanationWhy(defaults: PolicyExplanationSnapshotDefault
 
 function fallbackPolicyExplanationNextSteps(humanGate: HumanGate): string[] {
   if (humanGate === "required-before-edit") {
-    return ["Ask the human to approve before the agent edits this file."];
+    return ["Agent must get human approval before editing this file."];
   }
   if (humanGate === "required-before-merge") {
-    return ["Require human review before merging this change."];
+    return ["Agent must get human approval before merging this change."];
   }
   return ["Check staged changes against this saved intent before handoff."];
 }

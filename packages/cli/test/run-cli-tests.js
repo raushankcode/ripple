@@ -417,6 +417,17 @@ function main() {
   );
   assert.strictEqual(cleanPolicySync.missingRules.length, 0);
 
+  runGitIn(initWorkspace, ["add", "."]);
+  runGitIn(initWorkspace, [
+    "-c",
+    "user.email=ripple@test.local",
+    "-c",
+    "user.name=Ripple Test",
+    "commit",
+    "-m",
+    "init baseline",
+  ]);
+
   writeFileIn(initWorkspace, "prisma/schema.prisma", "datasource db { provider = \"postgresql\" url = env(\"DATABASE_URL\") }\n");
   const packageJsonPath = path.join(initWorkspace, "package.json");
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
@@ -435,6 +446,41 @@ function main() {
   assert(
     stalePolicySync.nextSteps.some((step) => step.includes("Review the suggested missing rules")),
     "policy sync should tell humans to review before changing policy"
+  );
+
+  const staleDoctorJson = runCliJsonIn(initWorkspace, ["doctor"]);
+  assert.strictEqual(
+    staleDoctorJson.policySync.status,
+    "update-available",
+    "doctor JSON should surface policy rot"
+  );
+  assert(
+    staleDoctorJson.policySync.missingRules.some((rule) => rule.paths.includes("prisma/schema.prisma")),
+    "doctor JSON should include missing policy coverage"
+  );
+  const staleDoctorText = runCliIn(initWorkspace, ["doctor"]);
+  assert(staleDoctorText.includes("Policy sync:"), "doctor text should show policy sync status");
+  assert(staleDoctorText.includes("update-available"), "doctor text should warn about policy rot");
+  const staleDoctorAgent = runCliIn(initWorkspace, ["doctor", "--agent"]);
+  assert(
+    staleDoctorAgent.includes("policy_sync: update-available"),
+    "doctor --agent should expose policy sync status"
+  );
+
+  const stalePolicyCiSummaryPath = path.join(initWorkspace, "policy-sync-ci-summary.md");
+  const stalePolicyCi = runCliIn(initWorkspace, ["ci", "--base", "HEAD", "--github-annotations"], {
+    GITHUB_STEP_SUMMARY: stalePolicyCiSummaryPath,
+  });
+  assert(stalePolicyCi.includes("Ripple CI policy audit"), "CI should still run policy-audit mode");
+  assert(stalePolicyCi.includes("Policy sync: update-available"), "CI audit should surface policy rot");
+  assert(
+    stalePolicyCi.includes("::warning title=Ripple policy rot::"),
+    "CI audit should annotate stale policy without failing"
+  );
+  const stalePolicyCiSummary = fs.readFileSync(stalePolicyCiSummaryPath, "utf8");
+  assert(
+    stalePolicyCiSummary.includes("### Policy sync") && stalePolicyCiSummary.includes("update-available"),
+    "CI step summary should include policy sync status"
   );
 
   const duplicateInitJson = runCliJsonIn(initWorkspace, ["init"]);
@@ -1604,6 +1650,54 @@ function main() {
     ["src/util.ts::trimName"],
     "plan --symbol should normalize allowed symbols to project symbol ids"
   );
+
+  writeFile(
+    "src/auth.ts",
+    [
+      "export function refreshToken(value: string): string {",
+      "  return value.trim();",
+      "}",
+      "",
+      "export function login(username: string, password: string): boolean {",
+      "  return username.length > 0 && password.length > 0;",
+      "}",
+      "",
+    ].join("\n")
+  );
+  const riskyFunctionBoundaryPlan = runCliJson([
+    "plan",
+    "--file",
+    "src/auth.ts",
+    "--task",
+    "normalize refresh token whitespace only",
+    "--mode",
+    "function",
+    "--symbol",
+    "refreshToken",
+    "--save",
+  ]);
+  assert.strictEqual(
+    riskyFunctionBoundaryPlan.changeIntent.humanGate,
+    "required-before-edit",
+    "high-risk function boundary should require human approval before edit"
+  );
+  assert.strictEqual(
+    riskyFunctionBoundaryPlan.policyExplanation.humanGate,
+    riskyFunctionBoundaryPlan.changeIntent.policyExplanation.humanGate,
+    "plan --json top-level policyExplanation must match the saved intent human gate"
+  );
+  assert.strictEqual(
+    riskyFunctionBoundaryPlan.policyExplanation.humanRequired,
+    riskyFunctionBoundaryPlan.changeIntent.policyExplanation.humanRequired,
+    "plan --json top-level policyExplanation must match saved intent human-required status"
+  );
+  assert(
+    riskyFunctionBoundaryPlan.policyExplanation.nextSteps.some((step) =>
+      step.includes("human approval before editing")
+    ),
+    "plan --json top-level policyExplanation should tell agents to get human approval"
+  );
+  fs.rmSync(path.join(workspaceRoot, "src", "auth.ts"), { force: true });
   runCliJson([
     "plan",
     "--file",

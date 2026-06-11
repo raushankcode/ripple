@@ -194,6 +194,10 @@ type RipplePolicySyncSummary = {
   nextSteps: string[];
 };
 
+type RippleDoctorOutput = RippleReadinessSummary & {
+  policySync: RipplePolicySyncSummary;
+};
+
 type SavedChangeIntent = {
   intent: ChangeIntent;
   path: string;
@@ -913,21 +917,21 @@ function writeGithubAuditStepSummary(audit: RippleAuditSummary): void {
   }
 }
 
-function writeGithubPolicyAuditStepSummary(summary: StagedCheckSummary): void {
+function writeGithubPolicyAuditStepSummary(summary: StagedCheckSummary, policySync?: RipplePolicySyncSummary): void {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY?.trim();
   if (!summaryPath) {
     return;
   }
 
   try {
-    fs.appendFileSync(summaryPath, buildGithubPolicyAuditStepSummary(summary), "utf8");
+    fs.appendFileSync(summaryPath, buildGithubPolicyAuditStepSummary(summary, policySync), "utf8");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Ripple CLI warning: Could not write GitHub step summary: ${message}`);
   }
 }
 
-function buildGithubPolicyAuditStepSummary(summary: StagedCheckSummary): string {
+function buildGithubPolicyAuditStepSummary(summary: StagedCheckSummary, policySync?: RipplePolicySyncSummary): string {
   const pushList = (lines: string[], title: string, items: string[], limit: number): void => {
     lines.push(`#### ${title}`);
     if (items.length === 0) {
@@ -963,6 +967,22 @@ function buildGithubPolicyAuditStepSummary(summary: StagedCheckSummary): string 
     });
     if (summary.files.length > 20) {
       lines.push(`- ...and ${summary.files.length - 20} more`);
+    }
+    lines.push("");
+  }
+
+  if (policySync) {
+    lines.push("### Policy sync", "");
+    lines.push(`Status: ${policySync.status}`);
+    if (policySync.missingRules.length > 0) {
+      policySync.missingRules.slice(0, 12).forEach((rule) => {
+        lines.push(`- ${rule.paths.join(", ")} (risk: ${rule.risk ?? "medium"})`);
+      });
+      if (policySync.missingRules.length > 12) {
+        lines.push(`- ...and ${policySync.missingRules.length - 12} more`);
+      }
+    } else {
+      lines.push("- up to date");
     }
     lines.push("");
   }
@@ -1475,7 +1495,7 @@ function printGithubCheckAnnotations(summary: StagedCheckWithIntentSummary): voi
   });
 }
 
-function printGithubPolicyAuditAnnotations(summary: StagedCheckSummary): void {
+function printGithubPolicyAuditAnnotations(summary: StagedCheckSummary, policySync?: RipplePolicySyncSummary): void {
   if (summary.requiresAttention) {
     printGithubWarningAnnotation({
       title: "Ripple policy audit",
@@ -1485,6 +1505,13 @@ function printGithubPolicyAuditAnnotations(summary: StagedCheckSummary): void {
     printGithubNoticeAnnotation({
       title: "Ripple policy audit",
       message: "Policy audit completed without high-risk findings.",
+    });
+  }
+
+  if (policySync && policySync.missingRules.length > 0) {
+    printGithubWarningAnnotation({
+      title: "Ripple policy rot",
+      message: `Policy may be missing ${policySync.missingRules.length} risky repo surface(s). Run ripple policy sync and review .ripple/policy.json.`,
     });
   }
 
@@ -1682,7 +1709,7 @@ function printWorkflowSummary(summary: RippleWorkflowSummary): void {
   printHumanList("Next:", summary.nextSteps);
 }
 
-function printDoctorSummary(summary: RippleReadinessSummary): void {
+function printDoctorSummary(summary: RippleDoctorOutput): void {
   console.log("Ripple doctor");
   console.log(`Workspace: ${summary.workspace}`);
   console.log(`Status: ${summary.status}`);
@@ -1714,6 +1741,15 @@ function printDoctorSummary(summary: RippleReadinessSummary): void {
   if (summary.enforcement.gaps.length > 0) {
     console.log("  gaps:");
     summary.enforcement.gaps.forEach((gap) => console.log(`    - ${gap}`));
+  }
+  console.log("");
+  console.log("Policy sync:");
+  console.log(`  status: ${summary.policySync.status}`);
+  if (summary.policySync.missingRules.length > 0) {
+    console.log("  missing coverage:");
+    summary.policySync.missingRules.slice(0, 12).forEach((rule) => {
+      console.log(`    - ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}`);
+    });
   }
   console.log("");
   console.log("Next steps:");
@@ -1757,7 +1793,7 @@ function printInitSummary(summary: RippleInitSummary): void {
   summary.nextSteps.forEach((step) => console.log(`  - ${step}`));
 }
 
-function printAgentDoctorSummary(summary: RippleReadinessSummary): void {
+function printAgentDoctorSummary(summary: RippleDoctorOutput): void {
   console.log("RIPPLE_DOCTOR");
   console.log(`status: ${summary.status}`);
   console.log(`decision: ${summary.decision}`);
@@ -1779,6 +1815,13 @@ function printAgentDoctorSummary(summary: RippleReadinessSummary): void {
   console.log(`git_ignore: ${summary.checks.gitIgnore.ok ? "ok" : "missing"} - ${summary.checks.gitIgnore.detail}`);
   console.log(`ci_workflow: ${summary.checks.ciWorkflow.ok ? "ok" : "missing"} - ${summary.checks.ciWorkflow.detail}`);
   console.log(`latest_intent: ${summary.checks.latestIntent.ok ? "ok" : "missing"} - ${summary.checks.latestIntent.detail}`);
+  console.log(`policy_sync: ${summary.policySync.status}`);
+  if (summary.policySync.missingRules.length > 0) {
+    console.log("policy_sync_missing_rules:");
+    summary.policySync.missingRules.slice(0, 12).forEach((rule) => {
+      console.log(`- ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}`);
+    });
+  }
   console.log("");
   printAgentList("why", summary.why);
   console.log("");
@@ -3264,7 +3307,7 @@ async function planCommand(options: CliOptions): Promise<void> {
       const output: PlanJsonOutput = savedIntent
         ? {
             ...summary,
-            policyExplanation,
+            policyExplanation: savedIntent.intent.policyExplanation,
             changeIntent: savedIntent.intent,
             changeIntentPath: savedIntent.path,
           }
@@ -3611,6 +3654,7 @@ async function ciCommand(options: CliOptions): Promise<void> {
       baseRef,
       tokenBudget: options.budget,
     });
+    const policySync = buildPolicySyncSummary(workspaceRoot);
 
     if (options.json) {
       printJson({
@@ -3620,6 +3664,7 @@ async function ciCommand(options: CliOptions): Promise<void> {
         auditMode: true,
         blocking: false,
         intentRequired: false,
+        policySync,
       });
     } else if (options.agent) {
       printAgentStagedCheckSummary(summary);
@@ -3627,22 +3672,37 @@ async function ciCommand(options: CliOptions): Promise<void> {
       console.log("ci_mode: policy-audit");
       console.log("blocking: false");
       console.log("intent_required: false");
-      console.log("next_required_action: Review policy-risk findings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
+      console.log(`policy_sync: ${policySync.status}`);
+      if (policySync.missingRules.length > 0) {
+        console.log("policy_sync_missing_rules:");
+        policySync.missingRules.slice(0, 12).forEach((rule) => {
+          console.log(`- ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}`);
+        });
+      }
+      console.log("next_required_action: Review policy-risk findings and policy-sync warnings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
     } else {
       console.log("Ripple CI policy audit");
       console.log("Status: audit");
       console.log("Blocking: false");
       console.log("Intent: none (local intents are not required in CI audit mode)");
+      console.log(`Policy sync: ${policySync.status}`);
+      if (policySync.missingRules.length > 0) {
+        console.log("");
+        console.log("Policy may be missing risky repo surfaces:");
+        policySync.missingRules.slice(0, 12).forEach((rule) => {
+          console.log(`- ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}`);
+        });
+      }
       console.log("");
       printStagedCheckSummary(summary);
       console.log("");
-      console.log("Next action: Review policy-risk findings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
+      console.log("Next action: Review policy-risk findings and policy-sync warnings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
     }
 
     if (emitGithubAnnotations && !options.json) {
-      printGithubPolicyAuditAnnotations(summary);
+      printGithubPolicyAuditAnnotations(summary, policySync);
     }
-    writeGithubPolicyAuditStepSummary(summary);
+    writeGithubPolicyAuditStepSummary(summary, policySync);
     return;
   }
 
@@ -3728,13 +3788,18 @@ async function doctorCommand(options: CliOptions): Promise<void> {
   try {
     await runWithQuietEngine(() => engine.initialScan());
     const summary = buildRippleReadinessSummary(workspaceRoot, engine);
+    const policySync = buildPolicySyncSummary(workspaceRoot);
+    const output: RippleDoctorOutput = {
+      ...summary,
+      policySync,
+    };
 
     if (options.json) {
-      printJson(summary);
+      printJson(output);
     } else if (options.agent) {
-      printAgentDoctorSummary(summary);
+      printAgentDoctorSummary(output);
     } else {
-      printDoctorSummary(summary);
+      printDoctorSummary(output);
     }
     applyStrictExit(options.strict && summary.status !== "ready");
   } finally {

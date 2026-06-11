@@ -233,9 +233,9 @@ export function explainRipplePolicyForTarget(
   }
 
   if (humanGate === "required-before-edit") {
-    nextSteps.push("Ask the human to approve before the agent edits this file.");
+    nextSteps.push("Ask the human to approve before the agent edits this file. Agent must get human approval before editing.");
   } else if (humanGate === "required-before-merge") {
-    nextSteps.push("Require human review before merging this change.");
+    nextSteps.push("Require human review before merging this change. Agent must get human approval before merging.");
   } else {
     nextSteps.push("Use ripple plan to create a saved intent before editing.");
   }
