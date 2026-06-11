@@ -2904,6 +2904,22 @@ function main() {
     "matched CI step summary should include agent action buckets"
   );
   assert(
+    matchedSummary.includes("### Review packet"),
+    "matched CI step summary should include review packet section"
+  );
+  assert(
+    matchedSummary.includes("- Task: change trim behavior"),
+    "matched CI review packet should include original task"
+  );
+  assert(
+    matchedSummary.includes("#### Actual changed files"),
+    "matched CI review packet should include changed files bucket"
+  );
+  assert(
+    matchedSummary.includes("- Tests run: unknown"),
+    "matched CI review packet should avoid claiming tests were run"
+  );
+  assert(
     matchedSummary.includes("### Gate handoff"),
     "matched CI step summary should include compact gate handoff section"
   );
@@ -3121,6 +3137,18 @@ function main() {
   assert(
     driftSummary.includes("Next required phase: repair_or_handoff"),
     "drifted CI step summary should show next required phase"
+  );
+  assert(
+    driftSummary.includes("### Review packet"),
+    "drifted CI step summary should include review packet section"
+  );
+  assert(
+    driftSummary.includes("#### Outside boundary files"),
+    "drifted CI review packet should include outside-boundary bucket"
+  );
+  assert(
+    driftSummary.includes("- src/changed-other.ts"),
+    "drifted CI review packet should list the outside-boundary file"
   );
   assert(
     driftSummary.includes("Unplanned file changed: src/changed-other.ts"),

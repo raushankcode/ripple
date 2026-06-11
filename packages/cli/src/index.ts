@@ -949,6 +949,69 @@ function writeGithubPolicyAuditStepSummary(summary: StagedCheckSummary, policySy
   }
 }
 
+
+function pushMarkdownList(lines: string[], title: string, items: string[], limit: number): void {
+  lines.push(`#### ${title}`);
+  if (items.length === 0) {
+    lines.push("- none");
+    return;
+  }
+  items.slice(0, limit).forEach((item) => lines.push(`- ${item}`));
+  if (items.length > limit) {
+    lines.push(`- ...and ${items.length - limit} more`);
+  }
+}
+
+function appendGithubReviewPacket(lines: string[], packet: RippleReviewPacket | undefined): void {
+  if (!packet) {
+    return;
+  }
+
+  lines.push("### Review packet", "");
+  lines.push(`- Protocol: ${packet.protocol} v${packet.version}`);
+  lines.push(`- Task: ${packet.originalTask}`);
+  lines.push(`- Mode: ${packet.mode}`);
+  lines.push(`- Declared scope: ${packet.declaredScope.controlMode} ${packet.declaredScope.targetFile}`);
+  lines.push(`- Human gate: ${packet.declaredScope.humanGate}`);
+  lines.push(`- Boundary risk: ${packet.declaredScope.boundaryRisk}`);
+  lines.push(`- Tests run: ${packet.verification.testsRun}`);
+  lines.push(`- Decision: ${packet.decision.verdict}`);
+  lines.push(`- Can continue: ${packet.decision.canContinue}`);
+  lines.push(`- Must stop: ${packet.decision.mustStop}`);
+  lines.push(`- Needs human: ${packet.decision.needsHuman}`);
+  lines.push(`- Next required action: ${packet.decision.nextRequiredAction}`);
+  lines.push("");
+  pushMarkdownList(lines, "Allowed files", packet.declaredScope.allowedFiles, 12);
+  lines.push("");
+  pushMarkdownList(lines, "Allowed symbols", packet.declaredScope.allowedSymbols, 12);
+  lines.push("");
+  pushMarkdownList(lines, "Actual changed files", packet.actualChanges.changedFiles, 20);
+  lines.push("");
+  pushMarkdownList(lines, "Changed symbols", packet.actualChanges.changedSymbols, 16);
+  lines.push("");
+  pushMarkdownList(lines, "Outside boundary files", packet.scopeFindings.outsideBoundaryFiles, 20);
+  lines.push("");
+  pushMarkdownList(lines, "Outside boundary symbols", packet.scopeFindings.outsideBoundarySymbols, 16);
+  lines.push("");
+  pushMarkdownList(
+    lines,
+    "Contract changes to review",
+    uniqueItems([
+      ...packet.scopeFindings.protectedContractChanges,
+      ...packet.scopeFindings.unplannedContractChanges,
+    ]),
+    16
+  );
+  lines.push("");
+  pushMarkdownList(lines, "Verification expected", packet.verification.expectedCommands, 20);
+  lines.push("");
+  lines.push("#### Verification note");
+  lines.push(`- ${packet.verification.note}`);
+  lines.push("");
+  pushMarkdownList(lines, "Reviewer notes", packet.reviewerNotes, 12);
+  lines.push("");
+}
+
 function buildGithubPolicyAuditStepSummary(summary: StagedCheckSummary, policySync?: RipplePolicySyncSummary): string {
   const pushList = (lines: string[], title: string, items: string[], limit: number): void => {
     lines.push(`#### ${title}`);
@@ -1119,6 +1182,8 @@ function buildGithubStepSummary(input: {
     );
   }
 
+  appendGithubReviewPacket(lines, summary.reviewPacket);
+
   const blockingReasons = validation?.blockingReasons ?? [];
   if (blockingReasons.length > 0) {
     lines.push("### Blocking reasons", "");
@@ -1276,6 +1341,8 @@ function buildGithubAuditStepSummary(audit: RippleAuditSummary): string {
   }
   pushList(lines, "Approval why", audit.approvalStatus.why, 8);
   lines.push("");
+
+  appendGithubReviewPacket(lines, audit.reviewPacket);
 
   if (audit.blockingReasons.length > 0) {
     lines.push("### Blocking reasons", "");
