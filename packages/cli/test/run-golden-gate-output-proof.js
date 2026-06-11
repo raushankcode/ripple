@@ -203,18 +203,24 @@ function main() {
     "Decision: human-review",
     "Can continue: no",
     "Must stop: yes",
-    "Risk: HIGH",
-    "Risk summary: HIGH risk",
+    "Risk: CRITICAL 100/100",
+    "Risk summary: CRITICAL risk 100/100",
     "Why this is risky:",
-    "HIGH boundary-crossed: Agent changed symbols outside the approved Ripple boundary.",
-    "MEDIUM public-contract: Changed exported/public symbols may affect callers or external contracts.",
-    "MEDIUM blast-radius:",
+    "  - HIGH boundary-crossed: Agent changed symbols outside the approved Ripple boundary.",
+    "  - HIGH policy-rule: Saved intent is marked high risk by Ripple policy/boundary analysis.",
+    "  - MEDIUM blast-radius: src/auth.ts is marked caution by Ripple graph risk.",
+    "  - MEDIUM blast-radius: src/auth.ts is shared by multiple downstream files.",
+    "  - MEDIUM public-contract: Changed exported/public symbols may affect callers or external contracts.",
     "Evidence:",
-    "allowed symbol: src/auth.ts::refreshToken",
-    "changed outside boundary: src/auth.ts::login",
+    "  - allowed symbol: src/auth.ts::refreshToken",
+    "  - changed outside boundary: src/auth.ts::login",
+    "  - boundary risk: high",
+    "  - importer count: 3",
+    "  - 3 direct importers may be affected",
     "Required:",
-    "Undo the outside-boundary change or create a wider human-approved intent.",
-    "Review public contract changes before keeping this edit.",
+    "  - Undo the outside-boundary change or create a wider human-approved intent.",
+    "  - Review downstream callers/importers before continuing.",
+    "  - Review public contract changes before keeping this edit.",
     "Intent:",
     "Boundary: function",
     "Allowed:",
@@ -228,14 +234,15 @@ function main() {
   );
 
   const json = JSON.parse(runCli(["gate", "--intent", "latest", "--json"]));
-  assert.strictEqual(json.risk.level, "high");
-  assert(
-    json.risk.score >= 51,
-    `risk score should be high; got ${json.risk.score}`,
-  );
+  assert.strictEqual(json.risk.level, "critical");
+  assert.strictEqual(json.risk.score, 100);
   assert(
     json.risk.reasons.some((reason) => reason.kind === "boundary-crossed"),
     "risk should include boundary-crossed reason",
+  );
+  assert(
+    json.risk.reasons.some((reason) => reason.kind === "policy-rule"),
+    "risk should include policy-rule reason for high-risk saved intent",
   );
   assert(
     json.risk.reasons.some((reason) =>
@@ -252,6 +259,10 @@ function main() {
       reason.evidence.some((evidence) => evidence.includes("direct importers")),
     ),
     "risk evidence should include downstream importer count",
+  );
+  assert(
+    json.risk.reasons.some((reason) => reason.kind === "public-contract"),
+    "risk should include public-contract reason for exported changed symbol",
   );
   assert(
     json.risk.requiredActions.some((action) =>
