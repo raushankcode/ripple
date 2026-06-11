@@ -359,7 +359,7 @@ function detectSmartRipplePolicyRules(workspaceRoot: string): SmartRipplePolicyD
     },
   ]);
 
-  const githubEvidence = hasAny([".github/workflows"]);
+  const githubEvidence = findGithubWorkflowEvidence(workspaceRoot);
   addDetection("github-actions", githubEvidence, [
     {
       paths: [".github/workflows/**"],
@@ -449,6 +449,20 @@ function mergeRisk(
     return second;
   }
   return strongestRisk(first, second);
+}
+
+
+function findGithubWorkflowEvidence(workspaceRoot: string): string[] {
+  const workflowsRoot = path.join(workspaceRoot, ".github", "workflows");
+  if (!fs.existsSync(workflowsRoot) || !fs.statSync(workflowsRoot).isDirectory()) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(workflowsRoot)
+    .filter((entry) => entry !== "ripple.yml")
+    .filter((entry) => /\.(ya?ml)$/i.test(entry))
+    .map((entry) => path.join(".github", "workflows", entry).split(path.sep).join("/"));
 }
 
 function pathExists(workspaceRoot: string, relativePath: string): boolean {

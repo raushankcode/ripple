@@ -408,6 +408,35 @@ function main() {
     "init should tell the user to run the policy-audit CI command next"
   );
 
+  const cleanPolicySync = runCliJsonIn(initWorkspace, ["policy", "sync"]);
+  assert.strictEqual(cleanPolicySync.protocol, "ripple-policy-sync");
+  assert.strictEqual(
+    cleanPolicySync.status,
+    "up-to-date",
+    "policy sync should pass when the committed policy matches current smart detections"
+  );
+  assert.strictEqual(cleanPolicySync.missingRules.length, 0);
+
+  writeFileIn(initWorkspace, "prisma/schema.prisma", "datasource db { provider = \"postgresql\" url = env(\"DATABASE_URL\") }\n");
+  const packageJsonPath = path.join(initWorkspace, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  packageJson.dependencies = { ...(packageJson.dependencies || {}), prisma: "latest" };
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+  const stalePolicySync = runCliJsonIn(initWorkspace, ["policy", "sync"]);
+  assert.strictEqual(
+    stalePolicySync.status,
+    "update-available",
+    "policy sync should detect new risky repo surfaces missing from policy"
+  );
+  assert(
+    stalePolicySync.missingRules.some((rule) => rule.paths.includes("prisma/schema.prisma") && rule.risk === "critical"),
+    "policy sync should suggest the missing Prisma critical rule"
+  );
+  assert(
+    stalePolicySync.nextSteps.some((step) => step.includes("Review the suggested missing rules")),
+    "policy sync should tell humans to review before changing policy"
+  );
+
   const duplicateInitJson = runCliJsonIn(initWorkspace, ["init"]);
   assert(
     duplicateInitJson.files.every((file) => file.status === "exists" && file.written === false),

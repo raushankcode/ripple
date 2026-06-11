@@ -41,6 +41,7 @@ import {
   RippleGateSummary,
   RippleAgentHandoffVerdict,
   RipplePolicyExplanation,
+  RipplePolicyRiskRule,
   RippleReadinessSummary,
   RIPPLE_CACHE_GITIGNORE_ENTRY,
   RIPPLE_CI_WORKFLOW_PATH,
@@ -168,6 +169,28 @@ type RippleHookInstallSummary = {
   content?: string;
   preCommitContent?: string;
   postCommitContent?: string;
+  nextSteps: string[];
+};
+
+type RipplePolicySyncStatus = "up-to-date" | "update-available";
+
+type RipplePolicySyncMissingRule = RipplePolicyRiskRule & {
+  reason: string;
+};
+
+type RipplePolicySyncSummary = {
+  protocol: "ripple-policy-sync";
+  version: 1;
+  workspace: string;
+  policyPath: string;
+  policyExists: boolean;
+  status: RipplePolicySyncStatus;
+  missingRules: RipplePolicySyncMissingRule[];
+  detections: Array<{
+    kind: string;
+    evidence: string[];
+    missingRules: number;
+  }>;
   nextSteps: string[];
 };
 
@@ -4313,11 +4336,15 @@ function policyCommand(args: string[], options: CliOptions): void {
     policyInitCommand(options);
     return;
   }
+  if (subcommand === "sync") {
+    policySyncCommand(options);
+    return;
+  }
   if (subcommand === "explain") {
     policyExplainCommand(options);
     return;
   }
-  throw new Error("Usage: ripple policy init [--print] [--force] or ripple policy explain --file <file>");
+  throw new Error("Usage: ripple policy init [--print] [--force], ripple policy sync [--json], or ripple policy explain --file <file>");
 }
 
 function policyInitCommand(options: CliOptions): void {
@@ -4370,6 +4397,199 @@ function policyInitCommand(options: CliOptions): void {
       console.log(`- ${detection.kind}: ${detection.evidence.join(", ")}`);
     });
   }
+}
+
+
+function policySyncCommand(options: CliOptions): void {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const summary = buildPolicySyncSummary(workspaceRoot);
+
+  if (options.json) {
+    printJson(summary);
+    return;
+  }
+
+  printPolicySyncSummary(summary);
+}
+
+function buildPolicySyncSummary(workspaceRoot: string): RipplePolicySyncSummary {
+  const loadedPolicy = loadRipplePolicy(workspaceRoot);
+  const { policy: smartPolicy, detections } = buildSmartRipplePolicy(workspaceRoot);
+  const existingRules = loadedPolicy.policy.riskRules ?? [];
+  const missingRules: RipplePolicySyncMissingRule[] = [];
+  const missingRuleKeys = new Set<string>();
+
+  const detectionSummaries = detections.map((detection) => {
+    let missingForDetection = 0;
+    detection.rules.forEach((rule) => {
+      if (policyRuleIsCovered(rule, existingRules)) {
+        return;
+      }
+      const key = policyRuleKey(rule);
+      if (missingRuleKeys.has(key)) {
+        return;
+      }
+      missingRuleKeys.add(key);
+      missingForDetection += 1;
+      missingRules.push({
+        ...clonePolicyRule(rule),
+        reason: `${detection.kind}: ${detection.evidence.join(", ")}`,
+      });
+    });
+    return {
+      kind: detection.kind,
+      evidence: detection.evidence,
+      missingRules: missingForDetection,
+    };
+  });
+
+  if (!loadedPolicy.exists) {
+    (smartPolicy.riskRules ?? []).forEach((rule) => {
+      const key = policyRuleKey(rule);
+      if (missingRuleKeys.has(key)) {
+        return;
+      }
+      missingRuleKeys.add(key);
+      missingRules.push({
+        ...clonePolicyRule(rule),
+        reason: "policy file missing",
+      });
+    });
+  }
+
+  const status: RipplePolicySyncStatus = missingRules.length > 0 ? "update-available" : "up-to-date";
+  return {
+    protocol: "ripple-policy-sync",
+    version: 1,
+    workspace: workspaceRoot,
+    policyPath: RIPPLE_POLICY_PATH.split(path.sep).join("/"),
+    policyExists: loadedPolicy.exists,
+    status,
+    missingRules,
+    detections: detectionSummaries,
+    nextSteps: policySyncNextSteps(status, loadedPolicy.exists),
+  };
+}
+
+function clonePolicyRule(rule: RipplePolicyRiskRule): RipplePolicyRiskRule {
+  return {
+    paths: [...rule.paths],
+    ...(rule.risk ? { risk: rule.risk } : {}),
+    ...(rule.requireHumanBeforeEdit === true ? { requireHumanBeforeEdit: true } : {}),
+    ...(rule.requireHumanBeforeMerge === true ? { requireHumanBeforeMerge: true } : {}),
+    ...(rule.allowPrMode === true ? { allowPrMode: true } : {}),
+  };
+}
+
+function policyRuleIsCovered(suggested: RipplePolicyRiskRule, existingRules: RipplePolicyRiskRule[]): boolean {
+  return existingRules.some((existing) => {
+    if (!suggested.paths.every((suggestedPath) => existing.paths.some((existingPath) => policyPathPatternCovers(existingPath, suggestedPath)))) {
+      return false;
+    }
+    if (suggested.risk && comparePolicyRisk(existing.risk, suggested.risk) < 0) {
+      return false;
+    }
+    if (suggested.requireHumanBeforeEdit === true && existing.requireHumanBeforeEdit !== true) {
+      return false;
+    }
+    if (suggested.requireHumanBeforeMerge === true && existing.requireHumanBeforeMerge !== true) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function policyPathPatternCovers(existingPattern: string, suggestedPattern: string): boolean {
+  const existing = normalizePolicyPattern(existingPattern);
+  const suggested = normalizePolicyPattern(suggestedPattern);
+  if (existing === suggested) {
+    return true;
+  }
+  if (existing === "**" || existing === "**/*") {
+    return true;
+  }
+  if (existing.endsWith("/**")) {
+    const base = existing.slice(0, -3);
+    return suggested === base || suggested.startsWith(`${base}/`);
+  }
+  if (!suggested.includes("*") && policyGlobToRegExp(existing).test(suggested)) {
+    return true;
+  }
+  return false;
+}
+
+function normalizePolicyPattern(pattern: string): string {
+  return pattern.replace(/\\\\/g, "/").replace(/^\.\//, "");
+}
+
+function policyGlobToRegExp(pattern: string): RegExp {
+  const normalized = normalizePolicyPattern(pattern);
+  let source = "";
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    const next = normalized[index + 1];
+    if (char === "*" && next === "*") {
+      source += ".*";
+      index += 1;
+      continue;
+    }
+    if (char === "*") {
+      source += "[^/]*";
+      continue;
+    }
+    source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function comparePolicyRisk(existing: RipplePolicyRiskRule["risk"], suggested: RipplePolicyRiskRule["risk"]): number {
+  const levels = ["low", "medium", "high", "critical"];
+  return levels.indexOf(existing ?? "low") - levels.indexOf(suggested ?? "low");
+}
+
+function policyRuleKey(rule: RipplePolicyRiskRule): string {
+  return JSON.stringify({
+    paths: rule.paths.map(normalizePolicyPattern).sort(),
+    risk: rule.risk ?? "",
+    requireHumanBeforeEdit: rule.requireHumanBeforeEdit === true,
+    requireHumanBeforeMerge: rule.requireHumanBeforeMerge === true,
+    allowPrMode: rule.allowPrMode === true,
+  });
+}
+
+function policySyncNextSteps(status: RipplePolicySyncStatus, policyExists: boolean): string[] {
+  if (!policyExists) {
+    return [
+      "Run ripple policy init to create .ripple/policy.json from the current repository shape.",
+      "Review the suggested risk rules before committing the policy.",
+    ];
+  }
+  if (status === "up-to-date") {
+    return ["No policy update is required right now."];
+  }
+  return [
+    "Review the suggested missing rules with a human maintainer.",
+    "Update .ripple/policy.json only after approving the new trust boundaries.",
+  ];
+}
+
+function printPolicySyncSummary(summary: RipplePolicySyncSummary): void {
+  console.log("Ripple policy sync");
+  console.log(`Policy: ${summary.policyPath}${summary.policyExists ? "" : " (missing)"}`);
+  console.log(`Status: ${summary.status}`);
+  if (summary.missingRules.length > 0) {
+    console.log("");
+    console.log("Detected risky paths not covered by policy:");
+    summary.missingRules.forEach((rule) => {
+      console.log(`- ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}${rule.requireHumanBeforeEdit ? " human-before-edit" : ""}${rule.requireHumanBeforeMerge ? " human-before-merge" : ""}`);
+      console.log(`  reason: ${rule.reason}`);
+    });
+  } else {
+    console.log("Policy is up to date with current smart detections.");
+  }
+  console.log("");
+  console.log("Next:");
+  summary.nextSteps.forEach((step) => console.log(`- ${step}`));
 }
 
 
