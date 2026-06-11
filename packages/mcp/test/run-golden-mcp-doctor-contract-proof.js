@@ -179,23 +179,25 @@ function callStdioTool(workspaceRoot, tool, args = {}) {
   return responses[1].result.structuredContent;
 }
 
-function assertDoctorBlocks(doctor, label) {
-  assert.strictEqual(doctor.status, "needs_setup", `${label} status`);
-  assert.strictEqual(doctor.decision, "setup-required", `${label} decision`);
-  assert.strictEqual(doctor.canContinue, false, `${label} canContinue`);
-  assert.strictEqual(doctor.mustStop, true, `${label} mustStop`);
+function assertDoctorReadyBeforePlan(doctor, label) {
+  assert.strictEqual(doctor.status, "ready", `${label} status`);
+  assert.strictEqual(doctor.decision, "continue", `${label} decision`);
+  assert.strictEqual(doctor.canContinue, true, `${label} canContinue`);
+  assert.strictEqual(doctor.mustStop, false, `${label} mustStop`);
   assert.strictEqual(
     doctor.nextRequiredAction,
-    "Stop autonomous agent work until Ripple readiness gaps are fixed.",
+    "Continue with the saved-intent workflow and keep the Ripple CI gate enabled.",
     `${label} nextRequiredAction`
   );
+  assert.strictEqual(doctor.checks.latestIntent.ok, false, `${label} latest intent`);
   assert(
-    doctor.why.some((reason) => reason.includes("No latest saved intent exists")),
-    `${label} should explain missing saved intent`
+    doctor.checks.latestIntent.detail.includes("normal until an agent creates a saved plan"),
+    `${label} should explain missing saved intent is normal`
   );
+  assert.deepStrictEqual(doctor.fixNow, [], `${label} fixNow`);
   assert(
-    doctor.fixNow.some((fix) => fix.includes("ripple plan --file")),
-    `${label} should tell the agent how to create a saved intent`
+    doctor.why.some((reason) => reason.includes("detect drift, and fail CI")),
+    `${label} should explain CI gate readiness`
   );
 }
 
@@ -218,7 +220,7 @@ function assertDoctorAllows(doctor, label) {
 
 async function proveHostDoctorContract() {
   const workspaceRoot = setupFixture("host");
-  assertDoctorBlocks(await callMcpTool(workspaceRoot, "ripple_doctor"), "MCP host before plan");
+  assertDoctorReadyBeforePlan(await callMcpTool(workspaceRoot, "ripple_doctor"), "MCP host before plan");
 
   const plan = await callMcpTool(workspaceRoot, "ripple_plan_context", {
     task: "normalize display name whitespace",
@@ -235,7 +237,7 @@ async function proveHostDoctorContract() {
 
 function proveStdioDoctorContract() {
   const workspaceRoot = setupFixture("stdio");
-  assertDoctorBlocks(callStdioTool(workspaceRoot, "ripple_doctor"), "MCP stdio before plan");
+  assertDoctorReadyBeforePlan(callStdioTool(workspaceRoot, "ripple_doctor"), "MCP stdio before plan");
 
   const plan = callStdioTool(workspaceRoot, "ripple_plan_context", {
     task: "normalize display name whitespace",
@@ -256,8 +258,8 @@ async function main() {
 
   console.log("Ripple golden MCP doctor contract proof passed");
   console.log(`Workspace root: ${proofRoot}`);
-  console.log("MCP host: setup-required -> continue");
-  console.log("MCP stdio: setup-required -> continue");
+  console.log("MCP host: ready before plan -> continue after plan");
+  console.log("MCP stdio: ready before plan -> continue after plan");
 }
 
 main().catch((err) => {

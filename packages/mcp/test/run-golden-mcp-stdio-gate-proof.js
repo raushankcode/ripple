@@ -172,6 +172,7 @@ function setupUtilityFixture(name, options = {}) {
         "",
       ].join("\n"),
     );
+    writeFile(workspaceRoot, ".gitignore", [".ripple/.cache/", ""].join("\n"));
   }
   commitBaseline(workspaceRoot);
   return workspaceRoot;

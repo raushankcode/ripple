@@ -292,23 +292,29 @@ function changeUtilityInsidePlan() {
   runGit(["add", "src/util.ts"]);
 }
 
-function assertDoctorBlocks(doctor, label) {
-  assert.strictEqual(doctor.status, "needs_setup", `${label} status`);
-  assert.strictEqual(doctor.decision, "setup-required", `${label} decision`);
-  assert.strictEqual(doctor.canContinue, false, `${label} canContinue`);
-  assert.strictEqual(doctor.mustStop, true, `${label} mustStop`);
+function assertDoctorReadyBeforePlan(doctor, label) {
+  assert.strictEqual(doctor.status, "ready", `${label} status`);
+  assert.strictEqual(doctor.decision, "continue", `${label} decision`);
+  assert.strictEqual(doctor.canContinue, true, `${label} canContinue`);
+  assert.strictEqual(doctor.mustStop, false, `${label} mustStop`);
   assert.strictEqual(
     doctor.nextRequiredAction,
-    "Stop autonomous agent work until Ripple readiness gaps are fixed.",
+    "Continue with the saved-intent workflow and keep the Ripple CI gate enabled.",
     `${label} nextRequiredAction`,
   );
-  assert(
-    doctor.why.some((reason) => reason.includes("No latest saved intent exists")),
-    `${label} should explain the missing saved intent`,
+  assert.deepStrictEqual(doctor.fixNow, [], `${label} fixNow`);
+  assert.strictEqual(
+    doctor.checks.latestIntent.ok,
+    false,
+    `${label} should still report missing local intent`,
   );
   assert(
-    doctor.fixNow.some((fix) => fix.includes("ripple plan --file")),
-    `${label} should tell the agent how to create a saved intent`,
+    doctor.checks.latestIntent.detail.includes("normal until an agent creates a saved plan"),
+    `${label} should explain that a missing local intent is normal before planning`,
+  );
+  assert(
+    doctor.why.some((reason) => reason.includes("detect drift, and fail CI")),
+    `${label} should explain CI gate readiness`,
   );
 }
 
@@ -335,15 +341,11 @@ function proveInstalledMcpWorks(serverPath) {
   assert.strictEqual(workflow.commands.initializeRepo, "ripple init");
 
   const beforePlanDoctor = callInstalledStdioTool(serverPath, "ripple_doctor");
-  assertDoctorBlocks(beforePlanDoctor, "installed MCP doctor before plan");
-  assert.strictEqual(beforePlanDoctor.enforcement.level, "advisory");
+  assertDoctorReadyBeforePlan(beforePlanDoctor, "installed MCP doctor before plan");
+  assert.strictEqual(beforePlanDoctor.enforcement.level, "ci-gate-ready");
   assert.strictEqual(beforePlanDoctor.enforcement.canGuideAgents, true);
-  assert.strictEqual(beforePlanDoctor.enforcement.canDetectDrift, false);
-  assert.strictEqual(beforePlanDoctor.enforcement.canBlockInCi, false);
-  assert(
-    beforePlanDoctor.nextSteps.some((step) => step.includes("ripple plan")),
-    "installed MCP doctor should tell agents a saved plan is required",
-  );
+  assert.strictEqual(beforePlanDoctor.enforcement.canDetectDrift, true);
+  assert.strictEqual(beforePlanDoctor.enforcement.canBlockInCi, true);
 
   const plan = callInstalledStdioTool(serverPath, "ripple_plan_context", {
     task: "normalize display name whitespace",
@@ -397,7 +399,7 @@ function main() {
   console.log("Ripple golden MCP package install proof passed");
   console.log(`Workspace: ${consumerRoot}`);
   console.log("Packed packages: @getripple/core, @getripple/mcp");
-  console.log("Installed MCP stdio: workflow -> doctor advisory -> plan -> doctor ci-gate-ready -> gate open");
+  console.log("Installed MCP stdio: workflow -> doctor ci-gate-ready -> plan -> doctor ci-gate-ready -> gate open");
 }
 
 main();
