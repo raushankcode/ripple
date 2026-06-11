@@ -5,6 +5,10 @@ const { execFileSync, spawnSync } = require("child_process");
 
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const cliPath = path.join(repoRoot, "packages", "cli", "dist", "index.js");
+const cliPackage = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "packages", "cli", "package.json"), "utf8")
+);
+const cliPackageSpec = `@getripple/cli@${cliPackage.version}`;
 const COMMAND_TIMEOUT_MS = 30000;
 const traceCommands = process.env.RIPPLE_TEST_TRACE === "1";
 const workspaceRoot = path.join(
@@ -184,8 +188,19 @@ function setupFixture() {
 function writeFakeNpxForLocalRipple(root) {
   const fakeBin = path.join(root, ".ripple-test-bin");
   fs.mkdirSync(fakeBin, { recursive: true });
+  const fakeRipplePath = path.join(fakeBin, "ripple");
   const fakeNpxPath = path.join(fakeBin, "npx");
   const shellCliPath = cliPath.split(path.sep).join("/");
+  fs.writeFileSync(
+    fakeRipplePath,
+    [
+      "#!/bin/sh",
+      `exec node ${JSON.stringify(shellCliPath)} "$@"`,
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  fs.chmodSync(fakeRipplePath, 0o755);
   fs.writeFileSync(
     fakeNpxPath,
     [
@@ -199,7 +214,17 @@ function writeFakeNpxForLocalRipple(root) {
   );
   fs.chmodSync(fakeNpxPath, 0o755);
   if (process.platform === "win32") {
+    const fakeRippleCmdPath = path.join(fakeBin, "ripple.cmd");
     const fakeNpxCmdPath = path.join(fakeBin, "npx.cmd");
+    fs.writeFileSync(
+      fakeRippleCmdPath,
+      [
+        "@echo off",
+        `node "${cliPath}" %*`,
+        "",
+      ].join("\r\n"),
+      "utf8"
+    );
     fs.writeFileSync(
       fakeNpxCmdPath,
       [
@@ -654,19 +679,27 @@ function main() {
   );
   assert(
     printedWorkflow.includes(
-      "npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --github-annotations"
+      `npx -y ${cliPackageSpec} ci --base origin/\${{ github.base_ref }} --github-annotations`
     ),
-    "init-ci --print should include the policy-audit annotated Ripple CI command"
+    "init-ci --print should include the pinned policy-audit annotated Ripple CI command"
   );
 
   const printedHook = runCli(["hook", "install", "--print"]);
   assert(
-    printedHook.includes("npx -y @getripple/cli@latest gate --staged --intent latest --agent --strict"),
-    "hook install --print should include active-intent gate command"
+    printedHook.includes("ripple_run gate --staged --intent latest --agent --strict"),
+    "hook install --print should include active-intent gate command through the local runner"
   );
   assert(
-    printedHook.includes("npx -y @getripple/cli@latest check --staged --agent"),
-    "hook install --print should include no-intent staged awareness command"
+    printedHook.includes("ripple_run check --staged --agent"),
+    "hook install --print should include no-intent staged awareness command through the local runner"
+  );
+  assert(
+    printedHook.includes(`npx -y ${cliPackageSpec} "$@"`),
+    "hook install --print should pin the npx fallback to the current CLI version"
+  );
+  assert(
+    printedHook.includes('./node_modules/.bin/ripple'),
+    "hook install --print should prefer a repo-local Ripple binary before npx"
   );
   assert(
     printedHook.includes("git commit --no-verify"),

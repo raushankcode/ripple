@@ -762,6 +762,13 @@ function version(): string {
   }
 }
 
+function rippleCliPackageSpec(): string {
+  const currentVersion = version();
+  return currentVersion === "0.0.0"
+    ? "@getripple/cli"
+    : `@getripple/cli@${currentVersion}`;
+}
+
 const GITHUB_ACTIONS_WORKFLOW_PATH = RIPPLE_CI_WORKFLOW_PATH;
 
 function githubActionsWorkflow(): string {
@@ -789,7 +796,7 @@ function githubActionsWorkflow(): string {
     "        with:",
     "          node-version: 20",
     "      - name: Ripple CI",
-    "        run: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --github-annotations",
+    `        run: npx -y ${rippleCliPackageSpec()} ci --base origin/\${{ github.base_ref }} --github-annotations`,
     "",
   ].join("\n");
 }
@@ -4133,9 +4140,19 @@ fi
 
 set +e
 
+ripple_run() {
+  if [ -x "./node_modules/.bin/ripple" ]; then
+    "./node_modules/.bin/ripple" "$@"
+  elif command -v ripple >/dev/null 2>&1; then
+    ripple "$@"
+  else
+    npx -y ${rippleCliPackageSpec()} "$@"
+  fi
+}
+
 if [ -f ".ripple/intents/latest.json" ]; then
   echo "[Ripple] Active local intent found. Checking staged changes against approved boundary..."
-  npx -y @getripple/cli@latest gate --staged --intent latest --agent --strict
+  ripple_run gate --staged --intent latest --agent --strict
   status=$?
   if [ "$status" -ne 0 ]; then
     cat <<'EOF'
@@ -4153,7 +4170,7 @@ EOF
   fi
 else
   echo "[Ripple] No active local intent found. Running staged policy/contract awareness check..."
-  npx -y @getripple/cli@latest check --staged --agent
+  ripple_run check --staged --agent
   status=$?
   if [ "$status" -ne 0 ]; then
     cat <<'EOF'
@@ -4426,7 +4443,7 @@ function initCiCommand(options: CliOptions): void {
 
   console.log(existed ? "Ripple CI workflow overwritten" : "Ripple CI workflow written");
   console.log(`Path: ${relativeTargetPath}`);
-  console.log("Command: npx -y @getripple/cli@latest ci --base origin/${{ github.base_ref }} --github-annotations");
+  console.log(`Command: npx -y ${rippleCliPackageSpec()} ci --base origin/\${{ github.base_ref }} --github-annotations`);
 }
 
 function policyCommand(args: string[], options: CliOptions): void {
