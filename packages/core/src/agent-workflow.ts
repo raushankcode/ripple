@@ -7,6 +7,7 @@ export type AgentRuntimePhaseId =
   | "approval_gate"
   | "edit_inside_boundary"
   | "audit_after_change"
+  | "record_verification"
   | "repair_or_handoff";
 export type AgentRuntimeNextPhaseId = AgentRuntimePhaseId | "done";
 
@@ -46,6 +47,7 @@ export type AgentWorkflowSummary = {
     checkChangedAgainstBase: string;
     auditCurrentChange: string;
     gateCurrentChange: string;
+    recordVerification: string;
     checkApproval: string;
     approveHumanGate: string;
     ciGate: string;
@@ -60,6 +62,7 @@ export type AgentWorkflowSummary = {
     checkChangedAgainstBase: "ripple_check_changed";
     auditCurrentChange: "ripple_audit_change";
     gateCurrentChange: "ripple_gate";
+    recordVerification: "ripple_record_verification";
     checkApproval: "ripple_get_approval_status";
     repairIntentDrift: "ripple_repair_intent_drift";
   };
@@ -105,6 +108,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       "edit",
       "stage",
       "check",
+      "record_verification",
       "repair_if_needed",
     ],
     controlModes: {
@@ -135,6 +139,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       checkChangedAgainstBase: "ripple check --changed --base <ref> --agent --intent latest",
       auditCurrentChange: "ripple audit --agent --intent latest",
       gateCurrentChange: "ripple gate --agent --intent latest",
+      recordVerification: "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest",
       checkApproval: "ripple approval --intent latest --agent",
       approveHumanGate: "ripple approve --intent latest --gate before-risky-edit",
       ciGate: "ripple ci --base <ref> --github-annotations",
@@ -149,6 +154,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       checkChangedAgainstBase: "ripple_check_changed",
       auditCurrentChange: "ripple_audit_change",
       gateCurrentChange: "ripple_gate",
+      recordVerification: "ripple_record_verification",
       checkApproval: "ripple_get_approval_status",
       repairIntentDrift: "ripple_repair_intent_drift",
     },
@@ -305,6 +311,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
         "Before editing, ripple_plan_context / ripple plan is the source of truth.",
         "During editing, saved change intent allowed_files and allowed_symbols are the source of truth.",
         "After editing, ripple_audit_change / ripple audit is the full report; ripple gate is the compact continue/stop decision.",
+        "After running verification, ripple_record_verification / ripple verify records reported evidence on the saved intent before final gate.",
         "If human approval is required, ripple_get_approval_status / ripple approval is the source of truth.",
       ],
       phases: [
@@ -394,14 +401,15 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
           id: "audit_after_change",
           order: 5,
           requiredWhen: "after files are staged, or before handoff in changed-file workflows",
-          agentAction: "Run the compact Ripple gate or full audit and treat canContinue/canProceed=false as a hard stop.",
+          agentAction: "Run the compact Ripple gate or full audit to detect drift, approval state, and verification targets.",
           mcpTool: "ripple_gate",
           cliCommand: "ripple gate --agent --intent latest",
           outputContract: "RIPPLE_GATE",
           must: [
             "Use staged audit for local agent work and changed audit for PR/CI work.",
-            "Use ripple gate when the agent only needs the final continue/stop handoff.",
+            "Use ripple gate when the agent only needs the continue/stop handoff.",
             "Check drift_verdict, boundary_verdict, policy_drift, approval_status, and can_proceed together.",
+            "If verification targets exist and the agent runs them, record the result before the final handoff gate.",
           ],
           stopIf: [
             "can_continue=false or can_proceed=false.",
@@ -414,8 +422,30 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
           ],
         },
         {
-          id: "repair_or_handoff",
+          id: "record_verification",
           order: 6,
+          requiredWhen: "after the agent runs, skips, or cannot prove a verification target from the plan, audit, or gate",
+          agentAction: "Record reported verification evidence on the saved intent, then run the gate again for the final continue/stop decision.",
+          mcpTool: "ripple_record_verification",
+          cliCommand: "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest",
+          outputContract: "ripple-verification-evidence",
+          must: [
+            "Record passed only when the named command or manual check actually passed.",
+            "Record failed when the command failed or produced a blocking result.",
+            "Record skipped or unknown when the agent did not run the check or cannot prove the result.",
+            "Run gateCurrentChange again after recording verification evidence.",
+          ],
+          stopIf: [
+            "verification status is failed, skipped, or unknown until ripple_gate returns repair or human-review.",
+            "the agent cannot name the command or check it is reporting.",
+          ],
+          continueIf: [
+            "verification evidence is recorded and a fresh gate/audit permits continuing.",
+          ],
+        },
+        {
+          id: "repair_or_handoff",
+          order: 7,
           requiredWhen: "when audit fails, or when preparing final human handoff",
           agentAction: "Ask Ripple for exact repair actions, or hand off the passed audit summary to the human.",
           mcpTool: "ripple_repair_intent_drift",
@@ -424,7 +454,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
           must: [
             "Follow blocker fix_actions before widening scope.",
             "Unstage files Ripple marks as outside intent unless the human explicitly replans or approves wider scope.",
-            "Run or report the verify targets from the plan/audit.",
+            "Record verification evidence before final handoff when the agent ran, skipped, or could not prove a verification target.",
           ],
           stopIf: [
             "repair status is human-review-required.",
@@ -441,6 +471,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
         "The agent needs to edit outside allowed_files or allowed_symbols.",
         "policyDrift.status=changed.",
         "drift_verdict or boundary_verdict is DANGER or blocks the change.",
+        "Reported verification evidence is failed, skipped, or unknown.",
         "audit.canProceed is false.",
         "repair status is human-review-required.",
       ],
@@ -450,7 +481,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
         "Edits remain inside editable_files and allowed_symbols.",
         "policyDrift.status is unchanged or not-applicable.",
         "The audit reports canProceed=true.",
-        "The agent has run or clearly handed off the verify targets.",
+        "Recorded verification evidence, when present, is passed; failed, skipped, or unknown evidence requires repair or human review.",
       ],
     },
     rules: [
@@ -471,6 +502,8 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       "After editing, stage the intended files and run checkAfterStaging against the saved intent.",
       "Use auditCurrentChange when a human needs one compact report of intent, boundary, policy drift, repair status, and next action.",
       "Use gateCurrentChange when an agent needs only the final continue, repair, human-review, or restore-readiness decision.",
+      "After running verification targets, call recordVerification or ripple verify before the final gate.",
+      "Do not claim verification passed without recorded passed evidence.",
       "In CI or PR review, use checkChangedAgainstBase instead of staging files.",
       "Use ciGate as the default strict automation command for PR checks.",
       "If staged changes drift from intent or boundary, call repairIntentDrift before widening scope.",
@@ -485,6 +518,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       "git add src/auth.ts",
       "ripple check --staged --agent --intent latest",
       "ripple audit --agent --intent latest",
+      "ripple verify --command \"npm test -- tests/auth.test.ts\" --status passed --intent latest",
       "ripple gate --agent --intent latest",
       "ripple doctor --agent --strict",
       "ripple check --changed --base origin/main --agent --intent latest",

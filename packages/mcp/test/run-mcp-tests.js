@@ -31,6 +31,12 @@ function writeFile(relativePath, contents) {
   fs.writeFileSync(filePath, contents);
 }
 
+function writeFileIn(root, relativePath, contents) {
+  const filePath = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, contents);
+}
+
 function setupFixture() {
   writeFile("package.json", JSON.stringify({ name: "mcp-regression-fixture" }, null, 2));
   writeFile(
@@ -238,6 +244,86 @@ function assertIntelligentPlanContract(plan) {
     "plan should tell agents what not to read first"
   );
   assert(plan.verificationTargets.includes("tests/auth.test.ts"));
+}
+
+async function proveMcpVerificationEvidenceGate() {
+  const root = path.join(repoRoot, "test", ".tmp", `mcp-verification-${Date.now()}`);
+  writeFileIn(
+    root,
+    "src/util.ts",
+    [
+      "export function trimName(value: string): string {",
+      "  return value.trim();",
+      "}",
+      "",
+    ].join("\n")
+  );
+  writeFileIn(
+    root,
+    "tests/util.test.ts",
+    [
+      "import { trimName } from '../src/util';",
+      "",
+      "export function testTrimName(): string {",
+      "  return trimName(' Ada ');",
+      "}",
+      "",
+    ].join("\n")
+  );
+
+  execFileSync("git", ["init"], {
+    cwd: root,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  execFileSync("git", ["add", "src/util.ts"], {
+    cwd: root,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+
+  const host = createRippleMcpToolHost({ workspaceRoot: root });
+  try {
+    const plan = await host.callTool("ripple_plan_context", {
+      task: "tighten trim behavior",
+      filePath: "src/util.ts",
+      mode: "file",
+      saveIntent: true,
+    });
+    assert.strictEqual(plan.tool, "ripple_plan_context");
+    assert.strictEqual(plan.data.changeIntent.controlMode, "file");
+
+    const evidence = await host.callTool("ripple_record_verification", {
+      intentPath: "latest",
+      command: "npm test -- tests/util.test.ts",
+      status: "failed",
+      note: "regression proof",
+    });
+    assert.strictEqual(evidence.tool, "ripple_record_verification");
+    assert.strictEqual(evidence.data.protocol, "ripple-verification-evidence");
+    assert.strictEqual(evidence.data.evidence.status, "failed");
+    assert.strictEqual(evidence.data.evidence.command, "npm test -- tests/util.test.ts");
+    assert.strictEqual(evidence.data.totalEvidence, 1);
+
+    const gate = await host.callTool("ripple_gate", {
+      intentPath: "latest",
+    });
+    assert.strictEqual(gate.tool, "ripple_gate");
+    assert.strictEqual(gate.data.status, "closed");
+    assert.strictEqual(gate.data.decision, "repair");
+    assert.strictEqual(gate.data.canContinue, false);
+    assert.strictEqual(gate.data.mustStop, true);
+    assert.strictEqual(gate.data.auditStatus, "repair-required");
+    assert.strictEqual(gate.data.reviewPacket.verification.status, "failed");
+    assert.strictEqual(gate.data.reviewPacket.verification.decision, "repair");
+    assert(
+      gate.data.fixNow.some((fix) =>
+        fix.includes("Fix the failing verification") &&
+        fix.includes("npm test -- tests/util.test.ts")
+      ),
+      "MCP gate should tell the agent how to repair failed verification evidence"
+    );
+  } finally {
+    host.dispose();
+  }
 }
 
 function assertStdioServerProtocol() {
@@ -493,8 +579,11 @@ async function main() {
       "ripple_get_focus",
       "ripple_get_recent_changes",
       "ripple_plan_context",
+      "ripple_record_verification",
       "ripple_repair_intent_drift",
     ]);
+
+    await proveMcpVerificationEvidenceGate();
 
     const workflow = await host.callTool("ripple_get_agent_workflow", {});
     assert.strictEqual(workflow.tool, "ripple_get_agent_workflow");
@@ -506,6 +595,7 @@ async function main() {
       "edit",
       "stage",
       "check",
+      "record_verification",
       "repair_if_needed",
     ]);
     assert.strictEqual(workflow.data.commands.initializeRepo, "ripple init");
@@ -540,6 +630,10 @@ async function main() {
       "ripple gate --agent --intent latest"
     );
     assert.strictEqual(
+      workflow.data.commands.recordVerification,
+      "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest"
+    );
+    assert.strictEqual(
       workflow.data.commands.checkApproval,
       "ripple approval --intent latest --agent"
     );
@@ -551,6 +645,7 @@ async function main() {
     assert.strictEqual(workflow.data.mcpTools.checkAfterStaging, "ripple_check_staged");
     assert.strictEqual(workflow.data.mcpTools.auditCurrentChange, "ripple_audit_change");
     assert.strictEqual(workflow.data.mcpTools.gateCurrentChange, "ripple_gate");
+    assert.strictEqual(workflow.data.mcpTools.recordVerification, "ripple_record_verification");
     assert.strictEqual(
       workflow.data.mcpTools.checkApproval,
       "ripple_get_approval_status"
@@ -687,6 +782,7 @@ async function main() {
         "approval_gate",
         "edit_inside_boundary",
         "audit_after_change",
+        "record_verification",
         "repair_or_handoff",
       ]
     );
@@ -698,6 +794,10 @@ async function main() {
       workflow.data.runtimeContract.phases[4].mcpTool,
       "ripple_gate"
     );
+    assert.strictEqual(
+      workflow.data.runtimeContract.phases[5].mcpTool,
+      "ripple_record_verification"
+    );
     assert(
       workflow.data.runtimeContract.stopConditions.some((condition) =>
         condition.includes("audit.canProceed is false")
@@ -706,7 +806,7 @@ async function main() {
     );
     assert(
       workflow.data.runtimeContract.proceedConditions.some((condition) =>
-        condition.includes("verify targets")
+        condition.includes("Recorded verification evidence")
       ),
       "workflow should expose verification proceed condition"
     );
@@ -1306,6 +1406,17 @@ async function main() {
       gateToolDefinition.inputSchema.properties.intentPath,
       "ripple_gate schema should expose intentPath"
     );
+    const recordVerificationToolDefinition = toolsList.result.tools.find(
+      (tool) => tool.name === "ripple_record_verification"
+    );
+    assert(
+      recordVerificationToolDefinition.inputSchema.properties.command,
+      "ripple_record_verification schema should expose command"
+    );
+    assert(
+      recordVerificationToolDefinition.inputSchema.properties.status,
+      "ripple_record_verification schema should expose status"
+    );
     const approvalStatusToolDefinition = toolsList.result.tools.find(
       (tool) => tool.name === "ripple_get_approval_status"
     );
@@ -1356,6 +1467,10 @@ async function main() {
     assert.strictEqual(
       workflowToolCall.result.structuredContent.mcpTools.gateCurrentChange,
       "ripple_gate"
+    );
+    assert.strictEqual(
+      workflowToolCall.result.structuredContent.mcpTools.recordVerification,
+      "ripple_record_verification"
     );
     assert.strictEqual(
       workflowToolCall.result.structuredContent.mcpTools.checkApproval,

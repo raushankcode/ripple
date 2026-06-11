@@ -14,10 +14,13 @@ import {
   RippleAuditSummary,
   RippleGateSummary,
   RipplePolicyExplanation,
+  RippleVerificationEvidence,
+  RippleVerificationStatus,
   RecentHistorySummary,
   RippleReadinessSummary,
   StagedCheckSummary,
   StagedCheckWithIntentSummary,
+  appendRippleVerificationEvidence,
   buildChangeIntent,
   buildChangeIntentReadinessSnapshot,
   buildIntentDriftRepairPlan,
@@ -52,6 +55,7 @@ export type RippleMcpToolName =
   | "ripple_get_blast_radius"
   | "ripple_explain_policy"
   | "ripple_plan_context"
+  | "ripple_record_verification"
   | "ripple_get_recent_changes";
 
 export type RippleMcpToolDefinition = {
@@ -80,6 +84,7 @@ export type RippleMcpToolData =
   | ContextPlanWithIntentSummary
   | RipplePolicyExplanation
   | ApprovalStatusWithIntentSummary
+  | VerificationEvidenceSummary
   | RippleAuditSummary
   | RippleGateSummary
   | IntentDriftRepairPlan
@@ -105,9 +110,22 @@ type PlanContextArgs = {
   intentPath?: string;
 };
 
+type RecordVerificationArgs = {
+  intentPath?: string;
+  command: string;
+  status: RippleVerificationStatus;
+  note?: string;
+};
+
 const MCP_CONTROL_MODES: ControlMode[] = ["brainstorm", "function", "file", "task", "pr"];
 const MCP_AUDIT_MODES: RippleAuditMode[] = ["staged", "changed"];
 const MCP_APPROVAL_GATES: RippleApprovalGate[] = ["before-risky-edit", "before-merge"];
+const MCP_VERIFICATION_STATUSES: RippleVerificationStatus[] = [
+  "passed",
+  "failed",
+  "skipped",
+  "unknown",
+];
 
 export type ContextPlanWithIntentSummary = ContextPlanSummary & {
   policyExplanation: RipplePolicyExplanation;
@@ -124,6 +142,17 @@ export type ApprovalStatusWithIntentSummary = RippleApprovalStatus & {
     humanGate: ChangeIntent["humanGate"];
     boundaryRisk: ChangeIntent["boundaryRisk"];
   };
+};
+
+export type VerificationEvidenceSummary = {
+  protocol: "ripple-verification-evidence";
+  version: 1;
+  workspace: string;
+  intentPath: string;
+  intentId: string;
+  evidence: RippleVerificationEvidence;
+  totalEvidence: number;
+  nextSteps: string[];
 };
 
 export const RIPPLE_MCP_TOOLS: RippleMcpToolDefinition[] = [
@@ -387,6 +416,35 @@ export const RIPPLE_MCP_TOOLS: RippleMcpToolDefinition[] = [
     },
   },
   {
+    name: "ripple_record_verification",
+    description:
+      "Record reported verification evidence on a saved Ripple intent after an agent runs, skips, or cannot prove a check.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        intentPath: {
+          type: "string",
+          description: "Saved Ripple change intent path, id, or latest. Defaults to latest.",
+        },
+        command: {
+          type: "string",
+          description: "Verification command or manual check label being reported.",
+        },
+        status: {
+          type: "string",
+          enum: MCP_VERIFICATION_STATUSES,
+          description: "Reported verification result. Failed blocks as repair; skipped/unknown require human review.",
+        },
+        note: {
+          type: "string",
+          description: "Optional short note explaining the reported result.",
+        },
+      },
+      required: ["command", "status"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "ripple_get_recent_changes",
     description: "Return recent Ripple history groups for this workspace.",
     inputSchema: {
@@ -483,6 +541,13 @@ export class RippleMcpToolHost {
       return {
         tool: name,
         data: this.planContext(args),
+      };
+    }
+
+    if (name === "ripple_record_verification") {
+      return {
+        tool: name,
+        data: this.recordVerification(args),
       };
     }
 
@@ -617,6 +682,34 @@ export class RippleMcpToolHost {
 
   private getRecentChanges(args: RippleMcpToolCallArgs): RecentHistorySummary {
     return this.engine.getRecentHistorySummary(optionalPositiveInteger(args, "limit", 10));
+  }
+
+  private recordVerification(args: RippleMcpToolCallArgs): VerificationEvidenceSummary {
+    const parsed = parseRecordVerificationArgs(args);
+    const intentRef = parsed.intentPath ?? "latest";
+    const intent = loadChangeIntent(this.workspaceRoot, intentRef);
+    const updatedIntent = appendRippleVerificationEvidence(intent, {
+      command: parsed.command,
+      status: parsed.status,
+      note: parsed.note,
+    });
+    const savedPath = saveChangeIntent(this.workspaceRoot, updatedIntent, intentRef);
+    const evidence =
+      updatedIntent.verificationEvidence[updatedIntent.verificationEvidence.length - 1];
+
+    return {
+      protocol: "ripple-verification-evidence",
+      version: 1,
+      workspace: this.workspaceRoot,
+      intentPath: formatWorkspacePath(this.workspaceRoot, savedPath),
+      intentId: updatedIntent.id,
+      evidence,
+      totalEvidence: updatedIntent.verificationEvidence.length,
+      nextSteps: [
+        "Call ripple_gate with the same intentPath to include this evidence in the continue/stop decision.",
+        "Ripple records reported evidence only; it does not claim the command was independently executed.",
+      ],
+    };
   }
 
   private getApprovalStatus(args: RippleMcpToolCallArgs): ApprovalStatusWithIntentSummary {
@@ -880,6 +973,26 @@ function parsePlanContextArgs(args: RippleMcpToolCallArgs): PlanContextArgs {
     saveIntent: optionalBoolean(args, "saveIntent", false),
     intentPath: optionalString(args, "intentPath"),
   };
+}
+
+function parseRecordVerificationArgs(args: RippleMcpToolCallArgs): RecordVerificationArgs {
+  return {
+    intentPath: optionalString(args, "intentPath"),
+    command: requiredString(args, "command"),
+    status: requiredVerificationStatus(args, "status"),
+    note: optionalString(args, "note"),
+  };
+}
+
+function requiredVerificationStatus(
+  args: RippleMcpToolCallArgs,
+  key: string
+): RippleVerificationStatus {
+  const value = requiredString(args, key);
+  if (MCP_VERIFICATION_STATUSES.includes(value as RippleVerificationStatus)) {
+    return value as RippleVerificationStatus;
+  }
+  throw new Error(`${key} must be one of: ${MCP_VERIFICATION_STATUSES.join(", ")}.`);
 }
 
 function uniqueItems(items: string[]): string[] {

@@ -1208,9 +1208,17 @@ function main() {
   );
   assert(
     agentGuide.includes(
-      "choose_boundary -> plan -> approve_if_required -> edit -> stage -> check -> repair_if_needed"
+      "choose_boundary -> plan -> approve_if_required -> edit -> stage -> check -> record_verification -> repair_if_needed"
     ),
     "agent guide should show the workflow loop"
+  );
+  assert(
+    agentGuide.includes("Record verification evidence:"),
+    "agent guide should show verification evidence step"
+  );
+  assert(
+    agentGuide.includes("ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest"),
+    "agent guide should show verification evidence command"
   );
   assert(agentGuide.includes("Runtime contract:"), "agent guide should show runtime contract");
   assert(
@@ -1239,6 +1247,7 @@ function main() {
       "edit",
       "stage",
       "check",
+      "record_verification",
       "repair_if_needed",
     ],
     "agent JSON should expose the workflow loop"
@@ -1296,6 +1305,11 @@ function main() {
     "agent JSON should expose the compact gate command"
   );
   assert.strictEqual(
+    agentWorkflow.commands.recordVerification,
+    "ripple verify --command \"<command>\" --status passed|failed|skipped|unknown --intent latest",
+    "agent JSON should expose the verification evidence command"
+  );
+  assert.strictEqual(
     agentWorkflow.commands.checkApproval,
     "ripple approval --intent latest --agent",
     "agent JSON should expose the approval status command"
@@ -1344,6 +1358,11 @@ function main() {
     agentWorkflow.mcpTools.gateCurrentChange,
     "ripple_gate",
     "agent JSON should expose the MCP gate tool"
+  );
+  assert.strictEqual(
+    agentWorkflow.mcpTools.recordVerification,
+    "ripple_record_verification",
+    "agent JSON should expose the MCP verification evidence tool"
   );
   assert.strictEqual(
     agentWorkflow.mcpTools.checkApproval,
@@ -1534,6 +1553,7 @@ function main() {
       "approval_gate",
       "edit_inside_boundary",
       "audit_after_change",
+      "record_verification",
       "repair_or_handoff",
     ],
     "agent JSON should expose ordered runtime phases"
@@ -1554,6 +1574,11 @@ function main() {
     ),
     "agent runtime contract should stop when audit cannot proceed"
   );
+  assert.strictEqual(
+    agentWorkflow.runtimeContract.phases[5].mcpTool,
+    "ripple_record_verification",
+    "agent runtime contract should map verification evidence to the MCP tool"
+  );
   assert(
     agentWorkflow.runtimeContract.stopConditions.some((condition) =>
       condition.includes("policyDrift.status=changed")
@@ -1565,6 +1590,12 @@ function main() {
       condition.includes("approvalStatus.approved=true")
     ),
     "agent runtime contract should expose approval proceed condition"
+  );
+  assert(
+    agentWorkflow.runtimeContract.proceedConditions.some((condition) =>
+      condition.includes("Recorded verification evidence")
+    ),
+    "agent runtime contract should expose verification evidence proceed condition"
   );
   assert(
     agentWorkflow.rules.some((rule) => rule.includes("auditCurrentChange")),

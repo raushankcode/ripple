@@ -282,6 +282,7 @@ function isRippleMcpToolName(name: unknown): name is RippleMcpToolName {
     name === "ripple_get_blast_radius" ||
     name === "ripple_explain_policy" ||
     name === "ripple_plan_context" ||
+    name === "ripple_record_verification" ||
     name === "ripple_get_recent_changes"
   );
 }
