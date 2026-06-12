@@ -24,6 +24,7 @@ export type RippleAuditMode = "staged" | "changed" | "worktree";
 export type RippleAuditStatus = "pass" | "repair-required" | "human-review-required";
 export type RippleAuditDecision = "continue" | "repair" | "human-review";
 export type RippleGateStatus = "open" | "closed";
+export type RippleGateIntentState = "missing" | "closed" | "invalid";
 
 export type RippleAuditSummary = {
   protocol: "ripple-audit";
@@ -89,6 +90,29 @@ export type RippleGateSummary = {
   commands: RippleAgentHandoffVerdict["commands"];
   risk: RippleRiskSummary;
   reviewPacket: RippleReviewPacket;
+};
+
+export type RippleGateIntentBlockSummary = {
+  protocol: "ripple-gate-intent-block";
+  version: 1;
+  workspace: string;
+  mode: RippleAuditMode;
+  baseRef?: string;
+  status: "closed";
+  decision: "create-intent";
+  canContinue: false;
+  mustStop: true;
+  needsHuman: true;
+  nextRequiredPhase: "plan_before_edit";
+  nextRequiredAction: string;
+  summary: string;
+  intentRef: string;
+  intentState: RippleGateIntentState;
+  intentLoadError: string;
+  why: string[];
+  fixNow: string[];
+  askHuman: string[];
+  commands: RippleAgentHandoffVerdict["commands"];
 };
 
 export function buildRippleAuditSummary(input: {
@@ -328,6 +352,65 @@ function buildAuditHandoff(
   });
 }
 
+export function buildRippleGateIntentBlockSummary(input: {
+  workspaceRoot: string;
+  mode: RippleAuditMode;
+  baseRef?: string;
+  intentRef: string;
+  error: unknown;
+}): RippleGateIntentBlockSummary {
+  const intentLoadError = errorMessage(input.error);
+  const intentState = classifyIntentLoadError(intentLoadError);
+  const summary = gateIntentBlockSummary(intentState);
+  const intentStatusCommand = `ripple intent status --intent ${input.intentRef} --json`;
+  const nextRequiredAction =
+    "Create a new saved Ripple plan before the agent edits or continues.";
+  return {
+    protocol: "ripple-gate-intent-block",
+    version: 1,
+    workspace: input.workspaceRoot,
+    mode: input.mode,
+    baseRef: input.baseRef,
+    status: "closed",
+    decision: "create-intent",
+    canContinue: false,
+    mustStop: true,
+    needsHuman: true,
+    nextRequiredPhase: "plan_before_edit",
+    nextRequiredAction,
+    summary,
+    intentRef: input.intentRef,
+    intentState,
+    intentLoadError,
+    why: [
+      summary,
+      "Ripple cannot prove the agent stayed inside a human-approved boundary without an active saved intent.",
+      "Agents must not treat missing, closed, or invalid intent state as permission to continue.",
+    ],
+    fixNow: [
+      `Run ${intentStatusCommand} to inspect the saved intent lifecycle state.`,
+      "Create a new saved plan with ripple plan --file <file> --task \"<task>\" --agent --save before editing.",
+      "If work already happened without an active intent, ask the human to review before continuing.",
+    ],
+    askHuman: [
+      "Choose the next trust boundary and approve a new saved intent before the agent continues.",
+    ],
+    commands: {
+      doctor: [],
+      plan: [
+        intentStatusCommand,
+        "ripple plan --file <file> --task \"<task>\" --agent --save",
+      ],
+      check: [],
+      audit: [],
+      repair: [],
+      approve: [],
+      unstage: [],
+      verify: [],
+    },
+  };
+}
+
 function auditHandoffDecision(
   audit: Omit<RippleAuditSummary, "handoff">,
   needsHuman: boolean
@@ -380,6 +463,34 @@ function approvalGateForAudit(humanGate: ChangeIntent["humanGate"]): string {
     return "before-merge";
   }
   return "before-risky-edit";
+}
+
+function classifyIntentLoadError(message: string): RippleGateIntentState {
+  if (message.includes("saved boundary is closed")) {
+    return "closed";
+  }
+  if (
+    message.includes("Invalid Ripple change intent") ||
+    message.includes("Malformed Ripple change intent") ||
+    message.includes("Found protocol")
+  ) {
+    return "invalid";
+  }
+  return "missing";
+}
+
+function gateIntentBlockSummary(intentState: RippleGateIntentState): string {
+  if (intentState === "closed") {
+    return "Stop: the saved Ripple intent boundary is closed.";
+  }
+  if (intentState === "invalid") {
+    return "Stop: the saved Ripple intent is invalid and must be repaired or recreated.";
+  }
+  return "Stop: no active Ripple intent exists for this gate.";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function rippleAuditStatus(

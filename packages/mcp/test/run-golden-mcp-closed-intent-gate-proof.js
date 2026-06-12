@@ -101,23 +101,36 @@ async function main() {
       intentPath: "latest",
     });
 
-    assert.strictEqual(gateResponse.result.isError, true);
+    assert.strictEqual(gateResponse.result.isError, false);
     assert.strictEqual(
-      gateResponse.result.structuredContent,
-      undefined,
-      "closed intent MCP gate should not return a successful gate payload",
+      gateResponse.result.structuredContent.protocol,
+      "ripple-gate-intent-block",
+    );
+    assert.strictEqual(gateResponse.result.structuredContent.intentState, "closed");
+    assert.strictEqual(gateResponse.result.structuredContent.canContinue, false);
+    assert.strictEqual(gateResponse.result.structuredContent.mustStop, true);
+    assert.strictEqual(gateResponse.result.structuredContent.needsHuman, true);
+    assert(
+      gateResponse.result.structuredContent.commands.plan.includes(
+        'ripple plan --file <file> --task "<task>" --agent --save',
+      ),
+      "closed intent MCP gate should return the new saved plan command as structured data",
     );
 
     const text = gateResponse.result.content[0].text;
     [
-      "No active Ripple change intent found",
+      "\"protocol\": \"ripple-gate-intent-block\"",
+      "\"decision\": \"create-intent\"",
+      "\"canContinue\": false",
+      "\"mustStop\": true",
+      "\"needsHuman\": true",
       "the saved boundary is closed",
       "Closed by: Ripple MCP Golden Proof.",
       "Reason: previous MCP boundary is complete",
       "Agents must not continue from a closed boundary.",
-      "Run ripple intent status",
+      "ripple intent status --intent latest --json",
       "create a new saved plan",
-      "ripple plan --file <file> --task \"<task>\" --agent --save",
+      'ripple plan --file <file> --task \\"<task>\\" --agent --save',
     ].forEach((expected) =>
       assertIncludes(text, expected, "golden MCP closed intent gate proof"),
     );
@@ -126,7 +139,6 @@ async function main() {
       "git diff",
       "Git could not be started",
       "Could not read staged files",
-      "\"protocol\": \"ripple-gate\"",
     ].forEach((unexpected) =>
       assertNotIncludes(text, unexpected, "golden MCP closed intent gate proof"),
     );

@@ -1884,7 +1884,15 @@ async function main() {
         },
       },
     });
-    assert.strictEqual(closedIntentGateToolCall.result.isError, true);
+    assert.strictEqual(closedIntentGateToolCall.result.isError, false);
+    assert.strictEqual(
+      closedIntentGateToolCall.result.structuredContent.protocol,
+      "ripple-gate-intent-block"
+    );
+    assert.strictEqual(closedIntentGateToolCall.result.structuredContent.intentState, "closed");
+    assert.strictEqual(closedIntentGateToolCall.result.structuredContent.canContinue, false);
+    assert.strictEqual(closedIntentGateToolCall.result.structuredContent.mustStop, true);
+    assert.strictEqual(closedIntentGateToolCall.result.structuredContent.needsHuman, true);
     assert(
       closedIntentGateToolCall.result.content[0].text.includes("saved boundary is closed"),
       "MCP gate should explain that the saved boundary is closed"

@@ -13,6 +13,7 @@ import {
   RippleApprovalStatus,
   RippleAuditMode,
   RippleAuditSummary,
+  RippleGateIntentBlockSummary,
   RippleGateSummary,
   RipplePolicyExplanation,
   RippleVerificationEvidence,
@@ -26,6 +27,7 @@ import {
   buildChangeIntentReadinessSnapshot,
   buildIntentDriftRepairPlan,
   buildRippleAuditSummary,
+  buildRippleGateIntentBlockSummary,
   buildRippleGateSummary,
   buildRippleReadinessSummary,
   buildStagedCheckSummary,
@@ -91,6 +93,7 @@ export type RippleMcpToolData =
   | VerificationEvidenceSummary
   | RippleAuditSummary
   | RippleGateSummary
+  | RippleGateIntentBlockSummary
   | IntentDriftRepairPlan
   | RecentHistorySummary
   | StagedCheckSummary
@@ -974,7 +977,23 @@ export class RippleMcpToolHost {
     });
   }
 
-  private async gateChange(args: RippleMcpToolCallArgs): Promise<RippleGateSummary> {
+  private async gateChange(
+    args: RippleMcpToolCallArgs
+  ): Promise<RippleGateSummary | RippleGateIntentBlockSummary> {
+    const mode = optionalAuditMode(args, "mode") ?? "staged";
+    const baseRef = optionalString(args, "baseRef") ?? "HEAD";
+    const intentPath = optionalString(args, "intentPath") ?? "latest";
+    try {
+      loadChangeIntent(this.workspaceRoot, intentPath);
+    } catch (err) {
+      return buildRippleGateIntentBlockSummary({
+        workspaceRoot: this.workspaceRoot,
+        mode,
+        baseRef: mode === "changed" ? baseRef : undefined,
+        intentRef: intentPath,
+        error: err,
+      });
+    }
     return buildRippleGateSummary(await this.auditChange(args));
   }
 

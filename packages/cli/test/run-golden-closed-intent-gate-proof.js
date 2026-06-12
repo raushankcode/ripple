@@ -93,20 +93,23 @@ function main() {
     0,
     "closed intent gate should stop instead of continuing",
   );
-  assert.strictEqual(
-    stdout,
-    "",
-    "closed intent gate should not print a successful gate report",
-  );
+  assert.strictEqual(stderr, "", "closed intent gate should not print a raw CLI error");
 
   [
-    "Ripple CLI error:",
-    "No active Ripple change intent found",
+    "Ripple gate: STOP",
+    "Agent must stop before continuing.",
+    "Decision: create-intent",
+    "Can continue: no",
+    "Must stop: yes",
+    "Needs human: yes",
+    "Next required phase: plan_before_edit",
+    "Intent:",
+    "State: closed",
     "the saved boundary is closed",
     "Closed by: Ripple Golden Proof.",
     "Reason: previous boundary is complete",
     "Agents must not continue from a closed boundary.",
-    "Run ripple intent status",
+    "ripple intent status --intent latest --json",
     "create a new saved plan",
     "ripple plan --file <file> --task \"<task>\" --agent --save",
   ].forEach((expected) =>
@@ -120,6 +123,38 @@ function main() {
     "Ripple gate: CONTINUE",
   ].forEach((unexpected) =>
     assertNotIncludes(output, unexpected, "golden closed intent gate proof"),
+  );
+
+  const jsonResult = runCliResult(["gate", "--intent", "latest", "--json"]);
+  if (jsonResult.error) {
+    throw jsonResult.error;
+  }
+  assert.notStrictEqual(
+    jsonResult.status,
+    0,
+    "closed intent JSON gate should stop instead of continuing",
+  );
+  assert.strictEqual(
+    jsonResult.stderr ?? "",
+    "",
+    "closed intent JSON gate should not print a raw CLI error",
+  );
+  const json = JSON.parse(jsonResult.stdout);
+  assert.strictEqual(json.protocol, "ripple-gate-intent-block");
+  assert.strictEqual(json.status, "closed");
+  assert.strictEqual(json.decision, "create-intent");
+  assert.strictEqual(json.canContinue, false);
+  assert.strictEqual(json.mustStop, true);
+  assert.strictEqual(json.needsHuman, true);
+  assert.strictEqual(json.nextRequiredPhase, "plan_before_edit");
+  assert.strictEqual(json.intentState, "closed");
+  assert(
+    json.commands.plan.includes("ripple intent status --intent latest --json"),
+    "closed intent JSON gate should tell agents how to inspect the inactive boundary",
+  );
+  assert(
+    json.commands.plan.includes('ripple plan --file <file> --task "<task>" --agent --save'),
+    "closed intent JSON gate should tell agents how to create a new saved boundary",
   );
 
   console.log("Ripple golden closed intent gate proof passed");

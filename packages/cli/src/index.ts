@@ -9,6 +9,7 @@ import {
   buildChangeIntentReadinessSnapshot,
   buildIntentDriftRepairPlan,
   buildRippleAuditSummary,
+  buildRippleGateIntentBlockSummary,
   buildRippleGateSummary,
   buildRippleReadinessSummary,
   buildStagedCheckSummary,
@@ -46,6 +47,7 @@ import {
   RippleApprovalRecord,
   RippleApprovalStatus,
   RippleAuditSummary,
+  RippleGateIntentBlockSummary,
   RippleGateSummary,
   RippleAgentHandoffVerdict,
   RipplePolicyExplanation,
@@ -922,6 +924,26 @@ function rippleCliPackageSpec(): string {
   return currentVersion === "0.0.0"
     ? "@getripple/cli"
     : `@getripple/cli@${currentVersion}`;
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`).replace(/\\/g, "/")}'`;
+}
+
+function rippleDirectRunnerHookLines(): string[] {
+  return [
+    `  ripple_direct_node=${shellSingleQuote(process.execPath)}`,
+    `  ripple_direct_cli=${shellSingleQuote(__filename)}`,
+    `  if [ -x "./node_modules/.bin/ripple" ]; then`,
+    `    "./node_modules/.bin/ripple" "$@"`,
+    `  elif [ -f "$ripple_direct_cli" ] && [ -f "$ripple_direct_node" ]; then`,
+    `    "$ripple_direct_node" "$ripple_direct_cli" "$@"`,
+    `  elif command -v ripple >/dev/null 2>&1; then`,
+    `    ripple "$@"`,
+    `  else`,
+    `    npx -y ${rippleCliPackageSpec()} "$@"`,
+    `  fi`,
+  ];
 }
 
 const GITHUB_ACTIONS_WORKFLOW_PATH = RIPPLE_CI_WORKFLOW_PATH;
@@ -2983,6 +3005,34 @@ function printAgentGateSummary(summary: RippleGateSummary): void {
   printAgentList("commands_verify", summary.commands.verify);
 }
 
+function printAgentGateIntentBlock(summary: RippleGateIntentBlockSummary): void {
+  console.log("RIPPLE_GATE_INTENT_BLOCK");
+  console.log(`protocol: ${summary.protocol}`);
+  console.log(`status: ${summary.status}`);
+  console.log(`decision: ${summary.decision}`);
+  console.log(`can_continue: ${summary.canContinue}`);
+  console.log(`must_stop: ${summary.mustStop}`);
+  console.log(`needs_human: ${summary.needsHuman}`);
+  console.log(`next_required_phase: ${summary.nextRequiredPhase}`);
+  console.log(`next_required_action: ${summary.nextRequiredAction}`);
+  console.log(`summary: ${summary.summary}`);
+  console.log(`mode: ${summary.mode}`);
+  if (summary.baseRef) {
+    console.log(`base_ref: ${summary.baseRef}`);
+  }
+  console.log(`intent_ref: ${summary.intentRef}`);
+  console.log(`intent_state: ${summary.intentState}`);
+  console.log(`intent_error: ${summary.intentLoadError}`);
+  console.log("");
+  printAgentList("why", summary.why);
+  console.log("");
+  printAgentList("fix_now", summary.fixNow);
+  console.log("");
+  printAgentList("ask_human", summary.askHuman);
+  console.log("");
+  printAgentList("commands_plan", summary.commands.plan);
+}
+
 function printGateSummary(summary: RippleGateSummary): void {
   const statusLabel = summary.canContinue ? "CONTINUE" : "STOP";
   console.log(`Ripple gate: ${statusLabel}`);
@@ -3016,6 +3066,28 @@ function printGateSummary(summary: RippleGateSummary): void {
     printHumanList("Commands:", compactGateCommands(summary));
   }
   printGateRiskSummary(summary);
+}
+
+function printGateIntentBlock(summary: RippleGateIntentBlockSummary): void {
+  console.log("Ripple gate: STOP");
+  console.log("Agent must stop before continuing.");
+  console.log("");
+  console.log(`Decision: ${summary.decision}`);
+  console.log(`Can continue: ${formatYesNo(summary.canContinue)}`);
+  console.log(`Must stop: ${formatYesNo(summary.mustStop)}`);
+  console.log(`Needs human: ${formatYesNo(summary.needsHuman)}`);
+  console.log(`Next required phase: ${summary.nextRequiredPhase}`);
+  console.log(`Next required action: ${summary.nextRequiredAction}`);
+  console.log("");
+  console.log("Intent:");
+  console.log(`  Ref: ${summary.intentRef}`);
+  console.log(`  State: ${summary.intentState}`);
+  console.log(`  Error: ${summary.intentLoadError}`);
+  console.log("");
+  printHumanList("Why:", summary.why);
+  printHumanList("Fix now:", summary.fixNow);
+  printHumanList("Ask human:", summary.askHuman);
+  printHumanList("Commands:", summary.commands.plan);
 }
 
 function printGateRiskSummary(summary: RippleGateSummary): void {
@@ -4131,6 +4203,34 @@ async function auditCommand(options: CliOptions): Promise<void> {
 }
 
 async function gateCommand(options: CliOptions): Promise<void> {
+  if (selectedChangeModeCount(options) > 1) {
+    throw new Error("Choose one gate/audit mode: --staged, --worktree, or --changed --base <ref>");
+  }
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const mode = selectedChangeMode(options);
+  const baseRef = options.base ?? "HEAD";
+  try {
+    loadChangeIntent(workspaceRoot, intentRef);
+  } catch (err) {
+    const block = buildRippleGateIntentBlockSummary({
+      workspaceRoot,
+      mode,
+      baseRef: mode === "changed" ? baseRef : undefined,
+      intentRef,
+      error: err,
+    });
+    if (options.json) {
+      printJson(block);
+    } else if (options.agent) {
+      printAgentGateIntentBlock(block);
+    } else {
+      printGateIntentBlock(block);
+    }
+    applyStrictExit(true);
+    return;
+  }
+
   const audit = await buildAuditFromCliOptions(options);
   const gate = buildRippleGateSummary(audit);
 
@@ -4839,13 +4939,7 @@ fi
 set +e
 
 ripple_run() {
-  if [ -x "./node_modules/.bin/ripple" ]; then
-    "./node_modules/.bin/ripple" "$@"
-  elif command -v ripple >/dev/null 2>&1; then
-    ripple "$@"
-  else
-    npx -y ${rippleCliPackageSpec()} "$@"
-  fi
+${rippleDirectRunnerHookLines().join("\n")}
 }
 
 if [ -f ".ripple/intents/latest.json" ]; then

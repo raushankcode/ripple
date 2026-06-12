@@ -702,6 +702,11 @@ function main() {
     "hook install --print should prefer a repo-local Ripple binary before npx"
   );
   assert(
+    printedHook.includes("ripple_direct_cli=") &&
+      printedHook.includes('"$ripple_direct_node" "$ripple_direct_cli" "$@"'),
+    "hook install --print should embed a direct installer CLI runner before npx fallback"
+  );
+  assert(
     printedHook.includes("git commit --no-verify"),
     "hook install --print should include the human escape hatch"
   );
@@ -1925,12 +1930,19 @@ function main() {
     0,
     "gate should fail closed instead of treating a closed marker as active intent"
   );
+  assert.strictEqual(closedIntentGate.stderr, "");
+  const closedIntentGateJson = JSON.parse(closedIntentGate.stdout);
+  assert.strictEqual(closedIntentGateJson.protocol, "ripple-gate-intent-block");
+  assert.strictEqual(closedIntentGateJson.intentState, "closed");
+  assert.strictEqual(closedIntentGateJson.canContinue, false);
+  assert.strictEqual(closedIntentGateJson.mustStop, true);
+  assert.strictEqual(closedIntentGateJson.needsHuman, true);
   assert(
-    closedIntentGate.stderr.includes("saved boundary is closed"),
+    closedIntentGateJson.intentLoadError.includes("saved boundary is closed"),
     "gate should explain that the saved boundary is closed"
   );
   assert(
-    closedIntentGate.stderr.includes("Agents must not continue from a closed boundary"),
+    closedIntentGateJson.intentLoadError.includes("Agents must not continue from a closed boundary"),
     "gate should tell agents not to continue from a closed boundary"
   );
 
