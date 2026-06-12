@@ -42,6 +42,7 @@ export type AgentWorkflowSummary = {
     checkReadiness: string;
     installCi: string;
     explainPolicy: string;
+    checkIntentStatus: string;
     planBeforeEditing: string;
     checkAfterStaging: string;
     checkChangedAgainstBase: string;
@@ -57,6 +58,7 @@ export type AgentWorkflowSummary = {
     workflow: "ripple_get_agent_workflow";
     checkReadiness: "ripple_doctor";
     explainPolicy: "ripple_explain_policy";
+    checkIntentStatus: "ripple_get_intent_status";
     planBeforeEditing: "ripple_plan_context";
     checkAfterStaging: "ripple_check_staged";
     checkChangedAgainstBase: "ripple_check_changed";
@@ -75,6 +77,7 @@ export type AgentWorkflowSummary = {
     gateHeader: "RIPPLE_GATE";
     approvalHeader: "RIPPLE_APPROVAL";
     approvalStatusHeader: "RIPPLE_APPROVAL_STATUS";
+    intentStatusHeader: "RIPPLE_INTENT_STATUS";
     doctorSections: string[];
     planSections: string[];
     stagedCheckSections: string[];
@@ -134,6 +137,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       checkReadiness: "ripple doctor --agent --strict",
       installCi: "ripple init-ci",
       explainPolicy: "ripple policy explain --file <file> --agent",
+      checkIntentStatus: "ripple intent status --intent latest --json",
       planBeforeEditing: "ripple plan --file <file> --task \"<task>\" --mode file --agent --save",
       checkAfterStaging: "ripple check --staged --agent --intent latest",
       checkChangedAgainstBase: "ripple check --changed --base <ref> --agent --intent latest",
@@ -149,6 +153,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       workflow: "ripple_get_agent_workflow",
       checkReadiness: "ripple_doctor",
       explainPolicy: "ripple_explain_policy",
+      checkIntentStatus: "ripple_get_intent_status",
       planBeforeEditing: "ripple_plan_context",
       checkAfterStaging: "ripple_check_staged",
       checkChangedAgainstBase: "ripple_check_changed",
@@ -167,6 +172,7 @@ export function getAgentWorkflowSummary(): AgentWorkflowSummary {
       gateHeader: "RIPPLE_GATE",
       approvalHeader: "RIPPLE_APPROVAL",
       approvalStatusHeader: "RIPPLE_APPROVAL_STATUS",
+      intentStatusHeader: "RIPPLE_INTENT_STATUS",
       doctorSections: [
         "status",
         "readiness_decision",

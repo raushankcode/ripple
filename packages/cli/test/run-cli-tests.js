@@ -1272,6 +1272,11 @@ function main() {
     "ripple policy explain --file <file> --agent",
     "agent JSON should expose the policy explanation command"
   );
+  assert.strictEqual(
+    agentWorkflow.commands.checkIntentStatus,
+    "ripple intent status --intent latest --json",
+    "agent JSON should expose the intent lifecycle status command"
+  );
   assert(
     agentWorkflow.policyWorkflow.defaultAgentPath.includes("policyExplanation"),
     "agent JSON should explain planBeforeEditing includes policyExplanation"
@@ -1338,6 +1343,11 @@ function main() {
     agentWorkflow.mcpTools.explainPolicy,
     "ripple_explain_policy",
     "agent JSON should expose the MCP policy explanation tool"
+  );
+  assert.strictEqual(
+    agentWorkflow.mcpTools.checkIntentStatus,
+    "ripple_get_intent_status",
+    "agent JSON should expose the MCP intent lifecycle status tool"
   );
   assert.strictEqual(
     agentWorkflow.mcpTools.planBeforeEditing,
@@ -1858,6 +1868,56 @@ function main() {
     fs.existsSync(savedPlan.changeIntentPath),
     true,
     "plan --save should write the change intent file"
+  );
+  const activeIntentStatus = runCliJson(["intent", "status"]);
+  assert.strictEqual(activeIntentStatus.protocol, "ripple-intent-status");
+  assert.strictEqual(activeIntentStatus.active, true);
+  assert.strictEqual(activeIntentStatus.intent.id, savedPlan.changeIntent.id);
+  assert(
+    activeIntentStatus.nextSteps.some((step) => step.includes("ripple intent close --reason")),
+    "active intent status should tell humans how to close the boundary"
+  );
+  const closeWithoutReason = runCliResult(["intent", "close"]);
+  assert.notStrictEqual(
+    closeWithoutReason.status,
+    0,
+    "intent close should require a human reason"
+  );
+  assert(
+    closeWithoutReason.stderr.includes("requires --reason"),
+    "intent close failure should explain that a reason is required"
+  );
+  const closedIntent = runCliJson([
+    "intent",
+    "close",
+    "--reason",
+    "saved plan lifecycle proof complete",
+    "--approved-by",
+    "Ripple Tester",
+  ]);
+  assert.strictEqual(closedIntent.protocol, "ripple-intent-close");
+  assert.strictEqual(closedIntent.intent.id, savedPlan.changeIntent.id);
+  assert.strictEqual(closedIntent.closedBy, "Ripple Tester");
+  assert.strictEqual(closedIntent.reason, "saved plan lifecycle proof complete");
+  assert.strictEqual(
+    fs.existsSync(savedPlan.changeIntentPath),
+    true,
+    "intent close should leave an inactive closed marker at latest intent"
+  );
+  const closedMarker = JSON.parse(fs.readFileSync(savedPlan.changeIntentPath, "utf8"));
+  assert.strictEqual(closedMarker.protocol, "ripple-closed-intent");
+  assert.strictEqual(closedMarker.intent.id, savedPlan.changeIntent.id);
+  const archivePath = path.join(workspaceRoot, closedIntent.archivePath);
+  assert(fs.existsSync(archivePath), "intent close should archive the closed intent");
+  const archivedIntent = JSON.parse(fs.readFileSync(archivePath, "utf8"));
+  assert.strictEqual(archivedIntent.protocol, "ripple-closed-intent");
+  assert.strictEqual(archivedIntent.reason, "saved plan lifecycle proof complete");
+  assert.strictEqual(archivedIntent.intent.id, savedPlan.changeIntent.id);
+  const inactiveIntentStatus = runCliJson(["intent", "status"]);
+  assert.strictEqual(inactiveIntentStatus.active, false);
+  assert(
+    inactiveIntentStatus.nextSteps.some((step) => step.includes("ripple plan")),
+    "inactive intent status should tell humans how to start a new boundary"
   );
 
   // Keep a CLI-level proof that function mode saves a symbol boundary.

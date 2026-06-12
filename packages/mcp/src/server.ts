@@ -5,6 +5,7 @@ import * as path from "path";
 import * as readline from "readline";
 import {
   createRippleMcpToolHost,
+  RIPPLE_MCP_TOOLS,
   RippleMcpToolCallArgs,
   RippleMcpToolHost,
   RippleMcpToolName,
@@ -269,22 +270,7 @@ function parseToolCallParams(params: unknown): {
 }
 
 function isRippleMcpToolName(name: unknown): name is RippleMcpToolName {
-  return (
-    name === "ripple_doctor" ||
-    name === "ripple_check_changed" ||
-    name === "ripple_check_staged" ||
-    name === "ripple_audit_change" ||
-    name === "ripple_gate" ||
-    name === "ripple_get_approval_status" ||
-    name === "ripple_get_agent_workflow" ||
-    name === "ripple_repair_intent_drift" ||
-    name === "ripple_get_focus" ||
-    name === "ripple_get_blast_radius" ||
-    name === "ripple_explain_policy" ||
-    name === "ripple_plan_context" ||
-    name === "ripple_record_verification" ||
-    name === "ripple_get_recent_changes"
-  );
+  return typeof name === "string" && RIPPLE_MCP_TOOLS.some((tool) => tool.name === name);
 }
 
 function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {

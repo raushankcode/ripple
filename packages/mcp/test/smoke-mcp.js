@@ -249,6 +249,7 @@ function main() {
   assert(tools.some((tool) => tool.name === "ripple_explain_policy"));
   assert(tools.some((tool) => tool.name === "ripple_get_agent_workflow"));
   assert(tools.some((tool) => tool.name === "ripple_plan_context"));
+  assert(tools.some((tool) => tool.name === "ripple_get_intent_status"));
   assert(tools.some((tool) => tool.name === "ripple_record_verification"));
   assert(tools.some((tool) => tool.name === "ripple_repair_intent_drift"));
   assert.strictEqual(workflowResult.isError, false);
@@ -264,6 +265,8 @@ function main() {
     "repair_if_needed",
   ]);
   assert.strictEqual(workflow.mcpTools.checkAfterStaging, "ripple_check_staged");
+  assert.strictEqual(workflow.commands.checkIntentStatus, "ripple intent status --intent latest --json");
+  assert.strictEqual(workflow.mcpTools.checkIntentStatus, "ripple_get_intent_status");
   assert.strictEqual(workflow.commands.auditCurrentChange, "ripple audit --agent --intent latest");
   assert.strictEqual(workflow.commands.gateCurrentChange, "ripple gate --agent --intent latest");
   assert.strictEqual(

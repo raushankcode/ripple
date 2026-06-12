@@ -424,6 +424,10 @@ function assertStdioServerProtocol() {
     responses[1].result.tools.some((tool) => tool.name === "ripple_get_focus"),
     "stdio tools/list should expose ripple_get_focus"
   );
+  assert(
+    responses[1].result.tools.some((tool) => tool.name === "ripple_get_intent_status"),
+    "stdio tools/list should expose ripple_get_intent_status"
+  );
   assert.strictEqual(responses[2].id, 12);
   assert.strictEqual(responses[2].result.isError, false);
   assert.strictEqual(
@@ -577,6 +581,7 @@ async function main() {
       "ripple_get_approval_status",
       "ripple_get_blast_radius",
       "ripple_get_focus",
+      "ripple_get_intent_status",
       "ripple_get_recent_changes",
       "ripple_plan_context",
       "ripple_record_verification",
@@ -601,6 +606,7 @@ async function main() {
     assert.strictEqual(workflow.data.commands.initializeRepo, "ripple init");
     assert.strictEqual(workflow.data.commands.checkReadiness, "ripple doctor --agent --strict");
     assert.strictEqual(workflow.data.commands.installCi, "ripple init-ci");
+    assert.strictEqual(workflow.data.commands.checkIntentStatus, "ripple intent status --intent latest --json");
     assert(
       workflow.data.policyWorkflow.defaultAgentPath.includes("policyExplanation"),
       "workflow should tell agents that ripple_plan_context includes policyExplanation"
@@ -642,6 +648,7 @@ async function main() {
       "ripple approve --intent latest --gate before-risky-edit --reason \"human reviewed and approved this boundary\""
     );
     assert.strictEqual(workflow.data.mcpTools.planBeforeEditing, "ripple_plan_context");
+    assert.strictEqual(workflow.data.mcpTools.checkIntentStatus, "ripple_get_intent_status");
     assert.strictEqual(workflow.data.mcpTools.checkAfterStaging, "ripple_check_staged");
     assert.strictEqual(workflow.data.mcpTools.auditCurrentChange, "ripple_audit_change");
     assert.strictEqual(workflow.data.mcpTools.gateCurrentChange, "ripple_gate");
@@ -861,6 +868,17 @@ async function main() {
       force: true,
     });
 
+    const missingIntentStatus = await host.callTool("ripple_get_intent_status", {});
+    assert.strictEqual(missingIntentStatus.tool, "ripple_get_intent_status");
+    assert.strictEqual(missingIntentStatus.data.protocol, "ripple-intent-status");
+    assert.strictEqual(missingIntentStatus.data.state, "missing");
+    assert.strictEqual(missingIntentStatus.data.active, false);
+    assert.strictEqual(missingIntentStatus.data.canSaveNewIntent, true);
+    assert(
+      missingIntentStatus.data.nextRequiredAction.includes("saved Ripple plan"),
+      "MCP missing intent status should tell agents to create a saved plan"
+    );
+
     // MCP callers get the same saved control-boundary intent as CLI callers.
     const planWithIntent = await host.callTool("ripple_plan_context", {
       task: "change token refresh behavior",
@@ -906,6 +924,19 @@ async function main() {
         "riskRules[0] paths=src/auth.ts risk=critical"
       ),
       "ripple_plan_context should include policy explanation with matched rules"
+    );
+
+    const activeIntentStatus = await host.callTool("ripple_get_intent_status", {
+      intentPath: "latest",
+    });
+    assert.strictEqual(activeIntentStatus.tool, "ripple_get_intent_status");
+    assert.strictEqual(activeIntentStatus.data.state, "active");
+    assert.strictEqual(activeIntentStatus.data.active, true);
+    assert.strictEqual(activeIntentStatus.data.canSaveNewIntent, false);
+    assert.strictEqual(activeIntentStatus.data.intent.id, planWithIntent.data.changeIntent.id);
+    assert(
+      activeIntentStatus.data.nextRequiredAction.includes("saved boundary"),
+      "MCP active intent status should tell agents to use or close the saved boundary"
     );
 
     await assert.rejects(
@@ -1388,6 +1419,10 @@ async function main() {
       "tools/list should expose ripple_get_approval_status"
     );
     assert(
+      toolsList.result.tools.some((tool) => tool.name === "ripple_get_intent_status"),
+      "tools/list should expose ripple_get_intent_status"
+    );
+    assert(
       toolsList.result.tools.some((tool) => tool.name === "ripple_repair_intent_drift"),
       "tools/list should expose ripple_repair_intent_drift"
     );
@@ -1457,6 +1492,13 @@ async function main() {
       approvalStatusToolDefinition.inputSchema.properties.gate,
       "ripple_get_approval_status schema should expose gate"
     );
+    const intentStatusToolDefinition = toolsList.result.tools.find(
+      (tool) => tool.name === "ripple_get_intent_status"
+    );
+    assert(
+      intentStatusToolDefinition.inputSchema.properties.intentPath,
+      "ripple_get_intent_status schema should expose intentPath"
+    );
 
     const workflowToolCall = await server.handleMessage({
       jsonrpc: "2.0",
@@ -1504,6 +1546,10 @@ async function main() {
     assert.strictEqual(
       workflowToolCall.result.structuredContent.mcpTools.checkApproval,
       "ripple_get_approval_status"
+    );
+    assert.strictEqual(
+      workflowToolCall.result.structuredContent.mcpTools.checkIntentStatus,
+      "ripple_get_intent_status"
     );
     assert.strictEqual(
       workflowToolCall.result.structuredContent.mcpTools.checkChangedAgainstBase,
@@ -1780,6 +1826,95 @@ async function main() {
     assert(toolCall.result.content[0].text.includes("symbolFocus"));
     assert(toolCall.result.content[0].text.includes("policyExplanation"));
     assert(toolCall.result.content[0].text.includes("src/auth.ts::authenticate"));
+
+    const latestIntentPath = path.join(workspaceRoot, ".ripple", "intents", "latest.json");
+    const activeIntent = JSON.parse(fs.readFileSync(latestIntentPath, "utf8"));
+    fs.writeFileSync(
+      latestIntentPath,
+      JSON.stringify(
+        {
+          protocol: "ripple-closed-intent",
+          version: 1,
+          closedAt: "2026-06-12T00:00:00.000Z",
+          closedBy: "Ripple MCP Test",
+          reason: "json-rpc lifecycle proof complete",
+          originalIntentPath: ".ripple/intents/latest.json",
+          intent: activeIntent,
+        },
+        null,
+        2
+      )
+    );
+
+    const closedIntentStatusToolCall = await server.handleMessage({
+      jsonrpc: "2.0",
+      id: 34,
+      method: "tools/call",
+      params: {
+        name: "ripple_get_intent_status",
+        arguments: {
+          intentPath: "latest",
+        },
+      },
+    });
+    assert.strictEqual(closedIntentStatusToolCall.result.isError, false);
+    assert.strictEqual(closedIntentStatusToolCall.result.structuredContent.state, "closed");
+    assert.strictEqual(closedIntentStatusToolCall.result.structuredContent.active, false);
+    assert.strictEqual(
+      closedIntentStatusToolCall.result.structuredContent.canSaveNewIntent,
+      true
+    );
+    assert.strictEqual(
+      closedIntentStatusToolCall.result.structuredContent.closed.reason,
+      "json-rpc lifecycle proof complete"
+    );
+    assert.strictEqual(
+      closedIntentStatusToolCall.result.structuredContent.closed.intent.id,
+      activeIntent.id
+    );
+
+    const replanAfterClosedIntent = await server.handleMessage({
+      jsonrpc: "2.0",
+      id: 35,
+      method: "tools/call",
+      params: {
+        name: "ripple_plan_context",
+        arguments: {
+          task: "start a new boundary after closing the previous one",
+          filePath: "src/auth.ts",
+          tokenBudget: 2600,
+          saveIntent: true,
+        },
+      },
+    });
+    assert.strictEqual(replanAfterClosedIntent.result.isError, false);
+    assert.strictEqual(
+      replanAfterClosedIntent.result.structuredContent.changeIntent.protocol,
+      "ripple-change-intent"
+    );
+    assert.notStrictEqual(
+      replanAfterClosedIntent.result.structuredContent.changeIntent.id,
+      activeIntent.id,
+      "MCP should allow a new saved intent after the previous boundary is closed"
+    );
+
+    const reactivatedIntentStatusToolCall = await server.handleMessage({
+      jsonrpc: "2.0",
+      id: 36,
+      method: "tools/call",
+      params: {
+        name: "ripple_get_intent_status",
+        arguments: {
+          intentPath: "latest",
+        },
+      },
+    });
+    assert.strictEqual(reactivatedIntentStatusToolCall.result.isError, false);
+    assert.strictEqual(reactivatedIntentStatusToolCall.result.structuredContent.state, "active");
+    assert.strictEqual(
+      reactivatedIntentStatusToolCall.result.structuredContent.canSaveNewIntent,
+      false
+    );
 
     const unknownMethod = await server.handleMessage({
       jsonrpc: "2.0",

@@ -339,6 +339,7 @@ function proveInstalledMcpWorks(serverPath) {
   const workflow = callInstalledStdioTool(serverPath, "ripple_get_agent_workflow");
   assert.strictEqual(workflow.protocol, "ripple-agent-workflow");
   assert.strictEqual(workflow.commands.initializeRepo, "ripple init");
+  assert.strictEqual(workflow.mcpTools.checkIntentStatus, "ripple_get_intent_status");
 
   const beforePlanDoctor = callInstalledStdioTool(serverPath, "ripple_doctor");
   assertDoctorReadyBeforePlan(beforePlanDoctor, "installed MCP doctor before plan");

@@ -232,6 +232,7 @@ It should ask for a wider human-approved intent.
 ```txt
 ripple_get_agent_workflow      full agent workflow guide and output contracts
 ripple_doctor                  check project readiness
+ripple_get_intent_status       check whether saved intent is missing, active, closed, or invalid
 ripple_plan_context            plan before editing and optionally save intent
 ripple_check_staged            check staged files against saved intent
 ripple_check_changed           check changed files against a git base ref

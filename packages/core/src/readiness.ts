@@ -73,7 +73,8 @@ export function buildRippleReadinessSummary(
   const gitOk = gitCheck.ok;
   const gitIgnoreCheck = rippleGitIgnoreCheck(workspaceRoot);
   const ciWorkflowOk = fs.existsSync(workflowPath);
-  const latestIntentOk = fs.existsSync(latestIntentPath);
+  const latestIntentExists = fs.existsSync(latestIntentPath);
+  const latestIntentOk = latestIntentExists && hasActiveChangeIntentProtocol(latestIntentPath);
   const explicitPolicyOk = fs.existsSync(policyPath);
   const checks = {
     graph: {
@@ -96,6 +97,8 @@ export function buildRippleReadinessSummary(
       ok: latestIntentOk,
       detail: latestIntentOk
         ? formatWorkspacePath(workspaceRoot, latestIntentPath)
+        : latestIntentExists
+        ? "No active local intent found; latest.json is a closed or invalid marker."
         : "No active local intent found; this is normal until an agent creates a saved plan.",
       fix: undefined,
     },
@@ -138,6 +141,15 @@ export function buildRippleReadinessSummary(
     checks,
     nextSteps,
   };
+}
+
+function hasActiveChangeIntentProtocol(filePath: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as { protocol?: unknown };
+    return parsed.protocol === "ripple-change-intent";
+  } catch {
+    return false;
+  }
 }
 
 function readinessContract(

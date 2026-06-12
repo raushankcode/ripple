@@ -50,6 +50,7 @@ export type RippleMcpToolName =
   | "ripple_check_staged"
   | "ripple_audit_change"
   | "ripple_gate"
+  | "ripple_get_intent_status"
   | "ripple_get_approval_status"
   | "ripple_get_agent_workflow"
   | "ripple_repair_intent_drift"
@@ -85,6 +86,7 @@ export type RippleMcpToolData =
   | ContextPlanSummary
   | ContextPlanWithIntentSummary
   | RipplePolicyExplanation
+  | RippleIntentStatusSummary
   | ApprovalStatusWithIntentSummary
   | VerificationEvidenceSummary
   | RippleAuditSummary
@@ -133,6 +135,44 @@ export type ContextPlanWithIntentSummary = ContextPlanSummary & {
   policyExplanation: RipplePolicyExplanation;
   changeIntent?: ChangeIntent;
   changeIntentPath?: string;
+};
+
+export type RippleIntentLifecycleState = "missing" | "active" | "closed" | "invalid";
+
+export type RippleIntentSnapshot = {
+  id: string;
+  createdAt: string;
+  task: string;
+  targetFile: string;
+  controlMode: ChangeIntent["controlMode"];
+  humanGate: ChangeIntent["humanGate"];
+  boundaryRisk: ChangeIntent["boundaryRisk"];
+};
+
+export type RippleClosedIntentSummary = {
+  closedAt?: string;
+  closedBy?: string;
+  reason?: string;
+  originalIntentPath?: string;
+  intent?: RippleIntentSnapshot;
+};
+
+export type RippleIntentStatusSummary = {
+  protocol: "ripple-intent-status";
+  version: 1;
+  workspace: string;
+  intentRef: string;
+  intentPath: string;
+  state: RippleIntentLifecycleState;
+  exists: boolean;
+  active: boolean;
+  canSaveNewIntent: boolean;
+  mustAskHuman: boolean;
+  nextRequiredAction: string;
+  nextSteps: string[];
+  intent?: RippleIntentSnapshot;
+  closed?: RippleClosedIntentSummary;
+  error?: string;
 };
 
 export type ApprovalStatusWithIntentSummary = RippleApprovalStatus & {
@@ -257,6 +297,21 @@ export const RIPPLE_MCP_TOOLS: RippleMcpToolDefinition[] = [
           type: "number",
           description: "Maximum context token budget per gated file.",
         },
+        intentPath: {
+          type: "string",
+          description: "Saved Ripple change intent path, id, or latest. Defaults to latest.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "ripple_get_intent_status",
+    description:
+      "Return whether a saved Ripple intent boundary is missing, active, closed, or invalid before an agent plans or edits.",
+    inputSchema: {
+      type: "object",
+      properties: {
         intentPath: {
           type: "string",
           description: "Saved Ripple change intent path, id, or latest. Defaults to latest.",
@@ -514,6 +569,13 @@ export class RippleMcpToolHost {
       };
     }
 
+    if (name === "ripple_get_intent_status") {
+      return {
+        tool: name,
+        data: this.getIntentStatus(args),
+      };
+    }
+
     if (name === "ripple_get_focus") {
       await this.initialize();
       return {
@@ -685,6 +747,105 @@ export class RippleMcpToolHost {
 
   private getRecentChanges(args: RippleMcpToolCallArgs): RecentHistorySummary {
     return this.engine.getRecentHistorySummary(optionalPositiveInteger(args, "limit", 10));
+  }
+
+  private getIntentStatus(args: RippleMcpToolCallArgs): RippleIntentStatusSummary {
+    const intentRef = optionalString(args, "intentPath") ?? "latest";
+    const intentPath = resolveMcpIntentPath(this.workspaceRoot, intentRef);
+    const relativeIntentPath = formatWorkspacePath(this.workspaceRoot, intentPath);
+    if (!fs.existsSync(intentPath)) {
+      return {
+        protocol: "ripple-intent-status",
+        version: 1,
+        workspace: this.workspaceRoot,
+        intentRef,
+        intentPath: relativeIntentPath,
+        state: "missing",
+        exists: false,
+        active: false,
+        canSaveNewIntent: true,
+        mustAskHuman: false,
+        nextRequiredAction:
+          "Create a saved Ripple plan before editing so the agent has an auditable boundary.",
+        nextSteps: [
+          "Call ripple_plan_context with saveIntent: true before editing.",
+          "If the task is risky, wait for the human approval gate before changing code.",
+        ],
+      };
+    }
+
+    const parsed = readIntentMarker(intentPath);
+    if (!parsed.ok) {
+      return invalidIntentStatus(
+        this.workspaceRoot,
+        intentRef,
+        relativeIntentPath,
+        parsed.error
+      );
+    }
+
+    if (parsed.protocol === "ripple-change-intent") {
+      try {
+        const intent = loadChangeIntent(this.workspaceRoot, intentRef);
+        return {
+          protocol: "ripple-intent-status",
+          version: 1,
+          workspace: this.workspaceRoot,
+          intentRef,
+          intentPath: relativeIntentPath,
+          state: "active",
+          exists: true,
+          active: true,
+          canSaveNewIntent: false,
+          mustAskHuman: false,
+          nextRequiredAction:
+            "Use this saved boundary for gate/check calls, or ask the human to close or widen it before saving a different intent.",
+          intent: intentSnapshot(intent),
+          nextSteps: [
+            "Call ripple_gate with this intent after changes are staged.",
+            "Do not call ripple_plan_context with saveIntent: true for another boundary while this intent is active.",
+            "If the scope must change, ask the human to run ripple intent close --reason or approve a wider plan.",
+          ],
+        };
+      } catch (err) {
+        return invalidIntentStatus(
+          this.workspaceRoot,
+          intentRef,
+          relativeIntentPath,
+          errorMessage(err)
+        );
+      }
+    }
+
+    if (parsed.protocol === "ripple-closed-intent") {
+      const closed = closedIntentSummary(parsed.value);
+      return {
+        protocol: "ripple-intent-status",
+        version: 1,
+        workspace: this.workspaceRoot,
+        intentRef,
+        intentPath: relativeIntentPath,
+        state: "closed",
+        exists: true,
+        active: false,
+        canSaveNewIntent: true,
+        mustAskHuman: false,
+        nextRequiredAction:
+          "Start a new saved Ripple plan before the agent edits again.",
+        closed,
+        nextSteps: [
+          "Call ripple_plan_context with saveIntent: true for the next approved task boundary.",
+          "Use the closed marker only as audit history; do not treat it as permission to edit.",
+        ],
+      };
+    }
+
+    return invalidIntentStatus(
+      this.workspaceRoot,
+      intentRef,
+      relativeIntentPath,
+      `Unsupported intent protocol: ${String(parsed.protocol)}.`
+    );
   }
 
   private recordVerification(args: RippleMcpToolCallArgs): VerificationEvidenceSummary {
@@ -981,18 +1142,27 @@ function parsePlanContextArgs(args: RippleMcpToolCallArgs): PlanContextArgs {
 function assertMcpCanSaveIntent(workspaceRoot: string, intentPath?: string): void {
   const targetPath = resolveMcpIntentPath(workspaceRoot, intentPath);
   const latestPath = defaultChangeIntentPath(workspaceRoot);
-  const activePath = fs.existsSync(latestPath) ? latestPath : undefined;
+  const activePath = isActiveMcpIntentPath(latestPath) ? latestPath : undefined;
 
-  if (fs.existsSync(targetPath)) {
+  if (isActiveMcpIntentPath(targetPath)) {
     throw new Error(
-      "An active Ripple intent already exists at this path. MCP agents cannot overwrite their own boundary. Ask the human to approve a wider boundary or clear the active intent."
+      "An active Ripple intent already exists at this path. MCP agents cannot overwrite their own boundary. Ask the human to approve a wider boundary or run ripple intent close --reason before saving a new intent."
     );
   }
 
   if (activePath && path.resolve(targetPath) !== path.resolve(activePath)) {
     throw new Error(
-      "An active Ripple intent already exists. MCP agents cannot create a second saved boundary to bypass the current one. Ask the human to approve, repair, or clear the active intent first."
+      "An active Ripple intent already exists. MCP agents cannot create a second saved boundary to bypass the current one. Ask the human to approve, repair, or run ripple intent close --reason first."
     );
+  }
+}
+
+function isActiveMcpIntentPath(intentPath: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(intentPath, "utf8")) as { protocol?: unknown };
+    return parsed.protocol === "ripple-change-intent";
+  } catch {
+    return false;
   }
 }
 
@@ -1059,6 +1229,128 @@ function fastCheckCandidateFiles(files: string[], intent?: ChangeIntent): string
         ]
       : []),
   ].filter((file): file is string => Boolean(file)));
+}
+
+type IntentMarkerRead =
+  | { ok: true; value: Record<string, unknown>; protocol: unknown }
+  | { ok: false; error: string };
+
+function readIntentMarker(intentPath: string): IntentMarkerRead {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(intentPath, "utf8")) as unknown;
+    if (!isRecord(parsed)) {
+      return { ok: false, error: "Intent file is not a JSON object." };
+    }
+    return { ok: true, value: parsed, protocol: parsed.protocol };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+function invalidIntentStatus(
+  workspaceRoot: string,
+  intentRef: string,
+  intentPath: string,
+  error: string
+): RippleIntentStatusSummary {
+  return {
+    protocol: "ripple-intent-status",
+    version: 1,
+    workspace: workspaceRoot,
+    intentRef,
+    intentPath,
+    state: "invalid",
+    exists: true,
+    active: false,
+    canSaveNewIntent: false,
+    mustAskHuman: true,
+    nextRequiredAction:
+      "Ask the human to inspect or replace the invalid Ripple intent marker before the agent edits.",
+    error,
+    nextSteps: [
+      "Do not treat this intent file as permission to edit.",
+      "Ask the human to run ripple intent status and repair, close, or recreate the saved boundary.",
+    ],
+  };
+}
+
+function closedIntentSummary(value: Record<string, unknown>): RippleClosedIntentSummary {
+  const summary: RippleClosedIntentSummary = {};
+  if (typeof value.closedAt === "string") {
+    summary.closedAt = value.closedAt;
+  }
+  if (typeof value.closedBy === "string") {
+    summary.closedBy = value.closedBy;
+  }
+  if (typeof value.reason === "string") {
+    summary.reason = value.reason;
+  }
+  if (typeof value.originalIntentPath === "string") {
+    summary.originalIntentPath = value.originalIntentPath;
+  }
+  const intent = intentSnapshotFromUnknown(value.intent);
+  if (intent) {
+    summary.intent = intent;
+  }
+  return summary;
+}
+
+function intentSnapshot(intent: ChangeIntent): RippleIntentSnapshot {
+  return {
+    id: intent.id,
+    createdAt: intent.createdAt,
+    task: intent.task,
+    targetFile: intent.targetFile,
+    controlMode: intent.controlMode,
+    humanGate: intent.humanGate,
+    boundaryRisk: intent.boundaryRisk,
+  };
+}
+
+function intentSnapshotFromUnknown(value: unknown): RippleIntentSnapshot | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (
+    typeof value.id !== "string" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.task !== "string" ||
+    typeof value.targetFile !== "string" ||
+    !isControlMode(value.controlMode) ||
+    !isHumanGate(value.humanGate) ||
+    !isBoundaryRisk(value.boundaryRisk)
+  ) {
+    return undefined;
+  }
+  return {
+    id: value.id,
+    createdAt: value.createdAt,
+    task: value.task,
+    targetFile: value.targetFile,
+    controlMode: value.controlMode,
+    humanGate: value.humanGate,
+    boundaryRisk: value.boundaryRisk,
+  };
+}
+
+function isControlMode(value: unknown): value is ChangeIntent["controlMode"] {
+  return MCP_CONTROL_MODES.includes(value as ControlMode);
+}
+
+function isHumanGate(value: unknown): value is ChangeIntent["humanGate"] {
+  return value === "none" || value === "required-before-edit" || value === "required-before-merge";
+}
+
+function isBoundaryRisk(value: unknown): value is ChangeIntent["boundaryRisk"] {
+  return value === "low" || value === "medium" || value === "high" || value === "critical";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function approvalStatusWithIntent(

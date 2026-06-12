@@ -252,6 +252,52 @@ type VerificationChangeSnapshot = {
   changeFingerprint?: string;
 };
 
+type RippleIntentSnapshot = {
+  id: string;
+  createdAt: string;
+  task: string;
+  targetFile: string;
+  controlMode: ControlMode;
+  humanGate: ChangeIntent["humanGate"];
+  boundaryRisk: ChangeIntent["boundaryRisk"];
+};
+
+type RippleIntentStatusOutput = {
+  protocol: "ripple-intent-status";
+  version: 1;
+  workspace: string;
+  intentRef: string;
+  intentPath: string;
+  exists: boolean;
+  active: boolean;
+  intent?: RippleIntentSnapshot;
+  nextSteps: string[];
+};
+
+type RippleIntentCloseOutput = {
+  protocol: "ripple-intent-close";
+  version: 1;
+  workspace: string;
+  intentRef: string;
+  intentPath: string;
+  archivePath: string;
+  closedAt: string;
+  closedBy: string;
+  reason: string;
+  intent: RippleIntentSnapshot;
+  nextSteps: string[];
+};
+
+type RippleClosedIntentArchive = {
+  protocol: "ripple-closed-intent";
+  version: 1;
+  closedAt: string;
+  closedBy: string;
+  reason: string;
+  originalIntentPath: string;
+  intent: ChangeIntent;
+};
+
 type ApprovalStatusOutput = RippleApprovalStatus & {
   intent: {
     id: string;
@@ -282,6 +328,8 @@ function usage(): string {
     "  ripple callers <file>::<symbol>",
     "  ripple history [--last N]",
     "  ripple plan --file <file> --task <task> [--mode file|function|brainstorm|task|pr] [--symbol name] [--budget N] [--save]",
+    "  ripple intent status [--intent latest|path]",
+    "  ripple intent close --reason text [--intent latest|path]",
     "  ripple check --staged [--intent latest|path] [--strict]",
     "  ripple check --worktree [--intent latest|path] [--strict]",
     "  ripple check --changed --base <ref> [--intent latest|path] [--strict]",
@@ -333,6 +381,8 @@ function usage(): string {
     "  ripple agent --json",
     "  ripple plan --file src/auth.ts --task \"change token refresh behavior\" --mode file --agent --save",
     "  ripple plan --file src/auth.ts --symbol refreshToken --task \"fix retry behavior\" --mode function --agent --save",
+    "  ripple intent status",
+    "  ripple intent close --reason \"task finished\"",
     "  ripple check --staged --agent --intent latest",
     "  ripple check --worktree --agent --intent latest",
     "  ripple audit --agent --intent latest",
@@ -1826,6 +1876,29 @@ function relativeToWorkspace(workspaceRoot: string, filePath: string): string {
 
 function normalizeProjectPath(filePath: string): string {
   return filePath.replace(/\\/g, "/").replace(/^\.\/+/, "");
+}
+
+function resolveCliIntentPath(workspaceRoot: string, intentRef: string): string {
+  const normalized = intentRef.trim();
+  if (normalized.length === 0 || normalized === "latest") {
+    return defaultChangeIntentPath(workspaceRoot);
+  }
+  if (path.isAbsolute(normalized)) {
+    return normalized;
+  }
+  if (normalized.endsWith(".json") || normalized.includes("/") || normalized.includes("\\")) {
+    return path.resolve(workspaceRoot, normalized);
+  }
+  return path.join(workspaceRoot, ".ripple", "intents", `${normalized}.json`);
+}
+
+function isActiveChangeIntentFile(filePath: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as { protocol?: unknown };
+    return parsed.protocol === "ripple-change-intent";
+  } catch {
+    return false;
+  }
 }
 
 function formatEventLine(event: RecentHistorySummary["groups"][number]["events"][number]): string {
@@ -3656,6 +3729,157 @@ function currentReadinessSnapshotForEngine(
   return buildChangeIntentReadinessSnapshot(
     buildRippleReadinessSummary(workspaceRoot, engine)
   );
+}
+
+function intentSnapshot(intent: ChangeIntent): RippleIntentSnapshot {
+  return {
+    id: intent.id,
+    createdAt: intent.createdAt,
+    task: intent.task,
+    targetFile: intent.targetFile,
+    controlMode: intent.controlMode,
+    humanGate: intent.humanGate,
+    boundaryRisk: intent.boundaryRisk,
+  };
+}
+
+function intentCommand(action: string | undefined, options: CliOptions): void {
+  if (!action || action === "status") {
+    intentStatusCommand(options);
+    return;
+  }
+  if (action === "close") {
+    closeIntentCommand(options);
+    return;
+  }
+  throw new Error("Usage: ripple intent status [--intent latest|path] or ripple intent close --reason <text> [--intent latest|path]");
+}
+
+function intentStatusCommand(options: CliOptions): void {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const intentPath = resolveCliIntentPath(workspaceRoot, intentRef);
+  const exists = fs.existsSync(intentPath);
+  const active = exists && isActiveChangeIntentFile(intentPath);
+  const output: RippleIntentStatusOutput = {
+    protocol: "ripple-intent-status",
+    version: 1,
+    workspace: workspaceRoot,
+    intentRef,
+    intentPath: relativeToWorkspace(workspaceRoot, intentPath),
+    exists,
+    active,
+    nextSteps: active
+      ? [
+          "Run ripple gate --intent latest before continuing.",
+          "Run ripple intent close --reason \"<why this boundary is done>\" when the task boundary is complete or intentionally replaced.",
+        ]
+      : [
+          "Run ripple plan --file <file> --task \"<task>\" --agent --save before an agent edits.",
+        ],
+  };
+
+  if (active) {
+    output.intent = intentSnapshot(loadChangeIntent(workspaceRoot, intentRef));
+  }
+
+  if (options.json) {
+    printJson(output);
+    return;
+  }
+  printIntentStatus(output);
+}
+
+function closeIntentCommand(options: CliOptions): void {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const intentPath = resolveCliIntentPath(workspaceRoot, intentRef);
+  if (!fs.existsSync(intentPath) || !isActiveChangeIntentFile(intentPath)) {
+    throw new Error(`No active Ripple intent exists at ${relativeToWorkspace(workspaceRoot, intentPath)}.`);
+  }
+  const reason = options.reason?.trim();
+  if (!reason) {
+    throw new Error("Closing an active Ripple intent requires --reason.");
+  }
+
+  const intent = loadChangeIntent(workspaceRoot, intentRef);
+  const closedAt = new Date().toISOString();
+  const closedBy = options.approvedBy?.trim() || "human";
+  const archivePath = archivedIntentPath(workspaceRoot, intent, closedAt);
+  const archive: RippleClosedIntentArchive = {
+    protocol: "ripple-closed-intent",
+    version: 1,
+    closedAt,
+    closedBy,
+    reason,
+    originalIntentPath: relativeToWorkspace(workspaceRoot, intentPath),
+    intent,
+  };
+
+  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+  fs.writeFileSync(archivePath, `${JSON.stringify(archive, null, 2)}\n`, "utf8");
+  fs.writeFileSync(intentPath, `${JSON.stringify(archive, null, 2)}\n`, "utf8");
+
+  const output: RippleIntentCloseOutput = {
+    protocol: "ripple-intent-close",
+    version: 1,
+    workspace: workspaceRoot,
+    intentRef,
+    intentPath: relativeToWorkspace(workspaceRoot, intentPath),
+    archivePath: relativeToWorkspace(workspaceRoot, archivePath),
+    closedAt,
+    closedBy,
+    reason,
+    intent: intentSnapshot(intent),
+    nextSteps: [
+      "Run ripple intent status to confirm no active saved boundary remains.",
+      "Run ripple plan --file <file> --task \"<task>\" --agent --save to start the next agent boundary.",
+    ],
+  };
+
+  if (options.json) {
+    printJson(output);
+    return;
+  }
+  printIntentClose(output);
+}
+
+function archivedIntentPath(
+  workspaceRoot: string,
+  intent: ChangeIntent,
+  closedAt: string
+): string {
+  const timestamp = closedAt.replace(/[:.]/g, "-");
+  const safeId = intent.id.replace(/[^a-zA-Z0-9._-]/g, "-");
+  return path.join(workspaceRoot, ".ripple", "intents", "archive", `${timestamp}-${safeId}.json`);
+}
+
+function printIntentStatus(summary: RippleIntentStatusOutput): void {
+  console.log("Ripple intent status");
+  console.log(`Intent: ${summary.intentRef}`);
+  console.log(`Path: ${summary.intentPath}`);
+  console.log(`Active: ${formatYesNo(summary.active)}`);
+  if (summary.intent) {
+    console.log(`Id: ${summary.intent.id}`);
+    console.log(`Task: ${summary.intent.task}`);
+    console.log(`Target: ${summary.intent.targetFile}`);
+    console.log(`Control mode: ${summary.intent.controlMode}`);
+    console.log(`Human gate: ${summary.intent.humanGate}`);
+    console.log(`Boundary risk: ${summary.intent.boundaryRisk}`);
+  }
+  printHumanList("Next:", summary.nextSteps);
+}
+
+function printIntentClose(summary: RippleIntentCloseOutput): void {
+  console.log("Ripple intent closed");
+  console.log(`Intent: ${summary.intent.id}`);
+  console.log(`Task: ${summary.intent.task}`);
+  console.log(`Target: ${summary.intent.targetFile}`);
+  console.log(`Closed by: ${summary.closedBy}`);
+  console.log(`Reason: ${summary.reason}`);
+  console.log(`Archived: ${summary.archivePath}`);
+  console.log(`Closed marker: ${summary.intentPath}`);
+  printHumanList("Next:", summary.nextSteps);
 }
 
 function approvalStatusOutput(
@@ -5616,6 +5840,11 @@ async function main(): Promise<void> {
 
   if (command === "plan") {
     await planCommand(options);
+    return;
+  }
+
+  if (command === "intent") {
+    intentCommand(arg, options);
     return;
   }
 
