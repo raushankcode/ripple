@@ -3997,6 +3997,16 @@ async function checkCommand(options: CliOptions): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(".");
   const baseRef = options.base ?? "HEAD";
   const mode = selectedChangeMode(options);
+  let loadedIntent: ChangeIntent | undefined;
+  if (options.intent) {
+    try {
+      loadedIntent = loadChangeIntent(workspaceRoot, options.intent);
+    } catch (err) {
+      if (!options.strict && !options.githubAnnotations) {
+        throw err;
+      }
+    }
+  }
   const checkFiles = listFilesForChangeMode(workspaceRoot, mode, baseRef);
   const engine = createFastCheckEngine(workspaceRoot);
 
@@ -4012,7 +4022,7 @@ async function checkCommand(options: CliOptions): Promise<void> {
     let summary: StagedCheckWithIntentSummary = stagedSummary;
     if (options.intent) {
       try {
-        const intent = loadChangeIntent(workspaceRoot, options.intent);
+        const intent = loadedIntent ?? loadChangeIntent(workspaceRoot, options.intent);
         summary = validateStagedCheckAgainstIntent(
           stagedSummary,
           intent,
@@ -4089,9 +4099,9 @@ async function buildAuditFromCliOptions(options: CliOptions): Promise<RippleAudi
   const intentRef = options.intent ?? "latest";
   const mode = selectedChangeMode(options);
   const baseRef = options.base ?? "HEAD";
-  const files = listFilesForChangeMode(workspaceRoot, mode, baseRef);
   const intent = loadChangeIntent(workspaceRoot, intentRef);
   const currentPolicyExplanation = currentPolicyExplanationForIntent(workspaceRoot, intent);
+  const files = listFilesForChangeMode(workspaceRoot, mode, baseRef);
 
   return buildAuditForFiles({
     workspaceRoot,
@@ -5462,8 +5472,8 @@ function printAgentPolicyExplanation(
 
 async function repairCommand(options: CliOptions): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(".");
-  const stagedFiles = listGitStagedFiles(workspaceRoot);
   const intent = loadChangeIntent(workspaceRoot, options.intent ?? "latest");
+  const stagedFiles = listGitStagedFiles(workspaceRoot);
   const engine = createFastCheckEngine(workspaceRoot);
 
   try {

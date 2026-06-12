@@ -1873,6 +1873,29 @@ async function main() {
       activeIntent.id
     );
 
+    const closedIntentGateToolCall = await server.handleMessage({
+      jsonrpc: "2.0",
+      id: 37,
+      method: "tools/call",
+      params: {
+        name: "ripple_gate",
+        arguments: {
+          intentPath: "latest",
+        },
+      },
+    });
+    assert.strictEqual(closedIntentGateToolCall.result.isError, true);
+    assert(
+      closedIntentGateToolCall.result.content[0].text.includes("saved boundary is closed"),
+      "MCP gate should explain that the saved boundary is closed"
+    );
+    assert(
+      closedIntentGateToolCall.result.content[0].text.includes(
+        "Agents must not continue from a closed boundary"
+      ),
+      "MCP gate should fail closed when latest intent is a closed marker"
+    );
+
     const replanAfterClosedIntent = await server.handleMessage({
       jsonrpc: "2.0",
       id: 35,

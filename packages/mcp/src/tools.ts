@@ -890,9 +890,9 @@ export class RippleMcpToolHost {
   }
 
   private async checkStaged(args: RippleMcpToolCallArgs): Promise<StagedCheckWithIntentSummary> {
-    const stagedFiles = listGitStagedFiles(this.workspaceRoot);
     const intentPath = optionalString(args, "intentPath");
     const intent = intentPath ? loadChangeIntent(this.workspaceRoot, intentPath) : undefined;
+    const stagedFiles = listGitStagedFiles(this.workspaceRoot);
     await this.prepareFastCheck(stagedFiles, intent);
 
     const stagedSummary = buildStagedCheckSummary(this.engine, {
@@ -915,9 +915,9 @@ export class RippleMcpToolHost {
 
   private async checkChanged(args: RippleMcpToolCallArgs): Promise<StagedCheckWithIntentSummary> {
     const baseRef = optionalString(args, "baseRef") ?? "HEAD";
-    const changedFiles = listGitChangedFiles(this.workspaceRoot, baseRef);
     const intentPath = optionalString(args, "intentPath");
     const intent = intentPath ? loadChangeIntent(this.workspaceRoot, intentPath) : undefined;
+    const changedFiles = listGitChangedFiles(this.workspaceRoot, baseRef);
     await this.prepareFastCheck(changedFiles, intent);
 
     const changedSummary = buildStagedCheckSummary(this.engine, {

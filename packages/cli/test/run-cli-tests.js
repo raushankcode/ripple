@@ -1919,6 +1919,20 @@ function main() {
     inactiveIntentStatus.nextSteps.some((step) => step.includes("ripple plan")),
     "inactive intent status should tell humans how to start a new boundary"
   );
+  const closedIntentGate = runCliResult(["gate", "--intent", "latest", "--json"]);
+  assert.notStrictEqual(
+    closedIntentGate.status,
+    0,
+    "gate should fail closed instead of treating a closed marker as active intent"
+  );
+  assert(
+    closedIntentGate.stderr.includes("saved boundary is closed"),
+    "gate should explain that the saved boundary is closed"
+  );
+  assert(
+    closedIntentGate.stderr.includes("Agents must not continue from a closed boundary"),
+    "gate should tell agents not to continue from a closed boundary"
+  );
 
   // Keep a CLI-level proof that function mode saves a symbol boundary.
   const functionBoundaryPlan = runCliJson([

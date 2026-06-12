@@ -1126,7 +1126,26 @@ export function loadChangeIntent(
   intentPath: string = "latest"
 ): ChangeIntent {
   const targetPath = resolveIntentPath(workspaceRoot, intentPath);
-  const parsed = JSON.parse(fs.readFileSync(targetPath, "utf8")) as unknown;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(targetPath, "utf8");
+  } catch (err) {
+    if (isNodeError(err) && err.code === "ENOENT") {
+      throw new Error(
+        `No active Ripple change intent found at ${targetPath}. Run ripple plan --file <file> --task "<task>" --agent --save before an agent edits.`
+      );
+    }
+    throw err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (err) {
+    throw new Error(
+      `Invalid Ripple change intent JSON at ${targetPath}. Ask the human to inspect or recreate the saved boundary before continuing. ${errorMessage(err)}`
+    );
+  }
   return assertChangeIntent(parsed, targetPath);
 }
 
@@ -2564,10 +2583,17 @@ function resolveIntentPath(workspaceRoot: string, intentPath: string): string {
 
 function assertChangeIntent(value: unknown, sourcePath: string): ChangeIntent {
   if (!isRecord(value)) {
-    throw new Error(`Invalid Ripple change intent: ${sourcePath}`);
+    throw new Error(
+      `Invalid Ripple change intent at ${sourcePath}. Ask the human to inspect or recreate the saved boundary before continuing.`
+    );
+  }
+  if (value.protocol === "ripple-closed-intent") {
+    throw new Error(closedIntentErrorMessage(value, sourcePath));
   }
   if (value.protocol !== INTENT_PROTOCOL || value.version !== INTENT_VERSION) {
-    throw new Error(`Unsupported Ripple change intent: ${sourcePath}`);
+    throw new Error(
+      `No active Ripple change intent found at ${sourcePath}. Found protocol ${String(value.protocol)} instead of ${INTENT_PROTOCOL}. Run ripple intent status, then create a new saved plan before the agent continues.`
+    );
   }
   if (
     typeof value.id !== "string" ||
@@ -2584,9 +2610,34 @@ function assertChangeIntent(value: unknown, sourcePath: string): ChangeIntent {
     !Array.isArray(value.verificationTargets) ||
     typeof value.why !== "string"
   ) {
-    throw new Error(`Malformed Ripple change intent: ${sourcePath}`);
+    throw new Error(
+      `Malformed Ripple change intent at ${sourcePath}. Ask the human to inspect or recreate the saved boundary before continuing.`
+    );
   }
   return normalizeChangeIntent(value as RawChangeIntent);
+}
+
+function closedIntentErrorMessage(value: Record<string, unknown>, sourcePath: string): string {
+  const reason = typeof value.reason === "string" && value.reason.trim().length > 0
+    ? ` Reason: ${value.reason.trim()}`
+    : "";
+  const closedBy = typeof value.closedBy === "string" && value.closedBy.trim().length > 0
+    ? ` Closed by: ${value.closedBy.trim()}.`
+    : "";
+  return [
+    `No active Ripple change intent found at ${sourcePath}; the saved boundary is closed.`,
+    `${closedBy}${reason}`,
+    "Agents must not continue from a closed boundary.",
+    "Run ripple intent status, then create a new saved plan with ripple plan --file <file> --task \"<task>\" --agent --save before editing.",
+  ].filter(Boolean).join(" ");
+}
+
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && "code" in err;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function normalizeChangeIntent(intent: RawChangeIntent): ChangeIntent {
