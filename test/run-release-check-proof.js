@@ -42,8 +42,8 @@ function assertRootReleaseScripts() {
 
   assert.strictEqual(
     scripts["release:check"],
-    "npm run proof:agent-control && npm run test:persona && npm run release:identity && npm run release:npm-preflight && npm run test:release-check",
-    "release:check should run the product proof, persona proof, identity review, npm preflight, and release proof",
+    "npm run proof:agent-control && npm run smoke:external-install && npm run test:persona && npm run release:identity && npm run release:npm-preflight && npm run test:release-check",
+    "release:check should run the product proof, external install smoke, persona proof, identity review, npm preflight, and release proof",
   );
   assert.strictEqual(
     scripts["proof:release-check"],
@@ -76,6 +76,11 @@ function assertRootReleaseScripts() {
     "smoke:post-publish should run the post-publish smoke script",
   );
   assert.strictEqual(
+    scripts["smoke:external-install"],
+    "npm run build:cli && npm run build:mcp && node test/run-external-install-smoke.js",
+    "smoke:external-install should run the external package install smoke",
+  );
+  assert.strictEqual(
     scripts["demo:agent-control"],
     "npm run build:cli && node test/run-agent-control-demo.js",
     "demo:agent-control should run the one-command agent control demo",
@@ -91,6 +96,7 @@ function assertRootReleaseScripts() {
     "proof:package-install",
     "proof:mcp-package-install",
     "proof:publish-readiness",
+    "smoke:external-install",
     "test:persona",
   ]) {
     assert(scripts[requiredScript], `Missing required release script: ${requiredScript}`);

@@ -198,6 +198,7 @@ function assertRootDocs() {
     "npm run release:identity",
     "npm run release:npm-preflight -- --live",
     "npm run proof:release-check",
+    "npm run smoke:external-install",
     "npm run smoke:post-publish -- --live",
     "npm run proof:publish-readiness",
     "npm run proof:mcp-package-install",
