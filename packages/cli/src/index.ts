@@ -3995,7 +3995,7 @@ function verifyCommand(options: CliOptions): void {
     evidence,
     totalEvidence: updatedIntent.verificationEvidence.length,
     nextSteps: [
-      "Run ripple gate --worktree --intent latest --json to include this evidence in the review packet.",
+      "Run ripple gate --intent latest --json to include this evidence in the review packet.",
       evidence.status === "failed"
         ? "Fix the failing verification, rerun ripple verify --run, then run ripple gate again."
         : "Run ripple gate again before handoff so the continue/stop decision includes this evidence.",
