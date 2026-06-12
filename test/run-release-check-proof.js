@@ -75,6 +75,11 @@ function assertRootReleaseScripts() {
     "node test/run-post-publish-smoke.js",
     "smoke:post-publish should run the post-publish smoke script",
   );
+  assert.strictEqual(
+    scripts["demo:agent-control"],
+    "npm run build:cli && node test/run-agent-control-demo.js",
+    "demo:agent-control should run the one-command agent control demo",
+  );
 
   for (const requiredScript of [
     "proof:agent-control",
