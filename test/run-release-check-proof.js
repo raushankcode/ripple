@@ -79,6 +79,7 @@ function assertRootReleaseScripts() {
   for (const requiredScript of [
     "proof:agent-control",
     "proof:doctor-contract",
+    "proof:hook-runner",
     "proof:closed-intent-gate",
     "proof:mcp-doctor-contract",
     "proof:mcp-closed-intent-gate",
@@ -98,6 +99,11 @@ function assertRootReleaseScripts() {
   assertIncludes(
     scripts["test:agent-control"],
     "run-golden-closed-intent-gate-proof.js",
+    "product proof",
+  );
+  assertIncludes(
+    scripts["test:agent-control"],
+    "run-golden-hook-runner-proof.js",
     "product proof",
   );
   assertIncludes(
