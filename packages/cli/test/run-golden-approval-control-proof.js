@@ -1,7 +1,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawnSync } = require("child_process");
 7;
 
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
@@ -34,6 +34,14 @@ function runCliJson(args) {
   } catch {
     throw new Error(`Expected JSON for ripple ${args.join(" ")}:\n${output}`);
   }
+}
+
+function runCliResult(args) {
+  return spawnSync(process.execPath, [cliPath, ...args], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
 function runGit(args) {
@@ -168,6 +176,23 @@ function main() {
       reason.includes("Human approval missing"),
     ),
     "audit should block before the human approval is recorded",
+  );
+
+  const lazyApproval = runCliResult([
+    "approve",
+    "--intent",
+    "latest",
+    "--gate",
+    "before-risky-edit",
+  ]);
+  assert.notStrictEqual(
+    lazyApproval.status,
+    0,
+    "approval without a reason should fail instead of becoming a rubber stamp",
+  );
+  assert(
+    lazyApproval.stderr.includes("Approval requires --reason"),
+    "approval failure should tell the human to provide a reason",
   );
 
   const approval = runCliJson([

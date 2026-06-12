@@ -434,7 +434,7 @@ async function proveMcpGateRequiresHuman() {
   assert.strictEqual(approval.required, true);
   assert(
     gate.commands.approve.some((command) =>
-      command.includes("ripple approve --intent latest --gate before-risky-edit"),
+      command.includes("ripple approve --intent latest --gate before-risky-edit --reason"),
     ),
     "human-review gate should include the approval command",
   );

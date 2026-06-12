@@ -27,7 +27,7 @@ export type RippleApprovalRecord = {
   boundaryRisk: ControlBoundaryRisk;
   intentFingerprint: string;
   policyFingerprint: string;
-  reason?: string;
+  reason: string;
 };
 
 export type RippleApprovalStatus = {
@@ -83,6 +83,12 @@ export function recordRippleApproval(
 
   const approvedAt = options.approvedAt ?? new Date().toISOString();
   const approvedBy = normalizeApprover(options.approvedBy);
+  const reason = cleanOptionalText(options.reason);
+  if (!reason) {
+    throw new Error(
+      "Human approval requires a reason. Run ripple approve with --reason explaining why this boundary is approved."
+    );
+  }
   const intentFingerprint = fingerprintChangeIntent(intent);
   const policyFingerprint = fingerprintJson(intent.policyExplanation);
   const approval: RippleApprovalRecord = {
@@ -100,7 +106,7 @@ export function recordRippleApproval(
     boundaryRisk: intent.boundaryRisk,
     intentFingerprint,
     policyFingerprint,
-    reason: cleanOptionalText(options.reason),
+    reason,
   };
   const targetPath = rippleApprovalPath(workspaceRoot, intent.id, gate);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
@@ -146,7 +152,7 @@ export function resolveRippleApprovalStatus(
         `No approval record exists at ${relativePath}.`,
       ],
       nextSteps: [
-        `Run ripple approve --intent latest --gate ${gate} after the human reviews the plan.`,
+        `Run ripple approve --intent latest --gate ${gate} --reason "<why this boundary is safe>" after the human reviews the plan.`,
       ],
     };
   }
@@ -172,7 +178,7 @@ export function resolveRippleApprovalStatus(
       approvalPath: relativePath,
       why: staleReasons,
       nextSteps: [
-        `Ask the human to review the current saved intent, then re-run ripple approve --intent latest --gate ${gate}.`,
+        `Ask the human to review the current saved intent, then re-run ripple approve --intent latest --gate ${gate} --reason "<why this boundary is safe>".`,
       ],
     };
   }

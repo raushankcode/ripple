@@ -48,6 +48,9 @@ export type RippleVerificationEvidence = {
   status: RippleVerificationStatus;
   recordedAt: string;
   source: "reported" | "executed";
+  changedFiles?: string[];
+  changeMode?: StagedCheckSummary["mode"];
+  changeFingerprint?: string;
   exitCode?: number;
   durationMs?: number;
   stdoutTail?: string;
@@ -531,6 +534,28 @@ export function buildAgentHandoffVerdict(input: {
   };
 }
 
+export function buildVerificationCommandSuggestions(
+  verificationVerdict: VerificationVerdictSummary
+): string[] {
+  if (
+    verificationVerdict.status !== "failed" &&
+    verificationVerdict.status !== "review"
+  ) {
+    return [];
+  }
+
+  const latestEvidence = latestVerificationEvidenceByCommand(verificationVerdict.evidence);
+  const blockingEvidence = latestEvidence.filter((evidence) => evidence.status !== "passed");
+  const evidenceToRerun = blockingEvidence.length > 0 ? blockingEvidence : latestEvidence;
+
+  return evidenceToRerun
+    .map((evidence) => `ripple verify --run ${quoteCliArgument(evidence.command)} --intent latest`);
+}
+
+function quoteCliArgument(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
 export function validateStagedCheckAgainstIntent(
   staged: StagedCheckSummary,
   intent: ChangeIntent,
@@ -797,7 +822,7 @@ function buildRepairHandoff(
       approve: plan.boundaryVerdict?.humanRequired
         ? [
             "ripple approval --intent latest --agent",
-            `ripple approve --intent latest --gate ${approvalGateForHumanGate(plan.boundaryVerdict.humanGate)}`,
+            `ripple approve --intent latest --gate ${approvalGateForHumanGate(plan.boundaryVerdict.humanGate)} --reason "<why this boundary is safe>"`,
           ]
         : [],
       unstage: plan.commands.unstage,
@@ -1175,7 +1200,12 @@ function buildIntentValidation(
     intent.readinessSnapshot,
     options.currentReadinessSnapshot
   );
-  const verificationVerdict = buildVerificationVerdict(intent.verificationEvidence);
+  const verificationVerdict = buildVerificationVerdict(
+    intent.verificationEvidence,
+    changedFiles,
+    staged.changeFingerprint,
+    staged.mode
+  );
   const boundaryGuidance = mergeBoundaryGuidance(guidance, boundaryVerdict);
   const policyGuidance = mergePolicyDriftGuidance(boundaryGuidance, policyDrift);
   const readinessGuidance = mergeReadinessDriftGuidance(policyGuidance, readinessDrift);
@@ -1444,7 +1474,7 @@ function validationHandoffCommands(
     approve: validation.boundaryVerdict.humanRequired
       ? [
           "ripple approval --intent latest --agent",
-          `ripple approve --intent latest --gate ${approvalGateForHumanGate(validation.humanGate)}`,
+          `ripple approve --intent latest --gate ${approvalGateForHumanGate(validation.humanGate)} --reason "<why this boundary is safe>"`,
         ]
       : [],
     unstage: uniqueItems([
@@ -1454,7 +1484,7 @@ function validationHandoffCommands(
     ]).map((file) => `git restore --staged -- ${file}`),
     verify: validation.verificationVerdict.status === "failed" ||
       validation.verificationVerdict.status === "review"
-      ? validation.verificationVerdict.fix
+      ? buildVerificationCommandSuggestions(validation.verificationVerdict)
       : validation.driftVerdict.status === "pass"
       ? validation.driftVerdict.fix
       : validation.nextSteps,
@@ -1601,10 +1631,13 @@ function mergeVerificationGuidance(
 }
 
 function buildVerificationVerdict(
-  value: unknown
+  value: unknown,
+  changedFiles: string[] = [],
+  changeFingerprint?: string,
+  changeMode: StagedCheckSummary["mode"] = "staged"
 ): VerificationVerdictSummary {
   const evidence = normalizeVerificationEvidence(value);
-
+  const latestEvidence = latestVerificationEvidenceByCommand(evidence);
   if (evidence.length === 0) {
     return {
       status: "not-reported",
@@ -1617,20 +1650,20 @@ function buildVerificationVerdict(
     };
   }
 
-  const failed = evidence.filter((item) => item.status === "failed");
+  const failed = latestEvidence.filter((item) => item.status === "failed");
   if (failed.length > 0) {
     return {
       status: "failed",
       decision: "repair",
       label: "FAILED",
-      summary: "FAILED: verification evidence includes failing checks.",
+      summary: "FAILED: latest verification evidence includes failing checks.",
       why: failed.map((item) => verificationEvidenceWhy(item)),
       fix: failed.map((item) => verificationEvidenceFix(item)),
       evidence,
     };
   }
 
-  const incomplete = evidence.filter((item) =>
+  const incomplete = latestEvidence.filter((item) =>
     item.status === "skipped" || item.status === "unknown"
   );
   if (incomplete.length > 0) {
@@ -1639,9 +1672,31 @@ function buildVerificationVerdict(
       decision: "human-review",
       label: "REVIEW",
       summary:
-        "REVIEW: verification evidence is skipped or unknown, so a human must review before handoff.",
+        "REVIEW: latest verification evidence is skipped or unknown, so a human must review before handoff.",
       why: incomplete.map((item) => verificationEvidenceWhy(item)),
       fix: incomplete.map((item) => verificationEvidenceFix(item)),
+      evidence,
+    };
+  }
+
+  const staleEvidence = staleVerificationEvidence(latestEvidence, {
+    changedFiles,
+    changeFingerprint,
+    changeMode,
+  });
+  if (staleEvidence.length > 0) {
+    return {
+      status: "review",
+      decision: "human-review",
+      label: "REVIEW",
+      summary:
+        "REVIEW: latest verification evidence was recorded for a different change snapshot, so the agent must rerun verification before handoff.",
+      why: staleEvidence.map((item) =>
+        staleVerificationWhy(item, changedFiles, changeFingerprint)
+      ),
+      fix: staleEvidence.map((item) =>
+        `Rerun verification against the current changed files: ${item.command}`
+      ),
       evidence,
     };
   }
@@ -1650,11 +1705,74 @@ function buildVerificationVerdict(
     status: "pass",
     decision: "continue",
     label: "PASS",
-    summary: "PASS: all verification evidence was marked passed.",
-    why: evidence.map((item) => verificationEvidenceWhy(item)),
+    summary: "PASS: latest verification evidence for every command was marked passed.",
+    why: latestEvidence.map((item) => verificationEvidenceWhy(item)),
     fix: ["Keep the passing verification evidence with the final handoff."],
     evidence,
   };
+}
+
+function latestVerificationEvidenceByCommand(
+  evidence: RippleVerificationEvidence[]
+): RippleVerificationEvidence[] {
+  const latest = new Map<string, RippleVerificationEvidence>();
+  evidence.forEach((item) => {
+    latest.set(item.command, item);
+  });
+  return Array.from(latest.values());
+}
+
+function staleVerificationEvidence(
+  evidence: RippleVerificationEvidence[],
+  current: {
+    changedFiles: string[];
+    changeFingerprint?: string;
+    changeMode: StagedCheckSummary["mode"];
+  }
+): RippleVerificationEvidence[] {
+  const currentChangedFiles = normalizeVerificationChangedFiles(current.changedFiles);
+  if (currentChangedFiles.length === 0) {
+    return [];
+  }
+  return evidence.filter((item) => {
+    if (
+      item.changeFingerprint &&
+      current.changeFingerprint
+    ) {
+      return item.changeFingerprint !== current.changeFingerprint;
+    }
+    if (!item.changedFiles) {
+      return false;
+    }
+    return !sameStringSet(item.changedFiles, currentChangedFiles);
+  });
+}
+
+function staleVerificationWhy(
+  evidence: RippleVerificationEvidence,
+  changedFiles: string[],
+  changeFingerprint?: string
+): string {
+  if (evidence.changeFingerprint && changeFingerprint) {
+    return `Stale verification proof: ${evidence.command} covered change fingerprint ${evidence.changeFingerprint.slice(0, 12)}, current fingerprint is ${changeFingerprint.slice(0, 12)}.`;
+  }
+  return `Stale verification proof: ${evidence.command} covered ${formatVerificationFileSet(evidence.changedFiles ?? [])}, current changed files are ${formatVerificationFileSet(changedFiles)}.`;
+}
+
+function normalizeVerificationChangedFiles(files: string[]): string[] {
+  return uniqueItems(files.map((file) => normalizeVerificationFilePath(file)));
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const rightSet = new Set(right);
+  return left.every((item) => rightSet.has(item));
+}
+
+function formatVerificationFileSet(files: string[]): string {
+  return files.length > 0 ? files.join(", ") : "no changed files";
 }
 
 function verificationEvidenceWhy(evidence: RippleVerificationEvidence): string {
@@ -2555,6 +2673,18 @@ export function appendRippleVerificationEvidence(
     status: isVerificationStatus(evidence.status) ? evidence.status : "unknown",
     recordedAt: evidence.recordedAt ?? new Date().toISOString(),
     source: evidence.source ?? "reported",
+    changedFiles: Array.isArray(evidence.changedFiles)
+      ? uniqueItems(evidence.changedFiles.filter((file): file is string =>
+          typeof file === "string" && file.trim().length > 0
+        ).map((file) => normalizeVerificationFilePath(file.trim())))
+      : undefined,
+    changeMode: isVerificationChangeMode(evidence.changeMode)
+      ? evidence.changeMode
+      : undefined,
+    changeFingerprint: typeof evidence.changeFingerprint === "string" &&
+      evidence.changeFingerprint.trim().length > 0
+      ? evidence.changeFingerprint.trim()
+      : undefined,
     exitCode: typeof evidence.exitCode === "number" && Number.isFinite(evidence.exitCode)
       ? Math.trunc(evidence.exitCode)
       : undefined,
@@ -2597,6 +2727,18 @@ function normalizeVerificationEvidence(value: unknown): RippleVerificationEviden
       ? item.recordedAt
       : new Date(0).toISOString();
     const source = item.source === "executed" ? "executed" : "reported";
+    const changedFiles = Array.isArray(item.changedFiles)
+      ? uniqueItems(item.changedFiles.filter((file): file is string =>
+          typeof file === "string" && file.trim().length > 0
+        ).map((file) => normalizeVerificationFilePath(file.trim())))
+      : undefined;
+    const changeMode = isVerificationChangeMode(item.changeMode)
+      ? item.changeMode
+      : undefined;
+    const changeFingerprint = typeof item.changeFingerprint === "string" &&
+      item.changeFingerprint.trim().length > 0
+      ? item.changeFingerprint.trim()
+      : undefined;
     const exitCode = typeof item.exitCode === "number" && Number.isFinite(item.exitCode)
       ? Math.trunc(item.exitCode)
       : undefined;
@@ -2612,7 +2754,20 @@ function normalizeVerificationEvidence(value: unknown): RippleVerificationEviden
     const note = typeof item.note === "string" && item.note.trim().length > 0
       ? item.note.trim()
       : undefined;
-    return [{ command, status, recordedAt, source, exitCode, durationMs, stdoutTail, stderrTail, note }];
+    return [{
+      command,
+      status,
+      recordedAt,
+      source,
+      changedFiles,
+      changeMode,
+      changeFingerprint,
+      exitCode,
+      durationMs,
+      stdoutTail,
+      stderrTail,
+      note,
+    }];
   }));
 }
 
@@ -2624,6 +2779,9 @@ function uniqueVerificationEvidence(evidence: RippleVerificationEvidence[]): Rip
       item.status,
       item.source,
       String(item.exitCode ?? ""),
+      (item.changedFiles ?? []).join(","),
+      item.changeMode ?? "",
+      item.changeFingerprint ?? "",
       item.recordedAt,
       item.note ?? "",
     ].join("\0");
@@ -2635,8 +2793,16 @@ function uniqueVerificationEvidence(evidence: RippleVerificationEvidence[]): Rip
   });
 }
 
+function normalizeVerificationFilePath(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
+}
+
 function isVerificationStatus(value: unknown): value is RippleVerificationStatus {
   return value === "passed" || value === "failed" || value === "skipped" || value === "unknown";
+}
+
+function isVerificationChangeMode(value: unknown): value is StagedCheckSummary["mode"] {
+  return value === "staged" || value === "changed" || value === "worktree";
 }
 
 function normalizeReadinessSnapshot(

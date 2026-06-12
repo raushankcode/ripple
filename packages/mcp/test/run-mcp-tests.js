@@ -639,7 +639,7 @@ async function main() {
     );
     assert.strictEqual(
       workflow.data.commands.approveHumanGate,
-      "ripple approve --intent latest --gate before-risky-edit"
+      "ripple approve --intent latest --gate before-risky-edit --reason \"human reviewed and approved this boundary\""
     );
     assert.strictEqual(workflow.data.mcpTools.planBeforeEditing, "ripple_plan_context");
     assert.strictEqual(workflow.data.mcpTools.checkAfterStaging, "ripple_check_staged");
@@ -854,6 +854,13 @@ async function main() {
     assert.strictEqual(typeof readiness.data.enforcement.canBlockInCi, "boolean");
     assert(Array.isArray(readiness.data.nextSteps));
 
+    // The stdio protocol proof above saves latest.json. Clear it here so this
+    // host-level section can still prove the first-save path before proving
+    // MCP rejects overwrite and second-boundary attempts.
+    fs.rmSync(path.join(workspaceRoot, ".ripple", "intents", "latest.json"), {
+      force: true,
+    });
+
     // MCP callers get the same saved control-boundary intent as CLI callers.
     const planWithIntent = await host.callTool("ripple_plan_context", {
       task: "change token refresh behavior",
@@ -899,6 +906,28 @@ async function main() {
         "riskRules[0] paths=src/auth.ts risk=critical"
       ),
       "ripple_plan_context should include policy explanation with matched rules"
+    );
+
+    await assert.rejects(
+      () =>
+        host.callTool("ripple_plan_context", {
+          task: "secretly widen auth scope",
+          filePath: "src/sessionPolicy.ts",
+          saveIntent: true,
+        }),
+      /MCP agents cannot overwrite their own boundary/,
+      "MCP agents should not overwrite an active saved intent"
+    );
+    await assert.rejects(
+      () =>
+        host.callTool("ripple_plan_context", {
+          task: "secretly create alternate auth scope",
+          filePath: "src/sessionPolicy.ts",
+          intentPath: "alternate-auth-intent",
+          saveIntent: true,
+        }),
+      /MCP agents cannot create a second saved boundary/,
+      "MCP agents should not create a second saved intent while latest is active"
     );
 
     const overridePlan = await host.callTool("ripple_plan_context", {
@@ -1729,19 +1758,15 @@ async function main() {
           task: "change token refresh behavior",
           filePath: "src/auth.ts",
           tokenBudget: 2600,
-          saveIntent: true,
         },
       },
     });
     assert.strictEqual(toolCall.result.isError, false);
     assertIntelligentPlanContract(toolCall.result.structuredContent);
     assert.strictEqual(
-      toolCall.result.structuredContent.changeIntent.protocol,
-      "ripple-change-intent"
-    );
-    assert.strictEqual(
-      toolCall.result.structuredContent.changeIntentPath,
-      ".ripple/intents/latest.json"
+      toolCall.result.structuredContent.changeIntent,
+      undefined,
+      "JSON-RPC plan-only calls should not overwrite the active saved intent"
     );
     assert.strictEqual(
       toolCall.result.structuredContent.policyExplanation.protocol,
@@ -1754,7 +1779,6 @@ async function main() {
     assert.strictEqual(toolCall.result.content[0].type, "text");
     assert(toolCall.result.content[0].text.includes("symbolFocus"));
     assert(toolCall.result.content[0].text.includes("policyExplanation"));
-    assert(toolCall.result.content[0].text.includes("changeIntent"));
     assert(toolCall.result.content[0].text.includes("src/auth.ts::authenticate"));
 
     const unknownMethod = await server.handleMessage({

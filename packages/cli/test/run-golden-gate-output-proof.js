@@ -196,6 +196,14 @@ function main() {
 
   const output = runCli(["gate", "--intent", "latest"]);
   assertGeneratedContextBundleWasNotRecreated();
+  assert(
+    output.indexOf("Review packet:") > output.indexOf("Must stop: yes"),
+    "review packet should appear immediately after the gate decision flags",
+  );
+  assert(
+    output.indexOf("Review packet:") < output.indexOf("Risk: CRITICAL 100/100"),
+    "review packet should be shown before risk score metadata",
+  );
 
   [
     "Ripple gate: STOP",

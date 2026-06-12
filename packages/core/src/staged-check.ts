@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
 import {
   ts,
 } from "ts-morph";
@@ -87,6 +88,7 @@ export type StagedCheckSummary = {
   workspace: string;
   mode: "staged" | "changed" | "worktree";
   baseRef?: string;
+  changeFingerprint: string;
   stagedFiles: number;
   checkedFiles: number;
   skippedFiles: string[];
@@ -181,6 +183,52 @@ export function listGitStagedDiff(workspaceRoot: string): string {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Could not read staged diff with git diff --cached: ${message}`);
   }
+}
+
+export function fingerprintRippleChangeDiff(diff: string): string {
+  const sourceDiff = normalizeRippleSourceDiff(diff);
+  return crypto
+    .createHash("sha256")
+    .update(sourceDiff, "utf8")
+    .digest("hex");
+}
+
+function normalizeRippleSourceDiff(diff: string): string {
+  const normalized = diff.replace(/\r\n/g, "\n");
+  const sourceBlocks: string[] = [];
+  let currentBlock: string[] = [];
+
+  const flush = () => {
+    if (currentBlock.length > 0 && diffBlockTargetsRippleSource(currentBlock)) {
+      sourceBlocks.push(currentBlock.join("\n"));
+    }
+    currentBlock = [];
+  };
+
+  normalized.split("\n").forEach((line) => {
+    if (line.startsWith("diff --git ")) {
+      flush();
+      currentBlock = [line];
+      return;
+    }
+
+    if (currentBlock.length > 0) {
+      currentBlock.push(line);
+    }
+  });
+  flush();
+
+  return sourceBlocks.join("\n");
+}
+
+function diffBlockTargetsRippleSource(lines: string[]): boolean {
+  return lines.some((line) => {
+    if (!line.startsWith("+++ ") && !line.startsWith("--- ")) {
+      return false;
+    }
+    const file = parseDiffFilePath(line.slice(4));
+    return Boolean(file && isRippleSourceFile(file));
+  });
 }
 
 
@@ -448,14 +496,13 @@ export function buildStagedCheckSummary(
   const baseRef = mode === "changed" ? options.baseRef ?? "HEAD" : undefined;
   const sourceFiles = options.stagedFiles.filter(isRippleSourceFile);
   const skippedFiles = options.stagedFiles.filter((file) => !isRippleSourceFile(file));
-  const stagedDiff = parseStagedDiff(
-    options.stagedDiff ??
-      (mode === "changed"
-        ? listGitChangedDiff(options.workspaceRoot, baseRef ?? "HEAD")
-        : mode === "worktree"
-          ? listGitWorktreeDiff(options.workspaceRoot)
-          : listGitStagedDiff(options.workspaceRoot))
-  );
+  const rawDiff = options.stagedDiff ??
+    (mode === "changed"
+      ? listGitChangedDiff(options.workspaceRoot, baseRef ?? "HEAD")
+      : mode === "worktree"
+        ? listGitWorktreeDiff(options.workspaceRoot)
+        : listGitStagedDiff(options.workspaceRoot));
+  const stagedDiff = parseStagedDiff(rawDiff);
   const files: StagedCheckFileSummary[] = [];
   const missingFiles: string[] = [];
   const task = options.task ?? DEFAULT_STAGED_CHECK_TASK;
@@ -537,6 +584,7 @@ export function buildStagedCheckSummary(
     workspace: path.resolve(options.workspaceRoot),
     mode,
     baseRef,
+    changeFingerprint: fingerprintRippleChangeDiff(rawDiff),
     stagedFiles: sourceFiles.length,
     checkedFiles: files.length,
     skippedFiles,

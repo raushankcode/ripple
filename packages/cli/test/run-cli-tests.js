@@ -384,7 +384,7 @@ function main() {
     "help should show approval status agent example with saved intent"
   );
   assert(
-    help.includes("ripple approve --intent latest --gate before-risky-edit"),
+    help.includes("ripple approve --intent latest --gate before-risky-edit --reason"),
     "help should show approval example with saved intent"
   );
   assert(
@@ -1186,7 +1186,7 @@ function main() {
     "agent guide should show human approval step"
   );
   assert(
-    agentGuide.includes("ripple approve --intent latest --gate before-risky-edit"),
+    agentGuide.includes("ripple approve --intent latest --gate before-risky-edit --reason"),
     "agent guide should show approval command"
   );
   assert(
@@ -1316,7 +1316,7 @@ function main() {
   );
   assert.strictEqual(
     agentWorkflow.commands.approveHumanGate,
-    "ripple approve --intent latest --gate before-risky-edit",
+    "ripple approve --intent latest --gate before-risky-edit --reason \"human reviewed and approved this boundary\"",
     "agent JSON should expose the approval command"
   );
   assert.strictEqual(
@@ -1626,7 +1626,9 @@ function main() {
     "agent JSON should include the gate workflow example"
   );
   assert(
-    agentWorkflow.example.includes("ripple approve --intent latest --gate before-risky-edit"),
+    agentWorkflow.example.some((item) =>
+      item.includes("ripple approve --intent latest --gate before-risky-edit --reason")
+    ),
     "agent JSON should include the approval workflow example"
   );
   assert(
@@ -3022,6 +3024,20 @@ function main() {
   assert.strictEqual(executedVerifyJson.evidence.exitCode, 0);
   assert.strictEqual(executedVerifyJson.evidence.command, passingRunCommand);
   assert(
+    typeof executedVerifyJson.evidence.changeFingerprint === "string",
+    "executed verification should record the current source-change fingerprint"
+  );
+  assert.strictEqual(
+    executedVerifyJson.evidence.changeMode,
+    "changed",
+    "executed verification should cover the current source change from HEAD"
+  );
+  assert.deepStrictEqual(
+    executedVerifyJson.evidence.changedFiles,
+    ["src/util.ts"],
+    "executed verification should cover only source files from the saved intent scope"
+  );
+  assert(
     typeof executedVerifyJson.evidence.durationMs === "number",
     "executed verification should record duration"
   );
@@ -3072,11 +3088,121 @@ function main() {
   assert.strictEqual(failedExecutedCiJson.gate.decision, "repair");
   assert.strictEqual(failedExecutedCiJson.gate.canContinue, false);
   assert(
+    failedExecutedCiJson.gate.commands.verify.some((command) =>
+      command.includes("ripple verify --run") &&
+      command.includes(failingRunCommand.replace(/"/g, '\\"'))
+    ),
+    "failed executed verification gate should expose an exact rerun command"
+  );
+  assert(
     failedExecutedCiJson.gate.fixNow.some((fix) =>
       fix.includes("Fix the failing verification") &&
       fix.includes(failingRunCommand)
     ),
     "failed executed verification gate should tell the agent exactly what to repair"
+  );
+  const repairableCommandPath = path.join(workspaceRoot, "repairable-verification.js");
+  fs.writeFileSync(repairableCommandPath, "process.exit(7);\n");
+  runCliJson([
+    "plan",
+    "--file",
+    "src/util.ts",
+    "--task",
+    "change trim behavior",
+    "--mode",
+    "file",
+    "--agent",
+    "--save",
+  ]);
+  const repairableRunCommand = `${nodeCommand} "${repairableCommandPath}"`;
+  const failedRepairableVerifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--run",
+    repairableRunCommand,
+  ]);
+  assert.strictEqual(failedRepairableVerifyJson.evidence.status, "failed");
+  assert.strictEqual(failedRepairableVerifyJson.evidence.exitCode, 7);
+  assert(
+    typeof failedRepairableVerifyJson.evidence.changeFingerprint === "string",
+    "failed verification should record the current source-change fingerprint"
+  );
+  assert.deepStrictEqual(
+    failedRepairableVerifyJson.evidence.changedFiles,
+    ["src/util.ts"],
+    "failed verification should not treat the temporary verification runner as product source"
+  );
+  const failedRepairableGate = runCliJson(["gate", "--intent", "latest"]);
+  assert.strictEqual(
+    failedRepairableGate.decision,
+    "repair",
+    "failed executable verification should block before rerun"
+  );
+  assert(
+    failedRepairableGate.commands.verify.some((command) =>
+      command.includes("ripple verify --run") &&
+      command.includes(repairableRunCommand.replace(/"/g, '\\"'))
+    ),
+    "repairable failed verification should expose a concrete rerun command"
+  );
+  fs.writeFileSync(repairableCommandPath, "process.exit(0);\n");
+  const passedRepairableVerifyJson = runCliJson([
+    "verify",
+    "--intent",
+    "latest",
+    "--run",
+    repairableRunCommand,
+  ]);
+  assert.strictEqual(passedRepairableVerifyJson.evidence.status, "passed");
+  assert.strictEqual(passedRepairableVerifyJson.evidence.exitCode, 0);
+  const repairedGate = runCliJson(["gate", "--intent", "latest"]);
+  assert.strictEqual(
+    repairedGate.decision,
+    "continue",
+    "passing rerun of the same verification command should clear the failed gate"
+  );
+  assert.strictEqual(repairedGate.canContinue, true);
+  assert.strictEqual(
+    repairedGate.reviewPacket.verification.evidence.length,
+    2,
+    "review packet should preserve both failed and passing verification evidence for audit"
+  );
+  assert.strictEqual(
+    repairedGate.reviewPacket.verification.status,
+    "pass",
+    "latest passing evidence should decide the verification verdict"
+  );
+  writeFile("src/util.ts", [
+    "export function trimName(value: string): string {",
+    "  return value.trimEnd();",
+    "}",
+    "",
+  ].join("\n"));
+  execFileSync("git", ["add", "src/util.ts"], {
+    cwd: workspaceRoot,
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: COMMAND_TIMEOUT_MS,
+  });
+  const staleVerificationGate = runCliJson(["gate", "--intent", "latest"]);
+  assert.strictEqual(
+    staleVerificationGate.decision,
+    "human-review",
+    "gate should stop when verification evidence was recorded for a different staged file set"
+  );
+  assert.strictEqual(staleVerificationGate.canContinue, false);
+  assert(
+    staleVerificationGate.why.some((why) =>
+      why.includes("Stale verification proof")
+    ),
+    "stale verification gate should explain that proof no longer covers the current staged diff"
+  );
+  assert(
+    staleVerificationGate.commands.verify.some((command) =>
+      command.includes("ripple verify --run") &&
+      command.includes(repairableRunCommand.replace(/"/g, '\\"'))
+    ),
+    "stale verification gate should tell the agent the exact verification command to rerun"
   );
 
   runCliJson([

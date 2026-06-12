@@ -272,7 +272,7 @@ function main() {
   );
   assert.strictEqual(workflow.commands.checkApproval, "ripple approval --intent latest --agent");
   assert.strictEqual(workflow.mcpTools.checkApproval, "ripple_get_approval_status");
-  assert.strictEqual(workflow.commands.approveHumanGate, "ripple approve --intent latest --gate before-risky-edit");
+  assert.strictEqual(workflow.commands.approveHumanGate, "ripple approve --intent latest --gate before-risky-edit --reason \"human reviewed and approved this boundary\"");
   assert.strictEqual(workflow.mcpTools.auditCurrentChange, "ripple_audit_change");
   assert.strictEqual(workflow.mcpTools.gateCurrentChange, "ripple_gate");
   assert.strictEqual(workflow.mcpTools.recordVerification, "ripple_record_verification");

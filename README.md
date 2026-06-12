@@ -340,7 +340,7 @@ verificationTargets:    tests/auth.test.ts
 If a human gate is required:
 
 ```bash
-ripple approve --intent latest --gate before-risky-edit
+ripple approve --intent latest --gate before-risky-edit --reason "reviewed and approved this boundary"
 ```
 
 ---
@@ -552,7 +552,7 @@ ripple check --staged --agent --intent latest
 ripple check --changed --base origin/main --strict
 ripple audit --agent --intent latest
 ripple approval --intent latest --agent
-ripple approve --intent latest --gate before-risky-edit
+ripple approve --intent latest --gate before-risky-edit --reason "reviewed and approved this boundary"
 ripple repair --agent --intent latest
 ripple gate --intent latest
 ripple ci --base origin/main --intent latest --github-annotations

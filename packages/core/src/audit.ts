@@ -8,7 +8,10 @@ import type {
   RippleReviewPacket,
   StagedCheckWithIntentSummary,
 } from "./change-intent";
-import { buildAgentHandoffVerdict } from "./change-intent";
+import {
+  buildAgentHandoffVerdict,
+  buildVerificationCommandSuggestions,
+} from "./change-intent";
 import { buildRippleRiskSummary, RippleRiskSummary } from "./risk";
 import type { AgentRuntimeNextPhaseId } from "./agent-workflow";
 import type { RipplePolicyExplanation } from "./policy";
@@ -286,6 +289,9 @@ function buildAuditHandoff(
   const needsHuman =
     audit.status === "human-review-required" ||
     (audit.approvalStatus.required && !audit.approvalStatus.approved);
+  const verificationCommands = buildVerificationCommandSuggestions(
+    validation.verificationVerdict
+  );
 
   return buildAgentHandoffVerdict({
     source: "audit",
@@ -311,11 +317,13 @@ function buildAuditHandoff(
       approve: audit.approvalStatus.required && !audit.approvalStatus.approved
         ? [
             "ripple approval --intent latest --agent",
-            `ripple approve --intent latest --gate ${approvalGateForAudit(audit.intent.humanGate)}`,
+            `ripple approve --intent latest --gate ${approvalGateForAudit(audit.intent.humanGate)} --reason "<why this boundary is safe>"`,
           ]
         : [],
       unstage: audit.repairPlan.commands.unstage,
-      verify: audit.verificationTargets,
+      verify: verificationCommands.length > 0
+        ? verificationCommands
+        : audit.verificationTargets,
     },
   });
 }

@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as path from "path";
 import {
   AgentWorkflowSummary,
@@ -28,6 +29,7 @@ import {
   buildRippleGateSummary,
   buildRippleReadinessSummary,
   buildStagedCheckSummary,
+  defaultChangeIntentPath,
   getAgentWorkflowSummary,
   explainRipplePolicyForIntent,
   explainRipplePolicyForTarget,
@@ -668,6 +670,7 @@ export class RippleMcpToolHost {
       policy,
       policyExplanation,
     });
+    assertMcpCanSaveIntent(this.workspaceRoot, parsed.intentPath);
     const savedPath = saveChangeIntent(this.workspaceRoot, changeIntent, parsed.intentPath);
     const readiness = buildRippleReadinessSummary(this.workspaceRoot, this.engine);
     changeIntent.readinessSnapshot = buildChangeIntentReadinessSnapshot(readiness);
@@ -973,6 +976,38 @@ function parsePlanContextArgs(args: RippleMcpToolCallArgs): PlanContextArgs {
     saveIntent: optionalBoolean(args, "saveIntent", false),
     intentPath: optionalString(args, "intentPath"),
   };
+}
+
+function assertMcpCanSaveIntent(workspaceRoot: string, intentPath?: string): void {
+  const targetPath = resolveMcpIntentPath(workspaceRoot, intentPath);
+  const latestPath = defaultChangeIntentPath(workspaceRoot);
+  const activePath = fs.existsSync(latestPath) ? latestPath : undefined;
+
+  if (fs.existsSync(targetPath)) {
+    throw new Error(
+      "An active Ripple intent already exists at this path. MCP agents cannot overwrite their own boundary. Ask the human to approve a wider boundary or clear the active intent."
+    );
+  }
+
+  if (activePath && path.resolve(targetPath) !== path.resolve(activePath)) {
+    throw new Error(
+      "An active Ripple intent already exists. MCP agents cannot create a second saved boundary to bypass the current one. Ask the human to approve, repair, or clear the active intent first."
+    );
+  }
+}
+
+function resolveMcpIntentPath(workspaceRoot: string, intentPath?: string): string {
+  const normalized = intentPath?.trim() ?? "";
+  if (normalized.length === 0 || normalized === "latest") {
+    return defaultChangeIntentPath(workspaceRoot);
+  }
+  if (path.isAbsolute(normalized)) {
+    return normalized;
+  }
+  if (normalized.endsWith(".json") || normalized.includes("/") || normalized.includes("\\")) {
+    return path.resolve(workspaceRoot, normalized);
+  }
+  return path.join(workspaceRoot, ".ripple", "intents", `${normalized}.json`);
 }
 
 function parseRecordVerificationArgs(args: RippleMcpToolCallArgs): RecordVerificationArgs {

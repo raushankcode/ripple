@@ -30,9 +30,14 @@ import {
   ContextPlanSymbol,
   IntentDriftRepairAction,
   IntentDriftRepairPlan,
+  fingerprintRippleChangeDiff,
+  isRippleSourceFile,
+  listGitChangedDiff,
   listGitChangedFiles,
   listGitStagedFiles,
+  listGitStagedDiff,
   listGitWorktreeFiles,
+  listGitWorktreeDiff,
   loadChangeIntent,
   loadRipplePolicy,
   RecentHistorySummary,
@@ -241,6 +246,12 @@ type ExecutedVerificationResult = {
   note?: string;
 };
 
+type VerificationChangeSnapshot = {
+  changedFiles: string[];
+  changeMode: NonNullable<RippleVerificationEvidence["changeMode"]>;
+  changeFingerprint?: string;
+};
+
 type ApprovalStatusOutput = RippleApprovalStatus & {
   intent: {
     id: string;
@@ -277,7 +288,7 @@ function usage(): string {
     "  ripple audit [--intent latest|path] [--worktree|--changed --base <ref>] [--strict]",
     "  ripple gate [--intent latest|path] [--worktree|--changed --base <ref>] [--strict]",
     "  ripple approval [--intent latest|path] [--gate before-risky-edit|before-merge]",
-    "  ripple approve [--intent latest|path] [--gate before-risky-edit|before-merge] [--reason text]",
+    "  ripple approve [--intent latest|path] [--gate before-risky-edit|before-merge] --reason text",
     "  ripple verify --run <test command> [--intent latest|path] [--note text]",
     "  ripple verify --command <test command> --status passed|failed|skipped|unknown [--intent latest|path] [--note text]",
     "  ripple repair [--intent latest|path] [--strict]",
@@ -298,7 +309,7 @@ function usage(): string {
     "  --mode MODE   Agent control boundary for saved plans (default: file)",
     "  --symbol NAME Allowed symbol for --mode function",
     "  --gate GATE   Human approval gate for approve (before-risky-edit or before-merge)",
-    "  --reason TEXT Human approval reason",
+    "  --reason TEXT Required human approval reason",
     "  --approved-by NAME  Human approver name for approval records",
     "  --budget N    Token budget for plan (default: 4000)",
     "  --staged      Check currently staged JS/TS files",
@@ -2907,7 +2918,8 @@ function printGateSummary(summary: RippleGateSummary): void {
   console.log(`Decision: ${summary.decision}`);
   console.log(`Can continue: ${formatYesNo(summary.canContinue)}`);
   console.log(`Must stop: ${formatYesNo(summary.mustStop)}`);
-  printGateRiskSummary(summary);
+  console.log("");
+  printReviewPacketSummary(summary.reviewPacket);
   console.log("");
   console.log("Intent:");
   console.log(`  Task: ${summary.intent.task}`);
@@ -2923,8 +2935,6 @@ function printGateSummary(summary: RippleGateSummary): void {
     outsideBoundary.length > 0 ? outsideBoundary : summary.changedFiles
   );
   console.log("");
-  printReviewPacketSummary(summary.reviewPacket);
-  console.log("");
   printHumanList("Why:", compactGateReasons(summary));
   printHumanList("Fix now:", compactGateFixes(summary));
   if (summary.canContinue) {
@@ -2932,6 +2942,7 @@ function printGateSummary(summary: RippleGateSummary): void {
   } else {
     printHumanList("Commands:", compactGateCommands(summary));
   }
+  printGateRiskSummary(summary);
 }
 
 function printGateRiskSummary(summary: RippleGateSummary): void {
@@ -3206,7 +3217,14 @@ function formatVerificationEvidence(evidence: RippleVerificationEvidence): strin
   const note = evidence.note ? ` note=${evidence.note}` : "";
   const exitCode = typeof evidence.exitCode === "number" ? ` exitCode=${evidence.exitCode}` : "";
   const duration = typeof evidence.durationMs === "number" ? ` durationMs=${evidence.durationMs}` : "";
-  return `${evidence.status}: ${evidence.command} (${evidence.source}${exitCode}${duration} ${evidence.recordedAt})${note}`;
+  const files = evidence.changedFiles
+    ? ` files=${evidence.changedFiles.length > 0 ? evidence.changedFiles.join(",") : "none"}`
+    : "";
+  const mode = evidence.changeMode ? ` mode=${evidence.changeMode}` : "";
+  const fingerprint = evidence.changeFingerprint
+    ? ` fingerprint=${evidence.changeFingerprint.slice(0, 12)}`
+    : "";
+  return `${evidence.status}: ${evidence.command} (${evidence.source}${exitCode}${duration}${files}${mode}${fingerprint} ${evidence.recordedAt})${note}`;
 }
 
 function verificationEvidenceStatusLabel(evidence: RippleVerificationEvidence[]): string {
@@ -3895,6 +3913,11 @@ async function gateCommand(options: CliOptions): Promise<void> {
 function approveCommand(options: CliOptions): void {
   const workspaceRoot = resolveWorkspaceRoot(".");
   const intentRef = options.intent ?? "latest";
+  if (!options.reason || options.reason.trim().length === 0) {
+    throw new Error(
+      "Approval requires --reason explaining why this boundary is approved."
+    );
+  }
   const intent = loadChangeIntent(workspaceRoot, intentRef);
   const approval = recordRippleApproval(workspaceRoot, intent, {
     gate: options.gate,
@@ -3952,6 +3975,62 @@ function outputTail(value: string, maxLength = 4000): string | undefined {
   return normalized.length > maxLength ? normalized.slice(-maxLength) : normalized;
 }
 
+function currentChangeSnapshotForVerification(
+  workspaceRoot: string,
+  intent: ChangeIntent
+): VerificationChangeSnapshot {
+  const scope = verificationSnapshotScope(intent);
+  const snapshot = (
+    changedFiles: string[],
+    diff: string,
+    changeMode: VerificationChangeSnapshot["changeMode"]
+  ): VerificationChangeSnapshot => ({
+    changedFiles: changedFiles
+      .map(normalizeProjectPath)
+      .filter(isRippleSourceFile)
+      .filter((file) => scope.size === 0 || scope.has(file)),
+    changeMode,
+    changeFingerprint: fingerprintRippleChangeDiff(diff),
+  });
+
+  try {
+    const diff = listGitChangedDiff(workspaceRoot, "HEAD");
+    const changedFiles = listGitChangedFiles(workspaceRoot, "HEAD");
+    const changedSnapshot = snapshot(changedFiles, diff, "changed");
+    if (changedSnapshot.changedFiles.length > 0) {
+      return changedSnapshot;
+    }
+  } catch {
+    // Repositories without a HEAD commit fall back to staged/worktree snapshots.
+  }
+
+  try {
+    const diff = listGitStagedDiff(workspaceRoot);
+    const stagedSnapshot = snapshot(listGitStagedFiles(workspaceRoot), diff, "staged");
+    if (stagedSnapshot.changedFiles.length > 0) {
+      return stagedSnapshot;
+    }
+  } catch {
+    // Fall through to worktree or empty coverage.
+  }
+
+  try {
+    return snapshot(listGitWorktreeFiles(workspaceRoot), listGitWorktreeDiff(workspaceRoot), "worktree");
+  } catch {
+    return { changedFiles: [], changeMode: "staged" };
+  }
+}
+
+function verificationSnapshotScope(intent: ChangeIntent): Set<string> {
+  return new Set(
+    [
+      ...intent.editableFiles,
+      ...intent.expectedFiles,
+      intent.targetFile,
+    ].map(normalizeProjectPath)
+  );
+}
+
 
 function verifyCommand(options: CliOptions): void {
   const workspaceRoot = process.cwd();
@@ -3971,10 +4050,14 @@ function verifyCommand(options: CliOptions): void {
   const executed = runCommand
     ? executeVerificationCommand(workspaceRoot, runCommand, options.note)
     : undefined;
+  const changeSnapshot = currentChangeSnapshotForVerification(workspaceRoot, intent);
   const updatedIntent = appendRippleVerificationEvidence(intent, {
     command: executed?.command ?? reportedCommand ?? "",
     status: executed?.status ?? options.verificationStatus ?? "unknown",
     source: executed ? "executed" : "reported",
+    changedFiles: changeSnapshot.changedFiles,
+    changeMode: changeSnapshot.changeMode,
+    changeFingerprint: changeSnapshot.changeFingerprint,
     exitCode: executed?.exitCode,
     durationMs: executed?.durationMs,
     stdoutTail: executed?.stdoutTail,
@@ -4019,6 +4102,15 @@ function verifyCommand(options: CliOptions): void {
   }
   if (typeof output.evidence.durationMs === "number") {
     console.log(`Duration ms: ${output.evidence.durationMs}`);
+  }
+  if (output.evidence.changedFiles) {
+    printHumanList("Changed files covered:", output.evidence.changedFiles);
+  }
+  if (output.evidence.changeMode) {
+    console.log(`Change mode: ${output.evidence.changeMode}`);
+  }
+  if (output.evidence.changeFingerprint) {
+    console.log(`Change fingerprint: ${output.evidence.changeFingerprint.slice(0, 12)}`);
   }
   console.log(`Recorded at: ${output.evidence.recordedAt}`);
   if (output.evidence.note) {

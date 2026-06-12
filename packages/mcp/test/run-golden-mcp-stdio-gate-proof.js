@@ -416,7 +416,7 @@ function proveStdioGateRequiresHuman() {
   );
   assert(
     gate.commands.approve.some((command) =>
-      command.includes("ripple approve --intent latest --gate before-risky-edit"),
+      command.includes("ripple approve --intent latest --gate before-risky-edit --reason"),
     ),
     "stdio human-review gate should include approval command",
   );
