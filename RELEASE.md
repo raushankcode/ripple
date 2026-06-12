@@ -17,8 +17,8 @@ for a human to make the final release decision.
 
 ## What The Gate Proves
 
-`npm run release:check` runs the full agent-control proof and then checks the
-release checklist itself.
+`npm run release:check` runs the full agent-control proof, the external install
+smoke, and then checks the release checklist itself.
 
 It proves:
 
@@ -27,6 +27,8 @@ It proves:
 - packed `@getripple/mcp` installs into a clean repo
 - the installed CLI can run `init -> plan -> doctor -> gate`
 - the installed MCP stdio server can run `workflow -> doctor -> plan -> doctor -> gate`
+- all three packages can install together into one clean external repo
+- installed CLI and installed MCP both report the same boundary-crossing stop
 - drift control catches boundary violations
 - human approval gates block and unblock correctly
 - CI speaks the same `continue`, `repair`, `human-review`, and `restore-readiness` language
@@ -144,6 +146,29 @@ npm publish --workspace @getripple/mcp
 
 `@getripple/cli` and `@getripple/mcp` depend on the matching `@getripple/core` version,
 so core must publish first.
+
+## External Install Smoke
+
+Before publishing, run the local external install smoke:
+
+```bash
+npm run smoke:external-install
+```
+
+This does not hit the public npm registry. It packs the local packages, installs
+`@getripple/core`, `@getripple/cli`, and `@getripple/mcp` into a fresh temporary
+consumer repo, then verifies:
+
+```txt
+installed ripple binary -> init, plan, approve, gate stop, repair
+installed MCP server    -> workflow, gate stop
+```
+
+After publishing, you can run the same smoke against the public registry:
+
+```bash
+npm run smoke:external-install -- --live
+```
 
 ## Post-Publish Smoke
 

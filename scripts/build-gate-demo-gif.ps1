@@ -155,30 +155,30 @@ function Draw-PanelShell($graphics, [int]$index, [int]$activeIndex, [float]$x, [
 
 function Draw-PlanPanel($graphics, [int]$activeIndex) {
   $x = 24; $y = 58; $w = 526; $h = 250
-  Draw-PanelShell $graphics 0 $activeIndex $x $y $w $h "1" "PLAN BEFORE EDIT" "INTENT SAVED" $cyan "Define the task and allowed boundary. Ripple saves the intent."
+  Draw-PanelShell $graphics 0 $activeIndex $x $y $w $h "1" "PLAN BOUNDARY" "INTENT SAVED" $cyan "A human approves exactly one function before the agent edits."
   Draw-TerminalChrome $graphics ($x + 22) ($y + 88) ($w - 44) 148
   $tx = $x + 38; $ty = $y + 125
-  Draw-Line $graphics '$ ripple plan --file merge.ts --symbol mergeHeaders \' $fontCode $text $tx $ty 430
-  Draw-Line $graphics '  --mode function --task "fix header merge" --save' $fontCode $text $tx ($ty + 17) 430
+  Draw-Line $graphics '$ ripple plan --file src/auth.ts \' $fontCode $text $tx $ty 430
+  Draw-Line $graphics '  --symbol refreshToken --mode function --save' $fontCode $text $tx ($ty + 17) 430
   Draw-Line $graphics 'control_mode:        function' $fontCode $cyan $tx ($ty + 38) 210
-  Draw-Line $graphics 'allowed_symbol:      merge.ts::mergeHeaders' $fontCode $green $tx ($ty + 55) 330
+  Draw-Line $graphics 'allowed_symbol:      src/auth.ts::refreshToken' $fontCode $green $tx ($ty + 55) 370
   Draw-Line $graphics 'human_gate:          required-before-edit' $fontCode $muted $tx ($ty + 72) 330
   Draw-Line $graphics 'risk:                high' $fontCode $amber $tx ($ty + 89) 230
-  Draw-Line $graphics 'intent_id:           f7a3261c' $fontCode $muted $tx ($ty + 106) 250
+  Draw-Line $graphics 'intent:              latest' $fontCode $muted $tx ($ty + 106) 250
 }
 
 function Draw-EditPanel($graphics, [int]$activeIndex) {
   $x = 570; $y = 58; $w = 506; $h = 250
-  Draw-PanelShell $graphics 1 $activeIndex $x $y $w $h "2" "AGENT EDITS CODE" "CHANGES STAGED" $muted "The agent makes changes. Ripple checks the staged result."
+  Draw-PanelShell $graphics 1 $activeIndex $x $y $w $h "2" "AGENT EDITS CODE" "CHANGES STAGED" $muted "The agent fixes the approved function, then drifts into another one."
   Draw-TerminalChrome $graphics ($x + 18) ($y + 88) 318 148
   $tx = $x + 34; $ty = $y + 126
-  Draw-Line $graphics '# Agent edited merge.ts' $fontCode $muted $tx $ty 250
-  Draw-Line $graphics '+ function mergeHeaders(a, b) {' $fontCode $green $tx ($ty + 19) 270
-  Draw-Line $graphics '+   // improved header merge logic' $fontCode $green $tx ($ty + 36) 270
+  Draw-Line $graphics '# Agent edited src/auth.ts' $fontCode $muted $tx $ty 250
+  Draw-Line $graphics '+ function refreshToken(...) {' $fontCode $green $tx ($ty + 19) 270
+  Draw-Line $graphics '+   // retry behavior fixed' $fontCode $green $tx ($ty + 36) 270
   Draw-Line $graphics '+ }' $fontCode $green $tx ($ty + 53) 80
-  Draw-Line $graphics '# ...and changed outside boundary' $fontCode $muted $tx ($ty + 75) 270
-  Draw-Line $graphics '+ function mergeHooks(a, b) {' $fontCode $red $tx ($ty + 94) 270
-  Draw-Line $graphics '+   // unintended change' $fontCode $red $tx ($ty + 111) 250
+  Draw-Line $graphics '# ...but also changed login' $fontCode $muted $tx ($ty + 75) 270
+  Draw-Line $graphics '+ function login(user) {' $fontCode $red $tx ($ty + 94) 270
+  Draw-Line $graphics '+   return session(user.trim())' $fontCode $red $tx ($ty + 111) 270
 
   $sideX = $x + 350
   $sideBrush = New-Object System.Drawing.SolidBrush (Color-Rgb 8 17 28)
@@ -186,16 +186,16 @@ function Draw-EditPanel($graphics, [int]$activeIndex) {
   Fill-RoundRect $graphics $sideBrush $sideX ($y + 88) 134 148 8
   Stroke-RoundRect $graphics $sidePen $sideX ($y + 88) 134 148 8
   Draw-Line $graphics "STAGED" $fontMicro $muted ($sideX + 34) ($y + 105) 70
-  Draw-Line $graphics "OK  headers" $fontCodeBold $green ($sideX + 15) ($y + 138) 110
-  Draw-Line $graphics "X   hooks" $fontCodeBold $red ($sideX + 15) ($y + 180) 110
-  Draw-Line $graphics "(drift)" $fontMicro $red ($sideX + 34) ($y + 197) 70
+  Draw-Line $graphics "OK  token" $fontCodeBold $green ($sideX + 15) ($y + 138) 110
+  Draw-Line $graphics "X   login" $fontCodeBold $red ($sideX + 15) ($y + 180) 110
+  Draw-Line $graphics "(outside)" $fontMicro $red ($sideX + 34) ($y + 197) 76
   $sideBrush.Dispose()
   $sidePen.Dispose()
 }
 
 function Draw-GatePanel($graphics, [int]$activeIndex) {
   $x = 24; $y = 326; $w = 526; $h = 252
-  Draw-PanelShell $graphics 2 $activeIndex $x $y $w $h "3" "RIPPLE GATE" "STOP: HUMAN REVIEW" $red "Ripple compares staged changes to the saved intent and boundary."
+  Draw-PanelShell $graphics 2 $activeIndex $x $y $w $h "3" "RIPPLE GATE" "HUMAN REVIEW" $red "Ripple compares the staged diff to the saved authorization boundary."
   Draw-TerminalChrome $graphics ($x + 22) ($y + 88) ($w - 44) 142
   $tx = $x + 38; $ty = $y + 122
   Draw-Line $graphics '$ ripple gate --intent latest' $fontCode $text $tx $ty 260
@@ -209,30 +209,30 @@ function Draw-GatePanel($graphics, [int]$activeIndex) {
   Stroke-RoundRect $graphics $boxPen $tx ($ty + 68) 205 46 6
   Stroke-RoundRect $graphics $boxPen ($tx + 220) ($ty + 68) 220 46 6
   Draw-Line $graphics "ALLOWED" $fontMicro $green ($tx + 12) ($ty + 79) 80
-  Draw-Line $graphics "mergeHeaders" $fontCode $green ($tx + 12) ($ty + 96) 150
+  Draw-Line $graphics "auth::refreshToken" $fontCode $green ($tx + 12) ($ty + 96) 170
   Draw-Line $graphics "CHANGED OUTSIDE" $fontMicro $red ($tx + 232) ($ty + 79) 110
-  Draw-Line $graphics "mergeHooks" $fontCode $red ($tx + 232) ($ty + 96) 110
-  Draw-Line $graphics 'Fix: undo mergeHooks or ask human' $fontCodeBold $red $tx ($ty + 116) 330
+  Draw-Line $graphics "auth::login" $fontCode $red ($tx + 232) ($ty + 96) 110
+  Draw-Line $graphics 'Fix: undo login or ask human' $fontCodeBold $red $tx ($ty + 116) 330
   $boxBrush.Dispose()
   $boxPen.Dispose()
 }
 
 function Draw-RepairPanel($graphics, [int]$activeIndex) {
   $x = 570; $y = 326; $w = 506; $h = 252
-  Draw-PanelShell $graphics 3 $activeIndex $x $y $w $h "4" "REPAIR AND CONTINUE" "CONTINUE" $green "Agent repairs the issue. Ripple re-checks and allows progress."
+  Draw-PanelShell $graphics 3 $activeIndex $x $y $w $h "4" "REPAIR HANDOFF" "STOP UNTIL FIXED" $amber "Ripple tells the agent exactly what to undo or when to ask a human."
   Draw-TerminalChrome $graphics ($x + 18) ($y + 88) ($w - 36) 142
   $tx = $x + 34; $ty = $y + 122
   Draw-Line $graphics '$ ripple repair --intent latest' $fontCode $text $tx $ty 290
-  Draw-Line $graphics 'Repair plan' $fontCodeBold $green $tx ($ty + 24) 120
-  Draw-Line $graphics '  - undo merge.ts::mergeHooks' $fontCode $green $tx ($ty + 42) 250
-  Draw-Line $graphics '  - re-run gate' $fontCode $green $tx ($ty + 59) 150
-  Draw-Line $graphics '$ ripple gate --intent latest' $fontCode $text $tx ($ty + 78) 290
-  $continueBrush = New-Object System.Drawing.SolidBrush (Color-Argb 30 $green.R $green.G $green.B)
-  $continuePen = New-Object System.Drawing.Pen (Color-Argb 140 $green.R $green.G $green.B), 1
+  Draw-Line $graphics 'Repair instruction' $fontCodeBold $amber $tx ($ty + 24) 170
+  Draw-Line $graphics '  - undo src/auth.ts::login' $fontCode $amber $tx ($ty + 42) 260
+  Draw-Line $graphics '  - or ask for wider approval' $fontCode $amber $tx ($ty + 59) 270
+  Draw-Line $graphics 'Agent may not continue autonomously.' $fontCode $muted $tx ($ty + 78) 315
+  $continueBrush = New-Object System.Drawing.SolidBrush (Color-Argb 30 $red.R $red.G $red.B)
+  $continuePen = New-Object System.Drawing.Pen (Color-Argb 140 $red.R $red.G $red.B), 1
   Fill-RoundRect $graphics $continueBrush $tx ($ty + 98) 412 34 6
   Stroke-RoundRect $graphics $continuePen $tx ($ty + 98) 412 34 6
-  Draw-Line $graphics 'CONTINUE' $fontCodeBold $green ($tx + 14) ($ty + 108) 100
-  Draw-Line $graphics 'inside boundary; verification passed' $fontCode $green ($tx + 115) ($ty + 108) 270
+  Draw-Line $graphics 'MUST STOP' $fontCodeBold $red ($tx + 14) ($ty + 108) 100
+  Draw-Line $graphics 'human review before continuing' $fontCode $red ($tx + 120) ($ty + 108) 270
   $continueBrush.Dispose()
   $continuePen.Dispose()
 }
@@ -240,9 +240,9 @@ function Draw-RepairPanel($graphics, [int]$activeIndex) {
 function Draw-Footer($graphics) {
   $items = @(
     @("LOCAL-FIRST", "No cloud. No uploads."),
-    @("WORKS WITH YOUR STACK", "CLI, MCP, CI, VS Code."),
-    @("TRUST BY DESIGN", "Plan. Gate. Repair. Repeat."),
-    @("BUILT FOR DEVELOPERS", "Open source. MIT license.")
+    @("ONE CONTRACT", "CLI, MCP, hooks, CI."),
+    @("AUTHORIZATION GATE", "Allowed vs actual diff."),
+    @("REPAIR HANDOFF", "Tell the agent what to fix.")
   )
   $x = 64
   for ($i = 0; $i -lt $items.Count; $i++) {
@@ -271,7 +271,7 @@ function New-DemoFrame([int]$activeIndex, [int]$frameInStep) {
   $graphics.FillRectangle($logoBrush, 24, 16, 22, 22)
   $logoBrush.Dispose()
   Draw-Line $graphics "RIPPLE" $fontBrand $text 58 16 170
-  Draw-Line $graphics "LOCAL DRIFT-CONTROL GATE FOR AI CODING AGENTS" $fontBody $muted 790 20 300
+  Draw-Line $graphics "LOCAL AUTHORIZATION GATE FOR AI CODING AGENTS" $fontBody $muted 764 20 330
 
   Draw-PlanPanel $graphics $activeIndex
   Draw-EditPanel $graphics $activeIndex

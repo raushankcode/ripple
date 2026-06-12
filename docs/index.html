@@ -3,19 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ripple — Local Drift-Control Gate for AI Coding Agents</title>
+    <title>Ripple — Local Authorization Gate for AI Coding Agents</title>
     <meta
       name="description"
-      content="Ripple is a local boundary and risk gate for AI coding agents. Save what the agent was allowed to change, check what it actually changed, and explain the risk with evidence." />
+      content="Ripple is a local authorization gate for AI coding agents. Save what the agent was allowed to change, compare it with the real Git diff, and stop when the agent crosses the approved boundary." />
     <meta name="theme-color" content="#07111d" />
     <link rel="canonical" href="https://raushankcode.github.io/ripple/" />
 
     <meta
       property="og:title"
-      content="Ripple — Local Drift-Control Gate for AI Coding Agents" />
+      content="Ripple — Local Authorization Gate for AI Coding Agents" />
     <meta
       property="og:description"
-      content="Save intent before edit. Check staged changes after edit. Catch drift. Explain risk with evidence." />
+      content="Save the approved boundary before edit. Check staged changes after edit. Stop crossed boundaries with evidence." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://raushankcode.github.io/ripple/" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -898,12 +898,12 @@
           overflow-x: hidden;
         }
         .container {
-          width: 100%;
-          max-width: 390px;
-          margin-left: auto;
+          width: calc(100% - 28px);
+          max-width: 362px;
+          margin-left: 14px;
           margin-right: auto;
-          padding-left: 14px;
-          padding-right: 14px;
+          padding-left: 0;
+          padding-right: 0;
         }
         .nav-inner {
           height: 62px;
@@ -918,7 +918,11 @@
         .hero-copy {
           font-size: 16px;
           max-width: 100%;
-          overflow-wrap: break-word;
+          overflow-wrap: normal;
+        }
+        .hero-copy strong {
+          display: block;
+          margin-top: 8px;
         }
         .hero-grid {
           display: block;
@@ -973,8 +977,9 @@
           padding: 22px;
         }
         .gate-title {
-          font-size: 22px;
-          overflow-wrap: break-word;
+          font-size: 20px;
+          letter-spacing: 0;
+          overflow-wrap: normal;
         }
         .fix {
           overflow-wrap: break-word;
@@ -1040,8 +1045,8 @@
         <div class="container hero-grid">
           <div>
             <div class="eyebrow">
-              <span class="pulse-dot"></span> Local drift control · Boundary ·
-              Risk · CLI · MCP · CI
+              <span class="pulse-dot"></span> Local authorization gate · CLI ·
+              MCP · CI
             </div>
 
             <h1>
@@ -1051,13 +1056,10 @@
             </h1>
 
             <p class="hero-copy">
-              Ripple saves what an AI coding agent was allowed to change, checks
-              what it actually changed, and explains the risk with evidence when
-              the agent crosses the approved boundary.
+              Ripple saves the approved boundary, checks the staged Git diff,
+              and stops the workflow when the agent crosses it.
               <strong
-                >It does not judge whether the code is good — it verifies
-                whether the agent stayed inside the work it was trusted to
-                do.</strong
+                >It verifies authorization before work continues.</strong
               >
             </p>
 
@@ -1082,7 +1084,7 @@
             </div>
             <div class="card-body">
               <h2 class="gate-title">
-                Agent crossed the approved function boundary.
+                Agent crossed the approved boundary.
               </h2>
               <div class="gate-contract" aria-label="Ripple gate decision">
                 <div class="contract-pill">
@@ -1097,21 +1099,22 @@
               <div class="gate-grid">
                 <div class="gate-box">
                   <div class="gate-label">Allowed</div>
-                  <div class="gate-value">merge.ts::mergeHeaders</div>
+                  <div class="gate-value">src/auth.ts::refreshToken</div>
                 </div>
                 <div class="gate-box">
                   <div class="gate-label">Changed outside</div>
-                  <div class="gate-value">merge.ts::mergeHooks</div>
+                  <div class="gate-value">src/auth.ts::login</div>
                 </div>
               </div>
               <div class="fix">
-                <strong>Risk:</strong> HIGH because the agent changed an
-                unapproved symbol in shared code. Evidence: function boundary
-                crossed, downstream callers may be affected.
+                <strong>Risk:</strong> CRITICAL because the agent changed an
+                unapproved symbol in auth code. Evidence: function boundary
+                crossed, protected path touched, human gate required.
               </div>
               <div class="fix">
-                <strong>Fix now:</strong> undo the unapproved symbol change, or
-                create a wider human-approved intent before continuing.
+                <strong>Fix now:</strong> undo the unapproved
+                <code>login</code> change, or create a wider human-approved
+                intent before continuing.
               </div>
               <div class="evidence">
                 Evidence: <strong>function mode</strong> allowed one symbol; the
@@ -1126,11 +1129,11 @@
         <div class="container">
           <div class="section-head">
             <div class="kicker">Gate demo</div>
-            <h2>The agent may continue until the boundary breaks.</h2>
+            <h2>The agent may continue only while it stays authorized.</h2>
             <p class="section-copy">
-              Ripple saves the approved intent, checks the staged change, stops
-              boundary drift, and now shows risk evidence before the agent
-              continues or the PR merges.
+              Ripple saves the approved boundary, checks the staged change,
+              stops boundary drift, and shows the exact evidence before the
+              agent continues or the PR merges.
             </p>
           </div>
         </div>
@@ -1602,7 +1605,7 @@ Required:
 
     <footer class="footer">
       <div class="container footer-inner">
-        <div>↯ Ripple — Local drift-control gate for AI coding agents.</div>
+        <div>↯ Ripple — Local authorization gate for AI coding agents.</div>
         <div class="footer-links">
           <a
             href="https://github.com/raushankcode/ripple"

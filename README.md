@@ -1,237 +1,109 @@
-# Ripple — Local Drift-Control Gate for AI Coding Agents
+# Ripple
 
-Ripple is a local drift-control gate for AI coding agents that plans before edit, checks after edit, catches drift, and tells the agent what to fix.
+**A local authorization gate for AI coding agents.**
 
-> Ripple tells AI coding agents when they may continue, when they must stop,
-> and what they need to fix.
-
-```txt
-Plan before edit.
-Save intent.
-Choose a trust boundary.
-Check after edit.
-Catch drift.
-Continue / stop / human review.
-```
-
-Ripple is local-first.
+Ripple saves what an AI coding agent was allowed to change, compares that boundary against the actual Git diff, and returns a clear decision:
 
 ```txt
-No account.
-No telemetry.
-No code upload.
-No cloud indexing.
-No remote model call required.
+CONTINUE
+REPAIR
+HUMAN REVIEW
 ```
+
+It runs locally in your repository. No account, no telemetry, no code upload, no cloud indexing, and no remote model call required.
+
+[![npm cli](https://img.shields.io/npm/v/@getripple/cli.svg)](https://www.npmjs.com/package/@getripple/cli)
+[![npm mcp](https://img.shields.io/npm/v/@getripple/mcp.svg)](https://www.npmjs.com/package/@getripple/mcp)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ![Ripple gate demo](resources/ripple-gate-demo.gif)
 
----
+## The Problem
 
-## What Ripple Does
+AI coding agents can move fast. They can plan, edit files, stage changes, and prepare pull requests.
 
-A human approves one function edit:
-
-```txt
-Edit only source/utils/merge.ts::mergeHeaders
-```
-
-The agent changes the approved function. Ripple returns:
-
-```txt
-CONTINUE: agent stayed inside the approved boundary.
-```
-
-Now the agent also changes a second function:
-
-```txt
-source/utils/merge.ts::mergeHeaders   ← approved
-source/utils/merge.ts::mergeHooks     ← not approved
-```
-
-Ripple returns:
-
-```txt
-STOP: agent crossed the approved function boundary.
-
-Allowed:
-  source/utils/merge.ts::mergeHeaders
-
-Changed outside boundary:
-  source/utils/merge.ts::mergeHooks
-
-Fix:
-  undo the mergeHooks change
-  or create a wider human-approved intent
-```
-
-That is Ripple's core job:
-
-```txt
-You planned X.
-The agent edited Y.
-Ripple says continue, fix, or stop for human review.
-```
-
----
-
-## Why Ripple Exists
-
-AI coding agents can edit code fast.
-
-The problem is not only whether the agent can write code.
-
-The deeper question is:
-
-```txt
-Was the agent allowed to make this change?
-```
-
-In real projects, agents often drift from the original task:
-
-- They edit files they were only supposed to read.
-- They touch public utilities with wide blast radius.
-- They change nearby functions outside the approved scope.
-- They modify auth, payments, config, migrations, or other risky areas.
-- They continue working after the boundary should require human review.
-
-Most AI coding tools ask:
+The hard question is not only:
 
 ```txt
 Is the generated code correct?
 ```
 
-Ripple asks:
+The deeper question is:
 
 ```txt
-Did the agent stay inside the work it was trusted to do?
+Was the agent authorized to make this change?
 ```
-
-These are different questions.
-
-Ripple answers the second one.
-
----
-
-## Product Center: `ripple gate`
-
-`ripple gate` gives one compact decision for humans, agents, and CI.
-
-```bash
-ripple gate --intent latest
-```
-
-One question. One answer.
-
-```txt
-CONTINUE
-```
-
-or:
-
-```txt
-STOP: agent crossed approved function boundary.
-
-Allowed:
-  src/auth.ts::refreshToken
-
-Changed outside boundary:
-  src/auth.ts::login
-
-Fix:
-  undo src/auth.ts::login
-  or create a wider human-approved intent
-```
-
-Machine-readable output for agents and CI:
-
-```json
-{
-  "status": "closed",
-  "decision": "human-review",
-  "canContinue": false,
-  "mustStop": true,
-  "needsHuman": true,
-  "why": ["Changed symbol outside approved boundary: src/auth.ts::login"],
-  "fixNow": ["Undo src/auth.ts::login or replan with human approval."],
-  "risk": {
-    "level": "critical",
-    "score": 100,
-    "summary": "CRITICAL risk 100/100: Agent changed symbols outside the approved Ripple boundary.",
-    "reasons": [
-      {
-        "kind": "boundary-crossed",
-        "severity": "high",
-        "message": "Agent changed symbols outside the approved Ripple boundary.",
-        "evidence": [
-          "allowed symbol: src/auth.ts::refreshToken",
-          "changed outside boundary: src/auth.ts::login"
-        ]
-      }
-    ],
-    "requiredActions": [
-      "Undo the outside-boundary change or create a wider human-approved intent.",
-      "Review downstream callers/importers before continuing."
-    ]
-  }
-}
-```
-
----
-
-## Risk Explanation Layer
-
-Ripple does not only say that an agent crossed a boundary.
-
-It explains why the crossing matters.
 
 Example:
 
 ```txt
-Human approved:
+Approved boundary:
   src/auth.ts::refreshToken
 
-Agent changed outside boundary:
+Actual staged changes:
+  src/auth.ts::refreshToken
   src/auth.ts::login
+
+Ripple:
+  STOP. The agent crossed the approved function boundary.
 ```
 
-Ripple can return:
+Ripple is built for that moment. It gives humans, agents, hooks, and CI the same continue/stop contract.
+
+## What Ripple Does
+
+Ripple helps teams control AI-agent changes without sending code to a cloud service.
 
 ```txt
-Decision: human-review
-Risk: CRITICAL 100/100
-
-Why this is risky:
-  - boundary-crossed: agent changed a symbol outside the approved function boundary
-  - policy-rule: the saved intent is marked high/critical risk by policy
-  - blast-radius: changed file has downstream importers
-  - public-contract: exported/public symbols may affect callers
-
-Evidence:
-  - allowed symbol: src/auth.ts::refreshToken
-  - changed outside boundary: src/auth.ts::login
-  - direct importers may be affected
-
-Required:
-  - undo the outside-boundary change
-  - or create a wider human-approved intent
-  - review downstream callers/importers
-  - run verification targets
+1. Plan before edit
+2. Save the approved boundary
+3. Let the agent work
+4. Check the staged diff
+5. Return continue, repair, or human review
 ```
 
-The goal is to make the invisible consequence visible:
+When a boundary is crossed, Ripple returns evidence and repair instructions:
+
+```json
+{
+  "decision": "human-review",
+  "canContinue": false,
+  "mustStop": true,
+  "needsHuman": true,
+  "why": [
+    "Changed symbol outside approved boundary: src/auth.ts::login"
+  ],
+  "fixNow": [
+    "Undo the accidental change to src/auth.ts::login, or ask the human to approve a wider boundary."
+  ]
+}
+```
+
+Ripple does not judge whether code is beautiful. It checks whether the agent stayed inside the work it was trusted to do.
+
+## Try It In One Command
+
+From this repository:
+
+```bash
+npm run demo:agent-control
+```
+
+The demo creates a temporary repo and runs the real Ripple CLI:
 
 ```txt
-What was approved?
-What changed outside approval?
-Why is that risky?
-What evidence proves it?
-What must happen before continuing?
+1. Init: local Ripple policy and hooks created
+2. Plan: saved function boundary src/auth.ts::refreshToken
+3. Approval: human approved that narrow boundary
+4. Agent edit: changed refreshToken and also changed login
+5. Gate: STOP (human-review)
+6. Evidence: changed outside boundary src/auth.ts::login
+7. Repair: undo the unapproved login change, or ask for a wider boundary
 ```
 
-This risk layer is available through the CLI gate, MCP gate, JSON output, and CI summary.
+That is Ripple's core product in one command.
 
----
+See the full walkthrough: [Ripple Demo: Catching AI Boundary Drift](docs/demo.md).
 
 ## Install
 
@@ -241,351 +113,203 @@ Run without installing globally:
 npx -y @getripple/cli init
 ```
 
-Install globally:
+Install the CLI:
 
 ```bash
 npm install -g @getripple/cli
 ```
 
-VS Code extension:
+Run the MCP server for agents:
+
+```bash
+npx -y @getripple/mcp --workspace /absolute/path/to/your/repo
+```
+
+Install the VS Code interface:
 
 ```bash
 code --install-extension rippleai.ripple
 ```
 
----
+## 2-Minute Workflow
 
-## 60-Second Start
-
-Initialize Ripple inside a repository:
+Initialize Ripple in a repo:
 
 ```bash
 ripple init
 ```
 
-Plan before editing:
+Plan before the agent edits:
 
 ```bash
-ripple plan --file src/auth.ts --task "change token refresh behavior" --mode file --agent --save
+ripple plan \
+  --file src/auth.ts \
+  --symbol refreshToken \
+  --task "fix refresh token retry behavior" \
+  --mode function \
+  --agent \
+  --save
 ```
 
-After editing, stage and check:
+If a human gate is required, record approval:
+
+```bash
+ripple approve \
+  --intent latest \
+  --gate before-risky-edit \
+  --reason "approved refreshToken only"
+```
+
+After the agent edits, stage the intended files:
 
 ```bash
 git add src/auth.ts
-ripple check --staged --agent --intent latest
 ```
 
-Get the compact decision:
+Ask the gate:
 
 ```bash
 ripple gate --intent latest
 ```
 
-Ripple returns `CONTINUE` or `STOP` with the reason and exact next action.
-
----
-
-## Core Workflow
-
-### 1. Initialize
-
-```bash
-ripple init
-```
-
-Creates repo defaults and the CI gate:
+If the staged changes stayed inside the approved boundary:
 
 ```txt
-.ripple/policy.json
-.github/workflows/ripple.yml
+Ripple gate: CONTINUE
 ```
 
-For agents that do not use MCP, generate file-based context:
-
-```bash
-ripple workflow
-```
-
-This writes:
+If the staged changes crossed the boundary:
 
 ```txt
-.ripple/WORKFLOW.md
+Ripple gate: STOP
+
+Decision: human-review
+Can continue: no
+Must stop: yes
+Needs human: yes
+
+Changed outside boundary:
+  src/auth.ts::login
+
+Fix now:
+  Undo the accidental change to src/auth.ts::login,
+  or ask the human to approve a wider boundary.
 ```
 
-Normal CLI runs stay lean. They use history and graph cache without generating broad context bundles.
-
----
-
-### 2. Plan Before Editing
-
-```bash
-ripple plan --file src/auth.ts --task "change token refresh behavior" --mode file --agent --save
-```
-
-Returns a focused plan:
-
-```txt
-readFirst:              src/auth.ts, src/session.ts
-readIfNeeded:           tests/auth.test.ts
-avoidInitially:         docs/, unrelated UI files
-risk:                   caution
-editableFiles:          src/auth.ts
-contextFiles:           src/session.ts
-controlMode:            file
-humanGate:              required-before-edit  (if policy requires it)
-verificationTargets:    tests/auth.test.ts
-```
-
-If a human gate is required:
-
-```bash
-ripple approve --intent latest --gate before-risky-edit --reason "reviewed and approved this boundary"
-```
-
----
-
-### 3. Edit Inside the Boundary
-
-The agent should:
-
-```txt
-read only the required context
-edit only approved files or symbols
-avoid unrelated files
-respect the saved intent
-stop if the task scope changes
-```
-
-The saved intent becomes the trust boundary for the work.
-
----
-
-### 4. Check After Staging
-
-```bash
-git add src/auth.ts
-ripple check --staged --agent --intent latest
-```
-
-The `handoff` field is what the agent should read first:
-
-```txt
-handoff.canContinue=true  → continue after listed verify commands
-handoff.mustStop=true     → stop, follow fixNow, and askHuman
-handoff.needsHuman=true   → do not self-approve, ask the human
-```
-
----
-
-### 5. Repair If Needed
+Get exact repair actions:
 
 ```bash
 ripple repair --agent --intent latest
 ```
 
-Returns exact repair actions:
-
-```txt
-unstage-file:     src/session.ts was context-only
-review-symbol:    src/auth.ts::refreshToken changed outside the plan
-review-contract:  public contract may have changed
-verify:           run tests/auth.test.ts
-replan:           create a new Ripple plan if the task scope changed
-```
-
----
-
-## Trust Boundary Contract
-
-The Trust Boundary Contract is Ripple's core safety model.
-
-It compares:
-
-```txt
-planned work
-```
-
-against:
-
-```txt
-actual changes
-```
-
-to determine whether an AI coding agent stayed inside the work it was trusted to perform.
-
-The Trust Boundary Contract includes:
-
-```txt
-planned work       -> what the human approved
-approved boundary  -> file, function, task, brainstorm, or PR scope
-actual changes     -> what the agent modified
-drift result       -> whether the agent left the approved work
-gate decision      -> continue, repair, human-review, or restore-readiness
-```
-
-This contract is consumed by:
-
-```txt
-humans       -> CLI and VS Code
-AI agents    -> MCP tools
-CI systems   -> ripple ci and ripple gate
-```
-
-The Trust Boundary Contract enables Ripple to:
-
-```txt
-detect intent drift
-detect boundary drift
-require repair
-require human review
-produce continue / stop decisions
-protect approved workflows
-```
-
----
-
 ## Trust Boundaries
 
-Ripple saves the freedom level the agent was given before editing and checks whether the agent stayed inside it after editing.
+Ripple stores the freedom level the agent was given before editing.
 
-Example function-level boundary:
-
-```bash
-ripple plan --file src/auth.ts --symbol refreshToken --task "fix retry behavior" --mode function --agent --save
-```
-
-Supported modes:
-
-| Mode         | What the agent is allowed to touch           |
-| ------------ | -------------------------------------------- |
-| `brainstorm` | No edits. Suggest and explain only.          |
-| `function`   | Only the approved symbol.                    |
-| `file`       | Only the selected file.                      |
-| `task`       | All files in the saved plan.                 |
-| `pr`         | Full task scope. Human reviews before merge. |
-
-After staging, Ripple checks two things independently:
-
-```txt
-intent drift    -> did the edit leave the task plan?
-boundary drift  -> did the edit cross the chosen freedom level?
-```
-
-If `function` mode allowed only `refreshToken` but the agent also changed `login`, Ripple reports:
-
-```txt
-boundary_verdict: DANGER
-```
-
-Then `ripple repair` tells the agent exactly what to undo or when to ask the human for a wider approved intent.
-
----
-
-## Drift Verdict Contract
-
-Every check returns one clear verdict:
-
-```txt
-PASS   -> continue
-DRIFT  -> fix before commit
-DANGER -> stop and ask human
-```
-
-The same contract appears in CLI output, CI annotations, and MCP tool results.
+| Mode | Agent is allowed to |
+| --- | --- |
+| `brainstorm` | Suggest and explain only. No edits. |
+| `function` | Edit only the approved symbol. |
+| `file` | Edit only the approved file. |
+| `task` | Edit files in the saved task plan. |
+| `pr` | Complete low-risk PR work for human review before merge. |
 
 Example:
 
-```json
-{
-  "driftVerdict": {
-    "status": "drift",
-    "decision": "fix-before-commit",
-    "label": "DRIFT",
-    "summary": "DRIFT: staged changes left the saved Ripple plan.",
-    "why": ["Context-only file changed: src/session.ts"],
-    "fix": ["Unstage context-only file: src/session.ts"]
-  }
-}
+```bash
+ripple plan \
+  --file src/auth.ts \
+  --symbol refreshToken \
+  --task "fix retry behavior" \
+  --mode function \
+  --agent \
+  --save
 ```
 
----
+If the agent also changes `login`, Ripple stops the workflow and tells the agent what to undo or when to ask for a wider human-approved boundary.
+
+## The Ripple Control Model
+
+Ripple is built around six local control layers:
+
+| Layer | Purpose |
+| --- | --- |
+| Policy | Permanent repo rules in `.ripple/policy.json` |
+| Intent | Temporary approved boundary for the current task |
+| Git diff | The staged or changed files Ripple checks |
+| MCP | Direct structured tools for AI agents |
+| Hook | Local pre-commit check for staged drift |
+| CI | Pull request gate for merge-time enforcement |
+
+This model keeps the workflow practical:
+
+```txt
+Policy says what is sensitive.
+Intent says what is approved right now.
+Git shows what actually changed.
+Gate decides whether the agent may continue.
+```
+
+## What Ripple Detects
+
+Ripple can report:
+
+- **Intent drift**: the agent changed work outside the saved task.
+- **Boundary drift**: the agent crossed the selected mode, such as function or file.
+- **Policy drift**: repo trust rules changed after the plan was saved.
+- **Readiness drift**: local Ripple setup became weaker.
+- **Contract risk**: exported or public symbols may affect downstream callers.
+- **Verification gaps**: relevant tests or checks still need to be run.
 
 ## Interfaces
 
-One engine. Multiple interfaces.
+One local engine powers multiple interfaces:
 
-```txt
-@getripple/core    -> local architectural context engine
-@getripple/cli     -> terminal and CI interface
-@getripple/mcp     -> MCP interface for AI agents
-rippleai.ripple    -> VS Code human interface
-```
+| Interface | Use it for |
+| --- | --- |
+| `@getripple/cli` | Terminal, Git hooks, CI, local proofs |
+| `@getripple/mcp` | Direct AI-agent access through MCP tools |
+| `@getripple/core` | Custom integrations |
+| `rippleai.ripple` | VS Code visual context |
 
----
-
-## CLI — `@getripple/cli`
-
-Install:
-
-```bash
-npm install -g @getripple/cli
-```
+## CLI
 
 Common commands:
 
 ```bash
 ripple init
 ripple doctor
-ripple agent
-ripple workflow
+ripple plan --file src/auth.ts --task "..." --mode function --symbol refreshToken --agent --save
+ripple approve --intent latest --gate before-risky-edit --reason "approved"
+ripple check --staged --agent --intent latest
+ripple gate --intent latest
+ripple repair --agent --intent latest
+ripple ci --base origin/main --intent latest --github-annotations
+```
+
+Graph and context commands:
+
+```bash
 ripple scan .
 ripple focus src/auth.ts
 ripple blast src/auth.ts
-ripple imports src/auth.ts
 ripple importers src/auth.ts
 ripple symbols src/auth.ts
-ripple callers src/auth.ts::validateToken
+ripple callers src/auth.ts::refreshToken
 ripple history --last 10
-ripple plan --file src/auth.ts --task "..." --agent --save
-ripple check --staged --agent --intent latest
-ripple check --changed --base origin/main --strict
-ripple audit --agent --intent latest
-ripple approval --intent latest --agent
-ripple approve --intent latest --gate before-risky-edit --reason "reviewed and approved this boundary"
-ripple repair --agent --intent latest
-ripple gate --intent latest
-ripple ci --base origin/main --intent latest --github-annotations
-ripple init-ci
-ripple policy init
-ripple policy explain --file src/auth.ts
 ```
 
-In CI, `--github-annotations` emits GitHub errors for drift findings.
+Git hook setup:
 
-The gate exits non-zero when drift blocks merge.
-
----
-
-## MCP — `@getripple/mcp`
-
-Install through any MCP-compatible client.
-
-Replace the workspace path with your project path.
-
-macOS / Linux example:
-
-```txt
-/Users/yourname/projects/myapp
+```bash
+ripple hook install
 ```
 
-Windows example:
+The hook checks staged changes before commit. It uses the local CLI when possible and falls back to `npx` only as a last resort.
 
-```txt
-C:\\Users\\yourname\\projects\\myapp
-```
+## MCP
 
-MCP config:
+Add Ripple to an MCP-compatible agent:
 
 ```json
 {
@@ -603,158 +327,57 @@ MCP config:
 }
 ```
 
-Available MCP tools:
+Important tools:
 
 ```txt
-ripple_get_agent_workflow      full agent workflow guide and loop
-ripple_doctor                  check project readiness
-ripple_plan_context            plan before editing a target file
-ripple_check_staged            check staged changes against saved intent
-ripple_check_changed           check changed files against a git base ref
-ripple_audit_change            audit a completed change for drift signals
-ripple_gate                    compact continue/stop decision
-ripple_get_approval_status     check whether a human gate is required
-ripple_repair_intent_drift     get repair actions when drift is detected
-ripple_get_focus               focused context for a single file
-ripple_get_blast_radius        files that depend on a target file
-ripple_explain_policy          explain the active trust boundary policy
-ripple_get_recent_changes      recent architectural changes from history
+ripple_doctor
+ripple_plan_context
+ripple_get_intent_status
+ripple_check_staged
+ripple_gate
+ripple_repair_intent_drift
+ripple_get_blast_radius
+ripple_explain_policy
 ```
 
 Recommended agent loop:
 
 ```txt
-Use ripple_plan_context before editing.
-Use ripple_gate after editing.
-Use ripple_repair_intent_drift when drift is detected.
-Ask the human when needsHuman=true.
+Call ripple_plan_context before editing.
+Call ripple_gate after editing.
+If mustStop=true, stop.
+If needsHuman=true, ask the human.
+If canContinue=true, continue only after required verification.
 ```
 
----
+## CI
 
-## VS Code Extension
-
-Install:
+Generate a GitHub Actions workflow:
 
 ```bash
-code --install-extension rippleai.ripple
+ripple init-ci
 ```
 
-Open any JavaScript or TypeScript project and wait for:
+Run Ripple in CI:
 
-```txt
-Ripple: ready
+```bash
+ripple ci --base origin/main --intent latest --github-annotations
 ```
 
-Provides:
+Ripple emits annotations for drift and exits non-zero when work should not merge.
 
-- Impact Lens sidebar
-- File dependency context
-- Reverse importer context
-- CodeLens caller counts above exported functions
-- Safety Check before commits
-- Blast radius warnings
-- Copy Agent Prompt for file context
-- Setup panel for AGENTS.md, CLAUDE.md, or `.cursorrules`
+## Local Files
 
----
-
-## Core — `@getripple/core`
-
-The pure Node.js engine used by CLI and MCP.
-
-Most users should not start here.
-
-Use `@getripple/core` when building custom integrations.
-
-```ts
-import { GraphEngine } from "@getripple/core";
-
-const engine = new GraphEngine(process.cwd());
-
-try {
-  await engine.initialScan();
-
-  const importers = engine.downstreamFiles("src/auth.ts");
-  const blastRadius = engine.blastRadius(["src/auth.ts"]);
-
-  console.log({ importers, blastRadius });
-} finally {
-  engine.dispose();
-}
-```
-
----
-
-## Trust Policy
-
-Define repo-level trust defaults in:
-
-```txt
-.ripple/policy.json
-```
-
-Example:
-
-```json
-{
-  "defaultMode": "file",
-  "riskRules": [
-    {
-      "paths": ["src/auth/**", "src/security/**"],
-      "risk": "high",
-      "requireHumanBeforeEdit": true,
-      "requireHumanBeforeMerge": true
-    },
-    {
-      "paths": ["src/payments/**", "migrations/**"],
-      "risk": "critical",
-      "requireHumanBeforeEdit": true,
-      "requireHumanBeforeDeploy": true
-    },
-    {
-      "paths": ["docs/**"],
-      "risk": "low",
-      "allowPrMode": true
-    }
-  ]
-}
-```
-
-`ripple plan` reads the policy, applies the matching rule, and includes `policyExplanation` in agent output.
-
-If the policy changes after an intent is saved, Ripple reports `policyDrift` and requires human review before continuing.
-
----
-
-## Generated Files
-
-Ripple keeps durable audit state in `.ripple/` and machine cache in `.ripple/.cache/`.
+Ripple writes workflow state under `.ripple/`.
 
 ```txt
 .ripple/
-  history.json                   structural changes since install
-  policy.json                    repo trust defaults
+  policy.json
+  history.json
   intents/
-    latest.json                  most recently saved change intent
+    latest.json
   approvals/
-    <intent-id>/
-      before-risky-edit.json     recorded human approval
-  .cache/                        gitignore this entire folder
-    graph.cache.json             fast startup cache
-```
-
-Running `ripple workflow` adds the broader context bundle:
-
-```txt
-.ripple/
-  WORKFLOW.md
   .cache/
-    context.json
-    context.files.json
-    context.symbols.json
-    focus/
-      <file>.json
 ```
 
 Recommended `.gitignore`:
@@ -763,229 +386,20 @@ Recommended `.gitignore`:
 .ripple/.cache/
 ```
 
-MCP-capable agents should use `ripple_plan_context` and `ripple_gate` directly rather than reading generated files.
+Commit `policy.json` and CI workflow files if your team wants shared rules.
 
----
-
-## What Ripple Tracks
-
-```txt
-File dependency graph     every import and reverse import
-Symbol and call edges     exported functions and who calls them
-Blast radius              files affected by a change
-Risk signals              dangerous / caution / safe per file
-Focused context           per-file summaries for AI agents
-Change history            structural changes since first install
-Layer classification      logic / ui / handler / state / data / effect
-Framework signals         Next.js, Vite, Turborepo, MobX, Prisma, Tailwind
-Saved change intents      what the agent was allowed to do
-Approval records          human gate decisions tied to intent fingerprints
-Risk explanations         boundary, graph, policy, contract, and verification evidence
-Required actions          what the agent or human must do before continuing
-```
-
----
+Treat intents and approvals as workflow or audit records. Teams can decide whether to commit them.
 
 ## Language Support
 
-| Language                | Status | Tracks                                                                                                  |
-| ----------------------- | ------ | ------------------------------------------------------------------------------------------------------- |
-| TypeScript / JavaScript | Deep   | Imports, exports, symbols, call edges, blast radius, risk, focused context, staged drift                |
-| Python                  | Basic  | Static imports, from-imports, functions, classes, methods, basic call signals, file-level staged checks |
+| Language | Status |
+| --- | --- |
+| TypeScript / JavaScript | Deep support for imports, exports, symbols, callers, staged drift, and blast radius |
+| Python | Basic support for imports, functions, classes, methods, and file-level staged checks |
 
-The strongest current experience is JavaScript and TypeScript.
+Ripple uses static analysis. It can miss runtime-only behavior, dynamic imports, reflection, decorators, generated code, and framework-specific magic.
 
-Python support is basic and improving carefully.
-
-### What works for Python today
-
-Ripple's Python support is intentionally basic, but useful for local agent control:
-
-```txt
-Supported today:
-- discover Python files in the repo
-- parse static imports and from-imports
-- detect functions, classes, and methods
-- build basic file-level dependency signals
-- perform file-level staged checks
-- apply saved file/task boundaries
-- surface risk explanations for changed Python files using policy, boundary, graph, and verification signals
-```
-
-Python support is strongest for clear, static Python code.
-
-```txt
-Use carefully with:
-- dynamic imports
-- runtime monkey-patching
-- decorators that create hidden call paths
-- framework routing that is not visible through static imports
-- generated files
-```
-
-For Python repos, Ripple should be treated as a local boundary/risk signal, not a perfect semantic analyzer.
-
----
-
-## Release Identity
-
-Ripple's official release identity is:
-
-```txt
-Ripple is a local drift-control gate for AI coding agents that plans before edit, checks after edit, catches drift, and tells the agent what to fix.
-```
-
-This identity should stay consistent across the root README, package READMEs, CLI docs, MCP docs, and release metadata.
-
-Run the release identity check before publishing:
-
-```bash
-npm run release:identity
-```
-
----
-
-## Release Proof
-
-Ripple release checks are documented in [`RELEASE.md`](RELEASE.md).
-
-Before publishing Ripple packages, run the agent-control proof:
-
-```bash
-npm run proof:agent-control
-```
-
-Run the package publish-readiness proof:
-
-```bash
-npm run proof:publish-readiness
-```
-
-Run the MCP package install proof:
-
-```bash
-npm run proof:mcp-package-install
-```
-
-Verify release identity before publishing:
-
-```bash
-npm run release:identity
-```
-
-Run the full release check:
-
-```bash
-npm run release:check
-```
-
-Run live npm registry preflight checks before a real publish:
-
-```bash
-npm run release:npm-preflight -- --live
-```
-
-Run the release-check proof:
-
-```bash
-npm run proof:release-check
-```
-
-After publishing, run the live post-publish smoke test:
-
-```bash
-npm run smoke:post-publish -- --live
-```
-
-The full release chain verifies:
-
-```txt
-@getripple/cli
-@getripple/mcp
-agent-control proof
-publish-readiness proof
-MCP package install proof
-release identity proof
-npm live preflight
-release check proof
-post-publish smoke test
-```
-
-## These checks make sure the package identity, documentation, CLI, MCP server, gates, proofs, registry readiness, and release metadata are ready before publishing.
-
-## Validation
-
-Ripple has been tested on a local clone of `sindresorhus/ky`, a real-world TypeScript HTTP library.
-
-For a targeted edit around:
-
-```txt
-source/utils/merge.ts::mergeHeaders
-```
-
-Ripple surfaced a file-level blast radius larger than a direct text search found and marked the edit as dangerous based on importer count.
-
-Full validation:
-
-```txt
-docs/validation.md
-```
-
-This validation does not imply endorsement by the ky project or its maintainers.
-
----
-
-## Known Limitations
-
-Ripple uses static analysis.
-
-It can miss or approximate:
-
-- Dynamic imports
-- Runtime dependency injection
-- Decorator-driven framework behavior
-- Complex aliasing
-- Reflection
-- Generated code
-- Framework routing conventions
-- Runtime-only call paths
-
-```txt
-Ripple gives the agent a better map.
-It does not guarantee the terrain is complete.
-```
-
-Output language is intentionally careful:
-
-```txt
-may affect
-likely used by
-possible blast radius
-```
-
-These are signals, not proofs.
-
----
-
-## What Ripple Is Not
-
-Ripple is not:
-
-```txt
-another coding agent
-a code generator
-a code review replacement
-a test replacement
-a typechecker replacement
-a cloud scanner
-a sandbox
-a full semantic compiler
-a magic AI safety system
-```
-
-Ripple is a local gate that checks whether an AI coding agent stayed inside the work it was trusted to do.
-
----
+Use Ripple as a local control signal, not as perfect semantic truth.
 
 ## Privacy
 
@@ -1001,78 +415,100 @@ No remote model call required.
 
 Your repository is scanned on your machine.
 
-Nothing leaves the local file system by default.
+## Honest Limits
 
----
+Ripple is not:
 
-## Current Status
+- a coding agent
+- a code generator
+- a sandbox
+- a test replacement
+- a typechecker replacement
+- a code review replacement
+- a guarantee that an agent cannot act badly if it ignores the tool
+
+Hooks can be bypassed. CI must be configured. MCP agents must actually call the tools.
+
+Ripple is strongest when agents, hooks, CI, and humans obey the same continue/stop contract.
+
+## Status
 
 Public alpha.
 
-What exists today:
+Stable enough to try:
 
-- Core engine: `@getripple/core`
-- CLI and CI interface: `@getripple/cli`
-- MCP interface: `@getripple/mcp`
-- VS Code extension: `rippleai.ripple`
-- Plan / check / repair workflow with trust boundaries
-- Intent drift detection
-- Boundary drift detection
-- Human approval gates
-- Compact continue / stop gate
-- Risk explanation layer with score, reasons, evidence, and required actions
-- Structural evidence in stop reports
-- Blast-radius proof in gate output
-- MCP risk contract for agents
-- GitHub Actions CI gate with risk summary
-- JavaScript and TypeScript deep support
-- Python basic support
+- CLI plan/check/gate/repair workflow
+- MCP agent workflow
+- Git hook integration
+- GitHub Actions gate
+- JavaScript and TypeScript analysis
+- basic Python analysis
 
-What is still early:
+Still improving:
 
-- Python depth beyond basic imports and symbols
-- Framework-specific intelligence beyond signal detection
-- Perfect semantic accuracy on complex aliasing
-- Product-flow risk intelligence across arbitrary frameworks
-- Code-owner / reviewer routing
-- Team policy tooling at scale
-- Large monorepo tuning
+- Python depth
+- framework-specific adapters
+- test-target mapping
+- large-repo performance
+- team policy workflows
 
----
+## Development Proofs
 
-## Roadmap
+Run the one-command product demo:
 
-Near-term:
+```bash
+npm run demo:agent-control
+```
 
-- Add more risk fixtures for risky paths such as auth, payments, config, infra, and migrations
-- Improve `ripple_plan_context` context ranking quality
-- Strengthen repair action specificity
-- Add more regression fixtures
-- Deepen Python adapter carefully
+Run the agent-control proof suite:
 
-Later:
+```bash
+npm run proof:agent-control
+```
 
-- Framework-specific adapters
-- Better test-target mapping
-- Product-flow impact mapping
-- Code-owner and reviewer routing
-- More language adapters
-- Richer architectural memory over time
-- Stronger team policy workflows
+Run the external install smoke:
 
----
+```bash
+npm run smoke:external-install
+```
+
+Run package readiness checks:
+
+```bash
+npm run proof:publish-readiness
+npm run proof:mcp-package-install
+```
+
+Run release checks:
+
+```bash
+npm run release:check
+```
+
+Review release identity and npm registry readiness:
+
+```bash
+npm run release:identity
+npm run release:npm-preflight -- --live
+```
+
+Run the release-check proof directly:
+
+```bash
+npm run proof:release-check
+```
+
+After publishing, run the live post-publish smoke:
+
+```bash
+npm run smoke:post-publish -- --live
+```
+
+See [RELEASE.md](RELEASE.md) for publish steps.
 
 ## Contributing
 
-Repository:
-
-```txt
-https://github.com/raushankcode/ripple
-```
-
 Issues and pull requests are welcome.
-
-If Ripple misses an import, caller, framework pattern, or staged-change risk, open an issue with a small reproduction.
 
 The most useful reports include:
 
@@ -1081,10 +517,8 @@ minimal repo
 exact command
 expected result
 actual result
-small explanation of the project structure
+small explanation of project structure
 ```
-
----
 
 ## License
 
