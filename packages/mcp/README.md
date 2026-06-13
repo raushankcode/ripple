@@ -1,35 +1,24 @@
 # @getripple/mcp
 
-Plan before edit. Check after edit. Catch drift. Tell the agent what to fix.
+**The agent-facing wire for Ripple's local authorization gate.**
 
-**MCP stdio server for Ripple's local drift-control gate for AI coding agents.**
+`@getripple/mcp` lets MCP-compatible AI coding agents ask Ripple what they are
+allowed to change, record verification evidence, and receive a final
+continue/repair/human-review decision.
 
-`@getripple/mcp` lets MCP-compatible AI coding agents call Ripple directly from inside their workflow.
-
-Use this package when you want an agent to ask Ripple:
+Use this package when you want the agent itself to call Ripple:
 
 ```txt
 What should I read before editing?
-What boundary was approved?
+What boundary is approved?
+What verification is required?
 Did my staged changes drift?
 Can I continue?
 What must I fix?
 ```
 
-Ripple helps agents work inside a human-approved boundary:
-
-```txt
-plan before edit
-save intent
-check after edit
-catch drift
-tell the agent what to fix
-continue / repair / human review
-```
-
-The MCP server is best when the AI agent should call Ripple tools directly.
-
-For terminal, CI, and human-controlled workflows, use `@getripple/cli`.
+For Git hooks, CI, terminal audits, and repository initialization, use
+`@getripple/cli`.
 
 ---
 
@@ -64,40 +53,55 @@ Windows:       C:\\Users\\yourname\\projects\\myapp
 
 No global install is required. `npx` fetches and runs the MCP server.
 
+Before relying on MCP in a repo, initialize the local control layer:
+
+```bash
+npx -y @getripple/cli init
+```
+
 ---
 
 ## Agent Workflow
 
-Use the Ripple MCP tools in this order.
+Agents should use the Ripple MCP tools in this order:
 
 ```txt
-1. Check readiness
-2. Plan before edit
-3. Save the approved intent
-4. Let the agent edit inside the boundary
-5. Check after edit
-6. Catch drift
-7. Tell the agent what to fix
-8. Continue, repair, or ask the human
+1. ripple_doctor
+   Check repo readiness.
+
+2. ripple_plan_context
+   Plan before editing and save the approved intent.
+
+3. Agent edits code
+   Stay inside allowed_files and allowed_symbols.
+
+4. ripple_check_staged or ripple_check_changed
+   Compare the real Git diff against the saved intent.
+
+5. ripple_record_verification
+   Record the result of required tests, typechecks, or manual verification.
+
+6. ripple_gate
+   Get the final continue, repair, human-review, or restore-readiness decision.
+
+7. ripple_repair_intent_drift
+   If the gate stops, get exact repair actions.
 ```
+
+Agent rule:
+
+```txt
+canContinue=true  -> continue only after required verification
+mustStop=true     -> stop and follow fixNow
+needsHuman=true   -> ask the human; do not self-approve
+```
+
+Do not claim Ripple passed unless you called a Ripple MCP tool and the final
+gate allowed the work to continue.
 
 ---
 
-## 1. Check Readiness
-
-Call:
-
-```txt
-ripple_doctor
-```
-
-This checks whether the repo is ready for Ripple's saved-intent workflow.
-
-If the result says `mustStop=true`, fix readiness before editing.
-
----
-
-## 2. Plan Before Edit
+## Plan Before Edit
 
 Call:
 
@@ -109,8 +113,8 @@ Pass:
 
 ```txt
 task
-target file
-control mode
+targetFile
+controlMode
 saveIntent: true
 ```
 
@@ -125,43 +129,52 @@ allowedSymbols
 editableFiles
 verificationTargets
 risk
+policyExplanation
 human gate state
 ```
 
-When `saveIntent: true` is used, Ripple saves the human-approved boundary for later drift checks.
-
-The saved intent becomes the trust boundary for the agent's work.
-
----
-
-## 3. Check After Edit
-
-After the agent edits code and the intended files are staged, call:
-
-```txt
-ripple_check_staged
-```
-
-This compares staged changes against the saved intent and reports:
-
-```txt
-intent drift
-boundary drift
-policy drift
-contract drift
-approval state
-handoff
-```
-
-For changed files against a base branch, call:
-
-```txt
-ripple_check_changed
-```
+When `saveIntent: true` is used, Ripple saves the approved boundary for later
+drift checks.
 
 ---
 
-## 4. Ask the Gate
+## Record Verification
+
+After editing, the agent must run or report the narrowest relevant verification
+target before final handoff when Ripple asks for it.
+
+Call:
+
+```txt
+ripple_record_verification
+```
+
+Example reported evidence:
+
+```txt
+command: npm test -- tests/auth.test.ts
+status: passed
+note: auth retry tests passed after boundary-scoped change
+```
+
+Supported statuses:
+
+```txt
+passed
+failed
+skipped
+unknown
+```
+
+Failed evidence blocks as repair. Skipped or unknown evidence requires human
+review. Stale evidence must be rerun against the current changed files.
+
+After recording verification evidence, call `ripple_gate` again so the final
+decision includes that evidence.
+
+---
+
+## Ask The Gate
 
 Call:
 
@@ -171,13 +184,7 @@ ripple_gate
 
 `ripple_gate` is the compact continue/stop decision.
 
-It answers one question:
-
-```txt
-Can the AI agent continue?
-```
-
-Example:
+Example stop response:
 
 ```json
 {
@@ -190,40 +197,22 @@ Example:
 }
 ```
 
-Agent rule:
+If the agent crossed a function boundary, the gate can return evidence like:
 
 ```txt
-canContinue=true  -> continue only after required verification
-mustStop=true     -> stop and follow fixNow
-needsHuman=true   -> ask the human; do not self-approve
+Allowed:
+  - src/auth.ts::refreshToken
+
+Changed outside boundary:
+  - symbol: src/auth.ts::login
+
+Fix now:
+  - Undo or replan unapproved symbol: src/auth.ts::login
+  - Ask the human to approve a wider boundary before keeping these changes.
 ```
 
----
-
-## 5. Repair Drift
-
-Call:
-
-```txt
-ripple_repair_intent_drift
-```
-
-This tells the agent what to fix.
-
-It may return:
-
-```txt
-which files to unstage
-which symbols to undo
-which contracts to review
-which tests to run
-when to create a wider human-approved intent
-when to ask the human
-```
-
-If the task scope changed, the agent should not silently continue.
-
-It should ask for a wider human-approved intent.
+Ripple does not silently delete code. It stops the workflow and tells the agent
+what must be fixed or when a human must review.
 
 ---
 
@@ -239,6 +228,7 @@ ripple_check_changed           check changed files against a git base ref
 ripple_audit_change            audit a completed change for drift signals
 ripple_gate                    compact continue/stop decision
 ripple_get_approval_status     check whether a human gate is required
+ripple_record_verification     record passed/failed/skipped/unknown verification evidence
 ripple_repair_intent_drift     get repair actions when drift is detected
 ripple_get_focus               focused context for one file
 ripple_get_blast_radius        files that depend on a target file
@@ -248,116 +238,32 @@ ripple_get_recent_changes      recent architectural changes from history
 
 ---
 
-## Example Agent Loop
-
-A safe AI-agent workflow should look like this:
-
-```txt
-1. Call ripple_doctor
-2. Call ripple_plan_context with saveIntent=true
-3. Read only the suggested context
-4. Edit only inside the approved boundary
-5. Stage the intended changes
-6. Call ripple_check_staged
-7. Call ripple_gate
-8. Continue, repair, or stop based on the gate
-```
-
-If `mustStop=true`, the agent must stop.
-
-If `needsHuman=true`, the agent must ask the human.
-
-If `canContinue=true`, the agent may continue only after required verification passes.
-
----
-
 ## Trust Boundaries
 
-Ripple saves the freedom level the agent was given before editing and checks whether the agent stayed inside it after editing.
+Ripple saves the freedom level the agent was given before editing and checks
+whether the agent stayed inside it after editing.
 
-Supported control modes:
-
-| Mode         | Boundary                                     |
-| ------------ | -------------------------------------------- |
-| `brainstorm` | No edits allowed. Suggest and explain only.  |
-| `function`   | Only the approved symbol may change.         |
-| `file`       | Only the selected file may change.           |
-| `task`       | Files in the saved task plan may change.     |
-| `pr`         | Full task scope. Human reviews before merge. |
+| Mode | Agent is allowed to |
+| --- | --- |
+| `brainstorm` | Suggest and explain only. No edits. |
+| `function` | Edit only the approved symbol. |
+| `file` | Edit only the approved file. |
+| `task` | Edit files in the saved task plan. |
+| `pr` | Complete low-risk PR work for human review before merge. |
 
 Example function boundary:
 
 ```txt
-file: src/auth.ts
-symbol: refreshToken
-mode: function
+tool: ripple_plan_context
 task: fix retry behavior
+targetFile: src/auth.ts
+symbol: refreshToken
+controlMode: function
 saveIntent: true
 ```
 
-If `function` mode approves only `refreshToken` but the agent also changes `login`, Ripple stops the workflow and tells the agent what to fix.
-
----
-
-## Gate Decisions
-
-`ripple_gate` returns the decision an agent should obey.
-
-Possible decisions include:
-
-```txt
-continue
-repair
-human-review
-restore-readiness
-```
-
-Example stop decision:
-
-```txt
-STOP: agent crossed approved function boundary.
-
-Allowed:
-- src/auth.ts::refreshToken
-
-Changed outside boundary:
-- src/auth.ts::login
-
-Fix:
-- undo src/auth.ts::login
-- or create a wider human-approved intent
-```
-
-Machine-readable output includes:
-
-```json
-{
-  "status": "closed",
-  "decision": "human-review",
-  "canContinue": false,
-  "mustStop": true,
-  "needsHuman": true,
-  "why": ["Changed symbol outside approved boundary: src/auth.ts::login"],
-  "fixNow": ["Undo src/auth.ts::login or replan with human approval."]
-}
-```
-
----
-
-## Run Manually
-
-Run without installing:
-
-```bash
-npx -y @getripple/mcp --workspace /absolute/path/to/your/repo
-```
-
-Or install globally:
-
-```bash
-npm install -g @getripple/mcp
-ripple-mcp --workspace /absolute/path/to/your/repo
-```
+If `function` mode approves only `refreshToken` but the agent also changes
+`login`, Ripple stops the workflow and tells the agent what to fix.
 
 ---
 
@@ -365,11 +271,8 @@ ripple-mcp --workspace /absolute/path/to/your/repo
 
 The server communicates over stdio using JSON-RPC.
 
-Only MCP protocol messages are written to stdout.
-
-Non-protocol scan/cache output is kept off stdout so MCP clients can parse responses reliably.
-
-This matters because MCP clients expect clean JSON-RPC messages on stdout.
+Only MCP protocol messages are written to stdout. Non-protocol scan/cache output
+is kept off stdout so MCP clients can parse responses reliably.
 
 ---
 
@@ -396,25 +299,13 @@ ignore: .ripple/.cache/
 
 `.ripple/.cache/` is machine cache.
 
-Policy, history, intents, and approvals are durable workflow/audit state.
-
 ---
 
 ## CLI Relationship
 
 The MCP package is for agents.
 
-The CLI package is for humans, terminals, scripts, and CI.
-
-Use CLI when you want:
-
-```txt
-manual commands
-CI gates
-local terminal workflows
-release proofs
-human-controlled checks
-```
+The CLI package is for humans, terminals, hooks, scripts, and CI.
 
 Use MCP when you want:
 
@@ -423,28 +314,31 @@ agents to call Ripple directly
 structured tool responses
 stdio JSON-RPC protocol
 agent-readable handoff decisions
+verification evidence recorded into the saved intent
+```
+
+Use CLI when you want:
+
+```txt
+repo initialization
+Git hook enforcement
+CI gates
+local terminal workflows
+release proofs
+human-controlled checks
 ```
 
 ---
 
 ## Language Support
 
-Strongest today:
+| Language | Status |
+| --- | --- |
+| TypeScript / JavaScript | Deep support for imports, exports, symbols, callers, staged drift, and blast radius |
+| Python | Basic support for imports, functions, classes, methods, and file-level staged checks |
 
-```txt
-JavaScript
-TypeScript
-```
-
-Basic support:
-
-```txt
-Python imports
-Python functions
-Python classes
-Python methods
-file-level staged checks
-```
+Ripple uses static analysis. It can miss runtime-only behavior, dynamic imports,
+reflection, decorators, generated code, and framework-specific magic.
 
 ---
 
@@ -453,37 +347,27 @@ file-level staged checks
 Ripple runs locally.
 
 ```txt
-No account required
-No telemetry
-No cloud indexing
-No code upload
-No remote model call required
+No account required.
+No telemetry.
+No cloud indexing.
+No code upload.
+No remote model call required.
 ```
 
-Your repo is scanned on your machine.
-
-The MCP server does not require sending your code to a cloud service.
+Your repository is scanned on your machine. The MCP server does not require
+sending your code to a cloud service.
 
 ---
 
-## Status
+## Honest Limits
 
-Public alpha.
+Ripple is deterministic infrastructure, not a magical AI wrapper.
 
-Ripple is a local signal and gate.
-
-It is not:
-
-```txt
-a sandbox
-a test replacement
-a typechecker replacement
-a code review replacement
-a CI replacement
-a human judgment replacement
-```
-
-Ripple helps an agent know whether it stayed inside the work it was trusted to do.
+- Ripple is not a coding agent.
+- Ripple is not a sandbox.
+- Ripple relies on agents actually calling the MCP tools.
+- Ripple uses static analysis.
+- Ripple does not replace your compiler, test suite, code review, or judgment.
 
 ---
 

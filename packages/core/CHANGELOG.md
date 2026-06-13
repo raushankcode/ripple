@@ -1,5 +1,32 @@
 # @getripple/core Changelog
 
+## [1.0.9] - 2026-06-13
+
+### Changed
+- Align core package documentation with Ripple's local authorization-gate positioning.
+- Clarify the Trust Boundary Contract and Authorization Gate Contract while preserving the technical `GraphEngine` integration guidance.
+- Update package metadata language for npm users building custom integrations.
+
+## [1.0.8] - 2026-06-09
+
+### Fixed
+- Record `.ripple/history.json` events during cached `GraphEngine` scans so changed files still produce semantic history.
+- Preserve architectural memory for changed symbols, imports, and calls through events such as `symbol_modified`, `symbol_created`, `symbol_deleted`, `import_added`, `import_removed`, `call_added`, and `call_removed`.
+- Add regression coverage proving cached scans record history after a real file change.
+
+### Validation
+- Confirm real-repo graph and symbol discovery on a local clone of `sindresorhus/ky`, including high-impact files with broad importer counts.
+
+## [1.0.7] - 2026-06-08
+
+### Added
+- Add structured risk summaries with level, score, summary, reasons, evidence, affected files/symbols, and required actions.
+- Add graph-backed risk evidence from saved intents, boundary drift, blast radius, policy risk, public contracts, and verification targets.
+- Add shared risk contracts used by CLI, MCP, and CI gate outputs.
+
+### Changed
+- Make gate evidence more explicit so downstream interfaces can explain why an agent may continue, must repair, or needs human review.
+
 ## [1.0.6] - 2026-06-07
 
 ### Fixed

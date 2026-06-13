@@ -1,8 +1,8 @@
 # @getripple/core
 
-**Core engine for Ripple's local drift-control system for AI coding agents.**
+**Core engine for Ripple's local authorization gate for AI coding agents.**
 
-`@getripple/core` scans repositories, builds local dependency intelligence, tracks architectural relationships, records approved work boundaries, and powers Ripple's CLI, MCP server, CI integrations, and editor experiences.
+`@getripple/core` scans repositories, builds local dependency intelligence, tracks architectural relationships, records approved work boundaries, compares those boundaries against Git diffs, and powers Ripple's CLI, MCP server, CI integrations, and editor experiences.
 
 Most users should start with:
 
@@ -79,7 +79,7 @@ What was approved?
 
 What changed?
 
-Did the agent drift?
+Did the agent cross the approved boundary?
 
 Can the agent continue?
 
@@ -115,67 +115,73 @@ trust-boundary validation
 
 drift detection
 
-continue / stop gate summaries
+authorization gate summaries
 ```
 
 These capabilities power the Ripple workflow:
 
 ```txt
-plan work
+policy defines sensitive areas
 
-save intent
+intent defines what is approved now
 
-agent edits code
+Git diff shows what actually changed
 
-check changes
-
-detect drift
-
-repair or review
-
-continue safely
+gate decides continue, repair, or human review
 ```
 
 ---
 
-## Trust Boundary Contract
+## Trust Boundary Contract / Authorization Gate Contract
 
 The Trust Boundary Contract is the core safety model used throughout Ripple.
+It defines what an AI coding agent is authorized to change for the current task.
+
+The Authorization Gate Contract is the decision layer built from that trust
+boundary. It compares the approved boundary with the actual Git diff and decides
+whether work may continue, must be repaired, or needs human review.
 
 Ripple compares:
 
 ```txt
-planned work
+approved intent
 ```
 
-against
+against:
 
 ```txt
-actual changes
+actual Git diff
 ```
 
-to determine whether an AI coding agent stayed within the work it was trusted to perform.
+to determine whether an AI coding agent stayed inside the work it was trusted to perform.
 
-The Trust Boundary Contract consists of:
+The contract consists of:
 
 ```txt
-planned work       -> what the human approved
+policy            -> permanent repo trust rules
 
-approved boundary  -> file, function, task, brainstorm, or PR scope
+intent            -> temporary approved boundary for the current task
 
-actual changes     -> what the agent modified
+approved boundary -> file, function, task, brainstorm, or PR scope
 
-drift result       -> whether the agent left the approved work
+actual changes    -> what the agent modified
 
-gate decision      -> continue, repair, human-review, or restore-readiness
+drift result      -> whether the agent left the approved work
+
+gate decision     -> continue, repair, human-review, or restore-readiness
 ```
 
-The Trust Boundary Contract enables Ripple to:
+Together, the Trust Boundary Contract and Authorization Gate Contract enable
+Ripple to:
 
 ```txt
 detect intent drift
 
 detect boundary drift
+
+detect policy drift
+
+track verification evidence
 
 require repair
 
@@ -197,6 +203,10 @@ CI systems
 
 automation pipelines
 ```
+
+Ripple does not silently delete code. It gives the surrounding CLI, MCP, hook,
+or CI layer enough evidence to decide whether work may continue or must stop for
+repair or human review.
 
 ---
 
@@ -303,7 +313,7 @@ The most stable public contracts are:
 @getripple/mcp
 ```
 
-Core APIs may evolve as Ripple's graph, context, drift-control, and approval systems mature.
+Core APIs may evolve as Ripple's graph, context, authorization-gate, and approval systems mature.
 
 ---
 
@@ -327,7 +337,7 @@ a sandbox
 a compiler
 ```
 
-Instead, it is the local intelligence engine that helps Ripple determine whether an AI coding agent remained inside the work it was trusted to perform.
+Instead, it is the local intelligence engine that helps Ripple determine whether an AI coding agent remained inside the work it was authorized to perform.
 
 ---
 

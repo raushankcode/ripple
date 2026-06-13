@@ -1,5 +1,30 @@
 # @getripple/cli Changelog
 
+## [1.0.9] - 2026-06-13
+
+### Changed
+- Reframe the CLI package as the human, Git hook, and CI enforcer for Ripple's local authorization gate.
+- Lead npm users toward `ripple init`, hook enforcement, CI gating, and debugging commands instead of presenting manual planning as the normal workflow.
+- Update package metadata to depend on `@getripple/core@^1.0.9`.
+
+## [1.0.8] - 2026-06-09
+
+### Validation
+- Manually validated the CLI on a local clone of `sindresorhus/ky` for saved intents, file-boundary drift, risk explanations, blast-radius evidence, repair handoff, policy-based human approval, CI blocking, and GitHub annotations.
+
+### Fixed
+- Consume the core history fix so CLI scan and gate workflows preserve architectural history after cached scans.
+
+## [1.0.7] - 2026-06-08
+
+### Added
+- Show risk level, score, summary, reasons, evidence, affected files/symbols, and required actions in `ripple gate` output.
+- Add JSON gate risk fields for automation, CI, and agent workflows.
+- Add golden CLI proofs for compact STOP output and evidence-backed gate decisions.
+
+### Changed
+- Make CLI gate output explain crossed trust boundaries with direct allowed-vs-changed evidence.
+
 ## [1.0.6] - 2026-06-07
 
 ### Fixed

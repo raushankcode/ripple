@@ -17,8 +17,9 @@ const packages = [
       "npm install @getripple/core",
       "GraphEngine",
       "Trust Boundary Contract",
+      "Authorization Gate Contract",
     ],
-    requiredKeywords: ["ai-agent", "drift-control", "trust-boundaries"],
+    requiredKeywords: ["ai-agent", "authorization-gate", "trust-boundaries"],
   },
   {
     name: "@getripple/cli",
@@ -31,11 +32,11 @@ const packages = [
     requiredFiles: ["package.json", "README.md", "CHANGELOG.md", "dist/index.js", "dist/index.d.ts"],
     requiredReadmeText: [
       "npm install -g @getripple/cli",
-      "npx -y @getripple/cli doctor",
+      "npx -y @getripple/cli init",
       "ripple init",
-      "ripple gate",
+      "ripple ci",
     ],
-    requiredKeywords: ["ai-agent", "cli", "ci", "drift-control"],
+    requiredKeywords: ["ai-agent", "cli", "ci", "authorization-gate"],
   },
   {
     name: "@getripple/mcp",
@@ -58,11 +59,11 @@ const packages = [
     requiredReadmeText: [
       "npx",
       "@getripple/mcp",
-      "ripple-mcp --workspace",
       "ripple_get_agent_workflow",
       "ripple_gate",
+      "ripple_record_verification",
     ],
-    requiredKeywords: ["ai-agent", "mcp", "stdio", "drift-control"],
+    requiredKeywords: ["ai-agent", "mcp", "stdio", "authorization-gate"],
   },
 ];
 

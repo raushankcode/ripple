@@ -55,7 +55,7 @@ Stop and ask me.
 Ripple should own this category:
 
 ```txt
-Local drift control for AI coding agents.
+Local authorization gate for AI coding agents.
 ```
 
 This is narrower and stronger than:
@@ -72,10 +72,10 @@ Ripple is not trying to be the agent.
 Ripple is the local control layer that helps humans and agents understand:
 
 ```txt
-What was planned?
-What changed?
-Did the agent drift?
-Can work continue?
+What was the agent allowed to change?
+What did the agent actually change?
+Did the agent cross the approved boundary?
+May work continue?
 Does a human need to take control?
 ```
 
@@ -84,14 +84,15 @@ Does a human need to take control?
 Use this sentence as the default public promise:
 
 ```txt
-Ripple is a local drift-control gate for AI coding agents that plans before
-edit, checks after edit, catches drift, and tells the agent what to fix.
+Ripple is a local authorization gate for AI coding agents that defines what an
+agent may change, checks the real Git diff, and returns continue, repair, or
+human review.
 ```
 
 Short category form:
 
 ```txt
-Local drift control for AI coding agents.
+Local authorization gate for AI coding agents.
 ```
 
 Human value form:

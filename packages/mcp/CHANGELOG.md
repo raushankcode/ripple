@@ -1,5 +1,30 @@
 # @getripple/mcp Changelog
 
+## [1.0.9] - 2026-06-13
+
+### Changed
+- Reframe the MCP package as the agent-facing wire for Ripple's local authorization gate.
+- Add `ripple_record_verification` to the documented agent workflow so agents record test or verification evidence before the final gate.
+- Update package metadata to depend on `@getripple/core@^1.0.9`.
+
+## [1.0.8] - 2026-06-09
+
+### Validation
+- Manually validated MCP-backed agent workflows against a real `sindresorhus/ky` clone through planning, gate checks, repair handoff, policy-based human approval, and CI-style blocking.
+
+### Fixed
+- Consume the core history fix so MCP scans preserve architectural history after cached graph refreshes.
+
+## [1.0.7] - 2026-06-08
+
+### Added
+- Return evidence-backed risk summaries through MCP gate responses.
+- Add MCP contract coverage for gate risk level, score, reasons, evidence, and required actions.
+- Expose the same continue/repair/human-review language used by CLI and CI.
+
+### Changed
+- Make MCP gate responses easier for AI agents to obey by pairing each stop decision with concrete repair or human-review instructions.
+
 ## [1.0.6] - 2026-06-07
 
 ### Fixed

@@ -29,7 +29,7 @@ It proves:
 - the installed MCP stdio server can run `workflow -> doctor -> plan -> doctor -> gate`
 - all three packages can install together into one clean external repo
 - installed CLI and installed MCP both report the same boundary-crossing stop
-- drift control catches boundary violations
+- authorization gates catch boundary violations
 - human approval gates block and unblock correctly
 - CI speaks the same `continue`, `repair`, `human-review`, and `restore-readiness` language
 - MCP host and MCP stdio speak the same gate language
@@ -65,7 +65,7 @@ This prints the public identity you are about to release.
 Product identity:
 
 ```txt
-Ripple is a local drift-control gate for AI coding agents that plans before edit, checks after edit, catches drift, and tells the agent what to fix.
+Ripple is a local authorization gate for AI coding agents that defines what an agent may change, checks the real Git diff, and returns continue, repair, or human review.
 ```
 
 Package identity:
@@ -113,18 +113,18 @@ Live mode runs read-only npm commands:
 ```bash
 npm whoami
 npm access ls-packages @getripple --json
-npm view @getripple/core@1.0.8 version --json
-npm view @getripple/cli@1.0.8 version --json
-npm view @getripple/mcp@1.0.8 version --json
+npm view @getripple/core@1.0.9 version --json
+npm view @getripple/cli@1.0.9 version --json
+npm view @getripple/mcp@1.0.9 version --json
 ```
 
 Expected result before publishing a new version:
 
 ```txt
 npm whoami succeeds
-@getripple/core@1.0.8 is not found
-@getripple/cli@1.0.8 is not found
-@getripple/mcp@1.0.8 is not found
+@getripple/core@1.0.9 is not found
+@getripple/cli@1.0.9 is not found
+@getripple/mcp@1.0.9 is not found
 ```
 
 Stop if:

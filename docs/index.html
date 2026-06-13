@@ -6,7 +6,7 @@
     <title>Ripple — Local Authorization Gate for AI Coding Agents</title>
     <meta
       name="description"
-      content="Ripple is a local authorization gate for AI coding agents. Save what the agent was allowed to change, compare it with the real Git diff, and stop when the agent crosses the approved boundary." />
+      content="Ripple defines what an AI coding agent is allowed to change, verifies the Git diff, and automatically blocks unapproved architectural drift." />
     <meta name="theme-color" content="#07111d" />
     <link rel="canonical" href="https://raushankcode.github.io/ripple/" />
 
@@ -15,7 +15,7 @@
       content="Ripple — Local Authorization Gate for AI Coding Agents" />
     <meta
       property="og:description"
-      content="Save the approved boundary before edit. Check staged changes after edit. Stop crossed boundaries with evidence." />
+      content="Define boundaries. Let AI code fast. Automatically block unauthorized architectural drift at the Git commit line." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://raushankcode.github.io/ripple/" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -347,7 +347,7 @@
         justify-content: space-between;
         align-items: center;
         gap: 14px;
-        color: var(--muted);
+        color: var(--text);
         font-family: var(--mono);
         font-size: 13px;
       }
@@ -1058,9 +1058,7 @@
             <p class="hero-copy">
               Ripple saves the approved boundary, checks the staged Git diff,
               and stops the workflow when the agent crosses it.
-              <strong
-                >It verifies authorization before work continues.</strong
-              >
+              <strong>It verifies authorization before work continues.</strong>
             </p>
 
             <div class="actions">
@@ -1079,13 +1077,13 @@
 
           <aside class="hero-card" aria-label="Ripple gate example">
             <div class="card-top">
-              <span>ripple gate --intent latest</span>
-              <span class="badge-red">Human review</span>
+              <span style="font-family: var(--mono)"
+                >git commit -m "update auth"</span
+              >
+              <span class="badge-red">Blocked</span>
             </div>
             <div class="card-body">
-              <h2 class="gate-title">
-                Agent crossed the approved boundary.
-              </h2>
+              <h2 class="gate-title">Agent crossed the approved boundary.</h2>
               <div class="gate-contract" aria-label="Ripple gate decision">
                 <div class="contract-pill">
                   <span>Can continue</span>
@@ -1096,29 +1094,19 @@
                   <strong>yes</strong>
                 </div>
               </div>
-              <div class="gate-grid">
-                <div class="gate-box">
-                  <div class="gate-label">Allowed</div>
-                  <div class="gate-value">src/auth.ts::refreshToken</div>
-                </div>
-                <div class="gate-box">
-                  <div class="gate-label">Changed outside</div>
-                  <div class="gate-value">src/auth.ts::login</div>
-                </div>
+              <div
+                class="fix"
+                style="margin-top: 24px; border: none; padding: 0">
+                <strong>Patch Scope:</strong> Changed unapproved symbol
+                <code>src/auth.ts::login</code>.
               </div>
-              <div class="fix">
-                <strong>Risk:</strong> CRITICAL because the agent changed an
-                unapproved symbol in auth code. Evidence: function boundary
-                crossed, protected path touched, human gate required.
-              </div>
-              <div class="fix">
-                <strong>Fix now:</strong> undo the unapproved
-                <code>login</code> change, or create a wider human-approved
-                intent before continuing.
+              <div class="fix" style="border: none; padding-top: 8px">
+                <strong>Behavior Scope:</strong> Public contract altered. 27
+                downstream callers affected.
               </div>
               <div class="evidence">
-                Evidence: <strong>function mode</strong> allowed one symbol; the
-                staged diff changed a second symbol.
+                <strong>Required:</strong> Undo unauthorized changes OR
+                authorize a wider scope intent via MCP.
               </div>
             </div>
           </aside>
@@ -1204,12 +1192,12 @@
       <section id="risk">
         <div class="container">
           <div class="section-head">
-            <div class="kicker">Risk explanation layer</div>
-            <h2>Not just “stop.” Ripple shows why the boundary mattered.</h2>
+            <div class="kicker">Actionable Evidence</div>
+            <h2>Not just “stop.” Ripple outputs a Review Packet.</h2>
             <p class="section-copy">
-              If the agent crosses the approved task, Ripple surfaces a risk
-              score, concrete reasons, evidence, and required actions for both
-              humans and agents.
+              If the agent crosses the approved task, Ripple halts the commit
+              and surfaces concrete verification targets, out-of-bounds files,
+              and required actions.
             </p>
           </div>
 
@@ -1218,130 +1206,35 @@
               <span class="circle r"></span>
               <span class="circle y"></span>
               <span class="circle g"></span>
-              <span class="term-title">ripple gate --intent latest</span>
+              <span class="term-title">git commit -m "update auth"</span>
             </div>
-            <pre><span class="bad">Decision: human-review</span>
-<span class="bad">Risk: CRITICAL 100/100</span>
+            <pre><span class="bad">❌ [RIPPLE STOP] Commit blocked by Ripple active-intent boundary.</span>
 
-Why this is risky:
-  - boundary-crossed: changed src/auth.ts::login outside approval
-  - policy-rule: auth path is high risk for agent autonomy
-  - blast-radius: downstream importers may be affected
-  - public-contract: exported symbols may affect callers
+Decision: human-review
+Can continue: no
+Must stop: yes
 
-Evidence:
-  - allowed symbol: src/auth.ts::refreshToken
-  - changed outside boundary: src/auth.ts::login
-  - direct importers may be affected
+Review packet:
+  protocol: ripple-review-packet
+  task: fix retry behavior
+  declared scope: function src/auth.ts
+  human gate: required-before-edit
+  changed files
+    - src/auth.ts
+  outside boundary symbols
+    - src/auth.ts::login
+  reviewer notes
+    - Function scope crossed: review changed symbols outside the declared boundary.
+    - Verification evidence is required before handoff.
 
-Required:
-  - undo the outside-boundary change
-  - or create a wider human-approved intent
-  - review downstream callers/importers
-  - run verification targets</pre>
+Required Actions:
+  - Undo or replan unapproved symbol: src/auth.ts::login
+  - Ask the human to approve a wider boundary before keeping these changes.</pre>
           </div>
         </div>
       </section>
 
-      <section id="install">
-        <div class="container grid-2">
-          <div>
-            <div class="section-head">
-              <div class="kicker">60-second start</div>
-              <h2>Run Ripple inside any repo.</h2>
-              <p class="section-copy">
-                Start with the CLI. Use MCP when you want an AI agent to call
-                Ripple directly.
-              </p>
-            </div>
-          </div>
-
-          <div class="terminal">
-            <div class="term-bar">
-              <span class="circle r"></span>
-              <span class="circle y"></span>
-              <span class="circle g"></span>
-              <span class="term-title">quickstart.sh</span>
-            </div>
-            <pre><span class="cmd">npx -y @getripple/cli init</span>
-
-<span class="cmd">npx -y @getripple/cli plan \</span>
-  --file src/auth.ts \
-  --symbol refreshToken \
-  --task "fix retry behavior" \
-  --mode function \
-  --agent \
-  --save
-
-<span class="dim"># let your AI coding agent edit</span>
-<span class="cmd">git add src/auth.ts</span>
-
-<span class="cmd">npx -y @getripple/cli gate --intent latest</span>
-<span class="ok">CONTINUE</span> <span class="dim">or</span> <span class="bad">HUMAN REVIEW</span></pre>
-          </div>
-        </div>
-      </section>
-
-      <section id="workflow" class="split">
-        <div class="container workflow">
-          <div class="section-head">
-            <div class="kicker">Workflow</div>
-            <h2>Plan. Edit. Gate. Repair.</h2>
-            <p class="section-copy">
-              Ripple is not another coding agent. It is the local control loop
-              around coding agents.
-            </p>
-          </div>
-
-          <div class="steps">
-            <div class="step">
-              <div class="num">1</div>
-              <div>
-                <strong>Plan before editing</strong>
-                <span
-                  >Capture the task, target file, symbol, risk, verification
-                  targets, and human gate.</span
-                >
-              </div>
-            </div>
-
-            <div class="step">
-              <div class="num">2</div>
-              <div>
-                <strong>Save the intent</strong>
-                <span
-                  >The saved intent becomes the boundary Ripple uses later to
-                  judge the agent’s work.</span
-                >
-              </div>
-            </div>
-
-            <div class="step">
-              <div class="num">3</div>
-              <div>
-                <strong>Let the agent edit</strong>
-                <span
-                  >Use Claude Code, Codex, Cursor, Copilot-style agents, local
-                  agents, or your own workflow.</span
-                >
-              </div>
-            </div>
-
-            <div class="step">
-              <div class="num">4</div>
-              <div>
-                <strong>Check after edit</strong>
-                <span
-                  >Ripple compares staged changes against the saved task and
-                  approved trust boundary.</span
-                >
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="gate">
+      <section id="gate" class="split">
         <div class="container">
           <div class="section-head">
             <div class="kicker">Trust boundaries</div>
@@ -1398,7 +1291,104 @@ Required:
         </div>
       </section>
 
-      <section id="interfaces" class="split">
+      <section id="workflow">
+        <div class="container workflow">
+          <div class="section-head">
+            <div class="kicker">Workflow</div>
+            <h2>The Automated System Loop.</h2>
+            <p class="section-copy">
+              Ripple is not another coding agent. It is the invisible
+              infrastructure around coding agents.
+            </p>
+          </div>
+
+          <div class="steps">
+            <div class="step">
+              <div class="num">1</div>
+              <div>
+                <strong>Policy is Permanent</strong>
+                <span
+                  >You lock down critical paths (e.g., Auth, DB) once in
+                  <code>.ripple/policy.json</code>.</span
+                >
+              </div>
+            </div>
+
+            <div class="step">
+              <div class="num">2</div>
+              <div>
+                <strong>AI Plans (MCP)</strong>
+                <span
+                  >The agent autonomously requests an ephemeral boundary via MCP
+                  before it edits.</span
+                >
+              </div>
+            </div>
+
+            <div class="step">
+              <div class="num">3</div>
+              <div>
+                <strong>AI Edits Code</strong>
+                <span>The agent writes code normally in your editor.</span>
+              </div>
+            </div>
+
+            <div class="step">
+              <div class="num">4</div>
+              <div>
+                <strong>Git Enforces</strong>
+                <span
+                  >A local pre-commit hook mathematically verifies the staged
+                  diff against the AI's intent.</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="install" class="split">
+        <div class="container grid-2">
+          <div>
+            <div class="section-head">
+              <div class="kicker">Zero-Friction Setup</div>
+              <h2>Install once. Code normally.</h2>
+              <p class="section-copy">
+                Ripple runs entirely in the background. Connect your agent and
+                go back to coding.
+              </p>
+            </div>
+          </div>
+
+          <div class="terminal">
+            <div class="term-bar">
+              <span class="circle r"></span>
+              <span class="circle y"></span>
+              <span class="circle g"></span>
+              <span class="term-title">terminal</span>
+            </div>
+            <pre><span class="dim"># 1. Initialize policy and Git hooks</span>
+<span class="cmd">npx -y @getripple/cli init</span>
+<span class="ok">✓ Policy created: .ripple/policy.json</span>
+<span class="ok">✓ MCP Rules: .cursorrules updated</span>
+<span class="ok">✓ Hooks installed: pre-commit, post-commit</span>
+
+<span class="dim"># 2. Add MCP to Cursor / Claude</span>
+<span class="cmd">"mcpServers": {
+  "ripple": {
+    "command": "npx",
+    "args": ["-y", "@getripple/mcp", "--workspace", "/repo"]
+  }
+}</span>
+
+<span class="dim"># 3. Code normally. The Git hook verifies the AI's work.</span>
+<span class="cmd">git commit -m "fix auth"</span>
+<span class="ok">[RIPPLE PASS] Staged changes match saved intent.</span></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="interfaces">
         <div class="container">
           <div class="section-head">
             <div class="kicker">Interfaces</div>
@@ -1414,8 +1404,8 @@ Required:
               <div class="icon">CLI</div>
               <h3>@getripple/cli</h3>
               <p>
-                Terminal and CI interface for planning, checking, repairing, and
-                running the gate.
+                The human, hook, and CI enforcer. Powers pre-commit hooks and
+                GitHub Actions.
               </p>
               <div style="margin-top: 16px" class="terminal">
                 <pre><span class="cmd">npx -y @getripple/cli init</span></pre>
@@ -1449,7 +1439,7 @@ Required:
         </div>
       </section>
 
-      <section id="proof">
+      <section id="proof" class="split">
         <div class="container">
           <div class="section-head">
             <div class="kicker">Proof and status</div>
@@ -1480,23 +1470,23 @@ Required:
               </div>
               <pre><span class="cmd">npm run proof:agent-control</span>
 <span class="ok">✓ init proof</span>
-<span class="ok">✓ drift-control proof</span>
+<span class="ok">✓ authorization-gate proof</span>
 <span class="ok">✓ approval-control proof</span>
 <span class="ok">✓ agent-handoff proof</span>
 <span class="ok">✓ ci-gate proof</span>
 <span class="ok">✓ mcp-gate proof</span>
-<span class="ok">✓ risk explanation proof</span>
+<span class="ok">✓ review packet proof</span>
 <span class="ok">✓ blast-radius proof</span></pre>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="split">
+      <section>
         <div class="container compare">
           <article class="card">
             <div class="kicker">What Ripple is</div>
-            <h2 style="font-size: 32px">A local gate around agent work.</h2>
+            <h2 style="font-size: 32px">Deterministic infrastructure.</h2>
             <ul class="list">
               <li>
                 <span class="yes">✓</span
@@ -1505,8 +1495,8 @@ Required:
               <li>
                 <span class="yes">✓</span
                 ><span
-                  >Risk explanations with reasons, evidence, and required
-                  actions</span
+                  >Actionable Review Packets (concrete evidence over
+                  scores)</span
                 >
               </li>
               <li>
@@ -1516,7 +1506,8 @@ Required:
               <li>
                 <span class="yes">✓</span
                 ><span
-                  >Local-first signals for AI coding agents and humans</span
+                  >Standard Git hooks (Humans can intentionally bypass via
+                  <code>--no-verify</code>)</span
                 >
               </li>
             </ul>
@@ -1524,24 +1515,24 @@ Required:
 
           <article class="card">
             <div class="kicker">What Ripple is not</div>
-            <h2 style="font-size: 32px">Not magic correctness.</h2>
+            <h2 style="font-size: 32px">Not magic AI safety.</h2>
             <ul class="list">
               <li>
                 <span class="no">×</span
-                ><span>Not a coding agent or code review replacement</span>
+                ><span>Not a coding agent or code generator</span>
               </li>
               <li>
                 <span class="no">×</span
                 ><span
-                  >Not a sandbox, typechecker, test suite, or CI
-                  replacement</span
+                  >Not a sandbox (Does not block file-system writes in
+                  real-time)</span
                 >
               </li>
               <li>
                 <span class="maybe">!</span
                 ><span
-                  >Static analysis gives useful signals, not perfect semantic
-                  truth</span
+                  >Static analysis provides strong signals, but misses dynamic
+                  imports/reflection</span
                 >
               </li>
             </ul>
@@ -1549,7 +1540,7 @@ Required:
         </div>
       </section>
 
-      <section>
+      <section class="split">
         <div class="container grid-3">
           <article class="card">
             <div class="icon">JS</div>
@@ -1580,14 +1571,14 @@ Required:
         </div>
       </section>
 
-      <section class="final-cta split">
+      <section class="final-cta">
         <div class="container">
-          <h2>Give your AI coding agent a local boundary and risk gate.</h2>
+          <h2>Give your AI coding agent a local authorization gate.</h2>
           <p>
-            Ripple saves what the agent was trusted to do, checks what it
-            actually changed, and explains the risk before work continues or
-            merges. Start with the CLI, connect the MCP server, or install the
-            VS Code extension.
+            Ripple defines what the agent was authorized to do, checks what it
+            actually changed, and blocks unapproved drift before work merges.
+            Start with the CLI, connect the MCP server, or install the VS Code
+            extension.
           </p>
           <div class="actions" style="justify-content: center">
             <a class="btn btn-primary" href="#install">↯ Start with CLI</a>

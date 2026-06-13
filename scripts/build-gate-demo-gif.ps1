@@ -1,6 +1,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Legacy mock renderer. Prefer `npm run demo:gif`, which uses VHS to record
+# real Ripple CLI output from docs/ripple-gate-demo.tape.
+
 Add-Type -AssemblyName System.Drawing
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -110,24 +113,6 @@ function Draw-TerminalChrome($graphics, [float]$x, [float]$y, [float]$w, [float]
   $pen.Dispose()
 }
 
-function Draw-StepRail($graphics, [int]$activeIndex, [float]$x, [float]$y, [float]$w) {
-  $labels = @("PLAN", "EDIT", "GATE", "REPAIR")
-  $gap = $w / 4
-  for ($i = 0; $i -lt 4; $i++) {
-    $active = $i -eq $activeIndex
-    $color = if ($active) { $cyan } else { $muted2 }
-    $brush = New-Object System.Drawing.SolidBrush $color
-    $graphics.FillEllipse($brush, ($x + ($gap * $i) + 26), $y, 7, 7)
-    $brush.Dispose()
-    Draw-Line $graphics $labels[$i] $fontMicro $color ($x + ($gap * $i) + 40) ($y - 3) 62
-    if ($i -lt 3) {
-      $pen = New-Object System.Drawing.Pen (Color-Argb 75 $muted2.R $muted2.G $muted2.B), 1
-      $graphics.DrawLine($pen, ($x + ($gap * $i) + 96), ($y + 3), ($x + ($gap * ($i + 1)) + 18), ($y + 3))
-      $pen.Dispose()
-    }
-  }
-}
-
 function Draw-PanelShell($graphics, [int]$index, [int]$activeIndex, [float]$x, [float]$y, [float]$w, [float]$h, [string]$number, [string]$title, [string]$status, $statusColor, [string]$subtitle) {
   $isActive = $index -eq $activeIndex
   $baseBrush = New-Object System.Drawing.SolidBrush $panel
@@ -155,21 +140,21 @@ function Draw-PanelShell($graphics, [int]$index, [int]$activeIndex, [float]$x, [
 
 function Draw-PlanPanel($graphics, [int]$activeIndex) {
   $x = 24; $y = 58; $w = 526; $h = 250
-  Draw-PanelShell $graphics 0 $activeIndex $x $y $w $h "1" "PLAN BOUNDARY" "INTENT SAVED" $cyan "A human approves exactly one function before the agent edits."
+  Draw-PanelShell $graphics 0 $activeIndex $x $y $w $h "1" "AI PLANS VIA MCP" "INTENT SAVED" $cyan "The AI agent requests a working boundary before it edits."
   Draw-TerminalChrome $graphics ($x + 22) ($y + 88) ($w - 44) 148
   $tx = $x + 38; $ty = $y + 125
-  Draw-Line $graphics '$ ripple plan --file src/auth.ts \' $fontCode $text $tx $ty 430
-  Draw-Line $graphics '  --symbol refreshToken --mode function --save' $fontCode $text $tx ($ty + 17) 430
-  Draw-Line $graphics 'control_mode:        function' $fontCode $cyan $tx ($ty + 38) 210
-  Draw-Line $graphics 'allowed_symbol:      src/auth.ts::refreshToken' $fontCode $green $tx ($ty + 55) 370
-  Draw-Line $graphics 'human_gate:          required-before-edit' $fontCode $muted $tx ($ty + 72) 330
-  Draw-Line $graphics 'risk:                high' $fontCode $amber $tx ($ty + 89) 230
-  Draw-Line $graphics 'intent:              latest' $fontCode $muted $tx ($ty + 106) 250
+  Draw-Line $graphics '> Tool call: ripple_plan_context' $fontCodeBold $text $tx $ty 430
+  Draw-Line $graphics '  "task": "fix retry behavior"' $fontCode $cyan $tx ($ty + 17) 430
+  Draw-Line $graphics '  "targetFile": "src/auth.ts"' $fontCode $cyan $tx ($ty + 34) 430
+  Draw-Line $graphics '  "saveIntent": true' $fontCode $cyan $tx ($ty + 51) 430
+
+  Draw-Line $graphics '[Ripple] Intent saved.' $fontCodeBold $green $tx ($ty + 75) 430
+  Draw-Line $graphics 'Boundary: function (refreshToken)' $fontCode $muted $tx ($ty + 92) 430
 }
 
 function Draw-EditPanel($graphics, [int]$activeIndex) {
   $x = 570; $y = 58; $w = 506; $h = 250
-  Draw-PanelShell $graphics 1 $activeIndex $x $y $w $h "2" "AGENT EDITS CODE" "CHANGES STAGED" $muted "The agent fixes the approved function, then drifts into another one."
+  Draw-PanelShell $graphics 1 $activeIndex $x $y $w $h "2" "AGENT EDITS CODE" "CHANGES STAGED" $muted "The agent fixes the approved function, then hallucinates out of bounds."
   Draw-TerminalChrome $graphics ($x + 18) ($y + 88) 318 148
   $tx = $x + 34; $ty = $y + 126
   Draw-Line $graphics '# Agent edited src/auth.ts' $fontCode $muted $tx $ty 250
@@ -195,58 +180,44 @@ function Draw-EditPanel($graphics, [int]$activeIndex) {
 
 function Draw-GatePanel($graphics, [int]$activeIndex) {
   $x = 24; $y = 326; $w = 526; $h = 252
-  Draw-PanelShell $graphics 2 $activeIndex $x $y $w $h "3" "RIPPLE GATE" "HUMAN REVIEW" $red "Ripple compares the staged diff to the saved authorization boundary."
+  Draw-PanelShell $graphics 2 $activeIndex $x $y $w $h "3" "GIT HOOK ENFORCES" "COMMIT BLOCKED" $red "Ripple's pre-commit hook automatically intercepts the drift."
   Draw-TerminalChrome $graphics ($x + 22) ($y + 88) ($w - 44) 142
-  $tx = $x + 38; $ty = $y + 122
-  Draw-Line $graphics '$ ripple gate --intent latest' $fontCode $text $tx $ty 260
-  Draw-Line $graphics 'HUMAN REVIEW REQUIRED' $fontTitle $red $tx ($ty + 27) 260
-  Draw-Line $graphics 'Agent crossed the approved function boundary.' $fontCode $muted $tx ($ty + 48) 340
+  $tx = $x + 38; $ty = $y + 115
+  Draw-Line $graphics '$ git commit -m "update auth"' $fontCode $text $tx $ty 260
 
-  $boxBrush = New-Object System.Drawing.SolidBrush (Color-Rgb 7 16 26)
-  $boxPen = New-Object System.Drawing.Pen (Color-Argb 105 $red.R $red.G $red.B), 1
-  Fill-RoundRect $graphics $boxBrush $tx ($ty + 68) 205 46 6
-  Fill-RoundRect $graphics $boxBrush ($tx + 220) ($ty + 68) 220 46 6
-  Stroke-RoundRect $graphics $boxPen $tx ($ty + 68) 205 46 6
-  Stroke-RoundRect $graphics $boxPen ($tx + 220) ($ty + 68) 220 46 6
-  Draw-Line $graphics "ALLOWED" $fontMicro $green ($tx + 12) ($ty + 79) 80
-  Draw-Line $graphics "auth::refreshToken" $fontCode $green ($tx + 12) ($ty + 96) 170
-  Draw-Line $graphics "CHANGED OUTSIDE" $fontMicro $red ($tx + 232) ($ty + 79) 110
-  Draw-Line $graphics "auth::login" $fontCode $red ($tx + 232) ($ty + 96) 110
-  Draw-Line $graphics 'Fix: undo login or ask human' $fontCodeBold $red $tx ($ty + 116) 330
-  $boxBrush.Dispose()
-  $boxPen.Dispose()
+  Draw-Line $graphics '❌ [RIPPLE STOP] Commit blocked.' $fontCodeBold $red $tx ($ty + 27) 400
+  Draw-Line $graphics 'Review packet:' $fontCode $muted $tx ($ty + 50) 340
+
+  Draw-Line $graphics '  Declared scope: function src/auth.ts' $fontCode $green $tx ($ty + 67) 340
+  Draw-Line $graphics '  Outside boundary symbols:' $fontCode $red $tx ($ty + 84) 340
+  Draw-Line $graphics '    - src/auth.ts::login' $fontCodeBold $red $tx ($ty + 101) 340
 }
 
 function Draw-RepairPanel($graphics, [int]$activeIndex) {
   $x = 570; $y = 326; $w = 506; $h = 252
-  Draw-PanelShell $graphics 3 $activeIndex $x $y $w $h "4" "REPAIR HANDOFF" "STOP UNTIL FIXED" $amber "Ripple tells the agent exactly what to undo or when to ask a human."
+  Draw-PanelShell $graphics 3 $activeIndex $x $y $w $h "4" "REPAIR OR REVIEW" "CONTINUE" $green "The human restores the bad file, or authorizes a wider scope."
   Draw-TerminalChrome $graphics ($x + 18) ($y + 88) ($w - 36) 142
-  $tx = $x + 34; $ty = $y + 122
-  Draw-Line $graphics '$ ripple repair --intent latest' $fontCode $text $tx $ty 290
-  Draw-Line $graphics 'Repair instruction' $fontCodeBold $amber $tx ($ty + 24) 170
-  Draw-Line $graphics '  - undo src/auth.ts::login' $fontCode $amber $tx ($ty + 42) 260
-  Draw-Line $graphics '  - or ask for wider approval' $fontCode $amber $tx ($ty + 59) 270
-  Draw-Line $graphics 'Agent may not continue autonomously.' $fontCode $muted $tx ($ty + 78) 315
-  $continueBrush = New-Object System.Drawing.SolidBrush (Color-Argb 30 $red.R $red.G $red.B)
-  $continuePen = New-Object System.Drawing.Pen (Color-Argb 140 $red.R $red.G $red.B), 1
-  Fill-RoundRect $graphics $continueBrush $tx ($ty + 98) 412 34 6
-  Stroke-RoundRect $graphics $continuePen $tx ($ty + 98) 412 34 6
-  Draw-Line $graphics 'MUST STOP' $fontCodeBold $red ($tx + 14) ($ty + 108) 100
-  Draw-Line $graphics 'human review before continuing' $fontCode $red ($tx + 120) ($ty + 108) 270
-  $continueBrush.Dispose()
-  $continuePen.Dispose()
+  $tx = $x + 34; $ty = $y + 115
+
+  Draw-Line $graphics 'Required Actions:' $fontCode $muted $tx $ty 290
+  Draw-Line $graphics '  - Undo unauthorized change:' $fontCode $muted $tx ($ty + 17) 290
+  Draw-Line $graphics '    `git restore --staged src/auth.ts`' $fontCode $amber $tx ($ty + 34) 400
+
+  Draw-Line $graphics '$ git restore --staged src/auth.ts' $fontCode $text $tx ($ty + 62) 400
+  Draw-Line $graphics '$ git commit -m "update auth"' $fontCode $text $tx ($ty + 79) 400
+  Draw-Line $graphics '✅ [RIPPLE PASS] Changes match intent.' $fontCodeBold $green $tx ($ty + 99) 400
 }
 
 function Draw-Footer($graphics) {
   $items = @(
-    @("LOCAL-FIRST", "No cloud. No uploads."),
-    @("ONE CONTRACT", "CLI, MCP, hooks, CI."),
-    @("AUTHORIZATION GATE", "Allowed vs actual diff."),
-    @("REPAIR HANDOFF", "Tell the agent what to fix.")
+    @("INVISIBLE INFRASTRUCTURE", "No manual CLI chores."),
+    @("ZERO FRICTION", "Git hooks do the work."),
+    @("ACTIONABLE REVIEWS", "Evidence, not arbitrary scores."),
+    @("LOCAL-FIRST", "No code leaves your machine.")
   )
   $x = 64
   for ($i = 0; $i -lt $items.Count; $i++) {
-    Draw-Line $graphics $items[$i][0] $fontMicro $cyan ($x + ($i * 255)) 604 170
+    Draw-Line $graphics $items[$i][0] $fontMicro $cyan ($x + ($i * 255)) 604 220
     Draw-Line $graphics $items[$i][1] $fontBody $muted ($x + ($i * 255)) 621 210
   }
 }
@@ -271,7 +242,7 @@ function New-DemoFrame([int]$activeIndex, [int]$frameInStep) {
   $graphics.FillRectangle($logoBrush, 24, 16, 22, 22)
   $logoBrush.Dispose()
   Draw-Line $graphics "RIPPLE" $fontBrand $text 58 16 170
-  Draw-Line $graphics "LOCAL AUTHORIZATION GATE FOR AI CODING AGENTS" $fontBody $muted 764 20 330
+  Draw-Line $graphics "INVISIBLE AUTHORIZATION GATE FOR AI CODING AGENTS" $fontBody $muted 764 20 330
 
   Draw-PlanPanel $graphics $activeIndex
   Draw-EditPanel $graphics $activeIndex

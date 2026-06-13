@@ -40,23 +40,23 @@ const rootReadmeRequiredText = [
 ];
 
 const landingRequiredText = [
-  "Local drift control",
+  "Local authorization gate",
   "plan before edit",
   "check after edit",
   "catch drift",
 ];
 
 const cliRequiredText = [
-  "Plan before edit. Check after edit. Catch drift. Tell the agent what to fix.",
-  "ripple plan",
-  "ripple check",
+  "local authorization gate",
+  "ripple init",
+  "ripple ci",
   "ripple gate",
 ];
 
 const mcpRequiredText = [
-  "Plan before edit. Check after edit. Catch drift. Tell the agent what to fix.",
+  "local authorization gate",
   "ripple_plan_context",
-  "ripple_check_staged",
+  "ripple_record_verification",
   "ripple_gate",
 ];
 
@@ -105,7 +105,7 @@ function assertPersonaFoundation() {
   );
   assertIncludes(
     persona,
-    "Local drift control for AI coding agents.",
+    "Local authorization gate for AI coding agents.",
     "Product persona",
   );
   assertIncludes(

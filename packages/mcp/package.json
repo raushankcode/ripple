@@ -1,7 +1,7 @@
 {
   "name": "@getripple/mcp",
-  "version": "1.0.8",
-  "description": "MCP stdio server for Ripple's local drift-control gate for AI coding agents.",
+  "version": "1.0.9",
+  "description": "MCP stdio server for Ripple's local authorization gate for AI coding agents.",
   "license": "MIT",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
     "mcp",
     "model-context-protocol",
     "stdio",
-    "drift-control",
+    "authorization-gate",
     "trust-boundaries",
     "codebase",
     "typescript",
@@ -45,7 +45,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@getripple/core": "^1.0.8"
+    "@getripple/core": "^1.0.9"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",

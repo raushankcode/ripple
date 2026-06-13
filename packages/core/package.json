@@ -1,7 +1,7 @@
 {
   "name": "@getripple/core",
-  "version": "1.0.8",
-  "description": "Core engine for Ripple's local drift-control gate: context planning, drift checks, and trust boundaries.",
+  "version": "1.0.9",
+  "description": "Core engine for Ripple's local authorization gate: context planning, drift checks, and trust boundaries.",
   "license": "MIT",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
     "codebase",
     "architecture",
     "context-planning",
-    "drift-control",
+    "authorization-gate",
     "trust-boundaries",
     "static-analysis",
     "typescript",

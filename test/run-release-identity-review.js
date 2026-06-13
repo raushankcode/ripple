@@ -7,7 +7,7 @@ const rootPackage = readJson(path.join(repoRoot, "package.json"));
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 const productSentence =
-  "Ripple is a local drift-control gate for AI coding agents that plans before edit, checks after edit, catches drift, and tells the agent what to fix.";
+  "Ripple is a local authorization gate for AI coding agents that defines what an agent may change, checks the real Git diff, and returns continue, repair, or human review.";
 
 const publicPackages = [
   {
@@ -66,7 +66,7 @@ function normalizeWhitespace(value) {
 
 function assertIdentityFacts() {
   assert.strictEqual(rootPackage.name, "ripple");
-  assert.strictEqual(rootPackage.displayName, "Ripple — Local Drift-Control Gate");
+  assert.strictEqual(rootPackage.displayName, "Ripple — Local Authorization Gate");
   assert(SEMVER_RE.test(rootPackage.version), "root version should be a semver release");
   assert.strictEqual(rootPackage.publisher, "rippleai");
   assert.strictEqual(rootPackage.author?.name, "Raushan Soni");

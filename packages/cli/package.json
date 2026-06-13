@@ -1,7 +1,7 @@
 {
   "name": "@getripple/cli",
-  "version": "1.0.8",
-  "description": "CLI and CI interface for Ripple's local drift-control gate for AI coding agents.",
+  "version": "1.0.9",
+  "description": "CLI, Git hook, and CI enforcer for Ripple's local authorization gate for AI coding agents.",
   "license": "MIT",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -20,7 +20,7 @@
     "agent-workflow",
     "cli",
     "ci",
-    "drift-control",
+    "authorization-gate",
     "trust-boundaries",
     "code-review",
     "mcp",
@@ -44,7 +44,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@getripple/core": "^1.0.8"
+    "@getripple/core": "^1.0.9"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",

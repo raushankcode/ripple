@@ -4,6 +4,15 @@ All notable user-facing changes to Ripple are documented here.
 
 Ripple is a local-first AI-agent workflow engine for planning before edits, checking after edits, catching drift, and telling agents what to fix. It ships as a VS Code extension, CLI, MCP server, and shared core engine.
 
+## [1.0.9] - 2026-06-13
+
+### Changed
+- Reposition Ripple documentation around the local authorization gate: what an agent was allowed to change, what the Git diff actually changed, and whether the workflow may continue.
+- Refresh the root README and npm package READMEs so GitHub and npm users see the same install-once, MCP-guided, hook-enforced, CI-governed product story.
+- Update package metadata descriptions from drift-control wording to authorization-gate wording.
+
+### Notes
+- This release is documentation and package-metadata focused. Runtime behavior remains aligned with the `1.0.8` agent-control gate.
 
 ## [1.0.8] - 2026-06-09
 
