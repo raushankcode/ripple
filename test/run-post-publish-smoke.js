@@ -316,10 +316,15 @@ function provePublicMcpAfterSetup() {
     filePath: "src/index.ts",
     tokenBudget: 2600,
     mode: "file",
-    saveIntent: true,
+    saveIntent: false,
   });
-  assert.strictEqual(plan.changeIntent.protocol, "ripple-change-intent");
-  assert.strictEqual(plan.changeIntent.targetFile, "src/index.ts");
+  assert.strictEqual(plan.targetFile, "src/index.ts");
+  assert.strictEqual(plan.policyExplanation.protocol, "ripple-policy-explanation");
+  assert.strictEqual(
+    plan.changeIntent,
+    undefined,
+    "public MCP smoke should not overwrite the active CLI-created intent",
+  );
 
   const gate = callPublicMcpTool("ripple_gate", {
     intentPath: "latest",
