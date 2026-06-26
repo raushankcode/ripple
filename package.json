@@ -236,6 +236,7 @@
     "typescript": "~5.3.3"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "glob": "^13.0.6",
     "ts-morph": "^21.0.0"
   }

@@ -10,3 +10,5 @@ export * from "./readiness";
 export * from "./risk";
 export * from "./staged-check";
 export * from "./types";
+export * from "./cloud";
+export { syncAuditToCloud } from "./cloud.js";
