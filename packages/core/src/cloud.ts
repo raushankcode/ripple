@@ -235,3 +235,4 @@ export async function syncAuditToCloud(data: CloudAuditPayload): Promise<{ sent:
     return { sent: false, error: message };
   }
 }
+
