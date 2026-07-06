@@ -236,3 +236,54 @@ export async function syncAuditToCloud(data: CloudAuditPayload): Promise<{ sent:
   }
 }
 
+/** Pushes a validated change intent to Ripple Cloud, making it the active boundary. */
+export async function pushIntentToCloud(intent: ChangeIntent): Promise<{ sent: boolean; error?: string }> {
+  const apiKey = process.env.RIPPLE_API_KEY;
+  if (!apiKey) {
+    return { sent: false, error: "RIPPLE_API_KEY is not set." };
+  }
+  const apiUrl = process.env.RIPPLE_CLOUD_URL ?? "https://ripple-cloud.vercel.app";
+
+  try {
+    const response = await fetch(`${apiUrl}/api/intents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(intent),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return { sent: false, error: `HTTP ${response.status}: ${body}` };
+    }
+
+    return { sent: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { sent: false, error: message };
+  }
+}
+
+/** Fetches the active intent for a project from Ripple Cloud using a commit SHA. */
+export async function fetchActiveIntentForCommit(commitSha: string): Promise<ChangeIntent | null> {
+  const apiKey = process.env.RIPPLE_API_KEY;
+  if (!apiKey) return null;
+  const apiUrl = process.env.RIPPLE_CLOUD_URL ?? "https://ripple-cloud.vercel.app";
+
+  try {
+    const response = await fetch(`${apiUrl}/api/intents/active?commit_sha=${commitSha}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+    
+    // The response body is the raw intent payload
+    return await response.json() as ChangeIntent;
+  } catch {
+    return null;
+  }
+}

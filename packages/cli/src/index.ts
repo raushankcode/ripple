@@ -81,6 +81,8 @@ import {
   getCurrentBranch,
   getCurrentActor,
   syncAuditToCloud,
+   pushIntentToCloud,
+  fetchActiveIntentForCommit,
 } from "@getripple/core";
 
 // The CLI makes Ripple's plan/check/repair loop readable for both humans and agents.
@@ -3846,12 +3848,37 @@ function intentCommand(action: string | undefined, options: CliOptions): void {
     intentStatusCommand(options);
     return;
   }
+ if (action === "push") {
+    void intentPushCommand(options);
+    return;
+  }
+
   if (action === "close") {
     closeIntentCommand(options);
     return;
   }
   throw new Error("Usage: ripple intent status [--intent latest|path] or ripple intent close --reason <text> [--intent latest|path]");
 }
+
+
+
+async function intentPushCommand(options: CliOptions): Promise<void> {
+  const workspaceRoot = resolveWorkspaceRoot(".");
+  const intentRef = options.intent ?? "latest";
+  const intent = loadChangeIntent(workspaceRoot, intentRef);
+
+  console.log(`[Ripple] Pushing active intent '${intent.id}' to Ripple Cloud...`);
+
+  const result = await pushIntentToCloud(intent);
+
+  if (result.sent) {
+    console.log("✅ Intent pushed successfully. This is now the active boundary for CI checks.");
+  } else {
+    console.error(`❌ Failed to push intent: ${result.error}`);
+    process.exitCode = 1;
+  }
+}
+
 
 function intentStatusCommand(options: CliOptions): void {
   const workspaceRoot = resolveWorkspaceRoot(".");
@@ -4227,6 +4254,8 @@ async function auditCommand(options: CliOptions): Promise<void> {
   }
   applyStrictExit(options.strict && strictAuditShouldFail(audit));
 }
+// in: ripple-main/packages/cli/src/index.ts
+// REPLACE THE ENTIRE OLD `gateCommand` FUNCTION WITH THIS:
 
 async function gateCommand(options: CliOptions): Promise<void> {
   if (selectedChangeModeCount(options) > 1) {
@@ -4236,8 +4265,10 @@ async function gateCommand(options: CliOptions): Promise<void> {
   const intentRef = options.intent ?? "latest";
   const mode = selectedChangeMode(options);
   const baseRef = options.base ?? "HEAD";
+  const intentPath = resolveCliIntentPath(workspaceRoot, intentRef);
+
   try {
-    loadChangeIntent(workspaceRoot, intentRef);
+    loadChangeIntent(workspaceRoot, intentPath);
   } catch (err) {
     const block = buildRippleGateIntentBlockSummary({
       workspaceRoot,
@@ -4257,10 +4288,10 @@ async function gateCommand(options: CliOptions): Promise<void> {
     return;
   }
 
-  const audit = await buildAuditFromCliOptions(options);
+  const audit = await buildAuditFromCliOptions({ ...options, intent: intentPath });
   const gate = buildRippleGateSummary(audit);
 
-if (options.json) {
+  if (options.json) {
     printJson(gate);
   } else if (options.agent) {
     printAgentGateSummary(gate);
@@ -4268,38 +4299,55 @@ if (options.json) {
     printGateSummary(gate);
   }
 
-  // ─── Ripple Cloud Sync ───────────────────────────────────────────────────
-  // Records the gate decision to ripple-cloud for the compliance audit trail.
-  // Runs on EVERY gate call — including the pre-commit hook blocking scenario.
-  // Never blocks. Never throws. The commit result is unaffected by cloud sync.
+  // Consume intent on pass to prevent "ghost intents" if commit is aborted.
+  if (gate.canContinue && intentRef === "latest" && mode === "staged") {
+    try {
+      const consumedIntentCachePath = path.join(workspaceRoot, ".ripple", ".cache", "consumed-intent.json");
+      if (fs.existsSync(consumedIntentCachePath)) {
+        fs.unlinkSync(consumedIntentCachePath);
+      }
+      fs.renameSync(intentPath, consumedIntentCachePath);
+      console.log("\n[Ripple] Intent validated and consumed by gate. Ready for commit.");
+    } catch (err) {
+      const errorDetail = err instanceof Error ? err.message : String(err);
+      console.warn(`[Ripple] CRITICAL WARNING: Could not consume intent file. To prevent a future 'ghost intent' block, manually delete '${intentPath}' after your commit. Error: ${errorDetail}`);
+    }
+  }
+
+  // Sync a redacted, privacy-safe audit receipt to the cloud.
   if (process.env.RIPPLE_API_KEY) {
     const cloudDecision: "continue" | "human-review" | "blocked" =
       gate.canContinue ? "continue" :
       gate.needsHuman ? "human-review" : "blocked";
 
-    const commitSha = getCurrentCommitSha(execSync);
+    const commitSha = options.sha ?? getCurrentCommitSha(execSync);
     const branch    = getCurrentBranch(execSync);
     const actor     = getCurrentActor(execSync);
 
+    const redactedPayload = {
+      decision: gate.decision,
+      status: gate.status,
+      risk: {
+        level: gate.risk.level,
+        score: gate.risk.score,
+        summary: gate.risk.summary,
+      },
+      auditStatus: audit.status,
+      approvalStatus: audit.approvalStatus.status,
+      intent: audit.intent,
+      mode: audit.mode,
+      baseRef: audit.baseRef,
+      blockingReasons: audit.blockingReasons,
+    };
+
     const cloudResult = await syncAuditToCloud({
-      intentId: audit.intent.id,
-      decision: cloudDecision,
+      intentId:  audit.intent.id,
+      decision:  cloudDecision,
       commitSha,
       branch,
       actor,
       source: "cli",
-      payload: {
-        intentId:    audit.intent.id,
-        commitSha,
-        branch,
-        actor,
-        decision:    cloudDecision,
-        source:      "pre-commit-gate",
-        status:      gate.status,
-        canContinue: gate.canContinue,
-        mustStop:    gate.mustStop,
-        needsHuman:  gate.needsHuman,
-      },
+      payload: redactedPayload,
     });
 
     if (cloudResult.sent) {
@@ -4311,7 +4359,6 @@ if (options.json) {
       console.warn(`\n[Ripple Cloud] ⚠ Sync failed (non-blocking): ${cloudResult.error}`);
     }
   }
-  // ────────────────────────────────────────────────────────────────────────
 
   applyStrictExit(options.strict && !gate.canContinue);
 }
@@ -4547,16 +4594,25 @@ function approvalCommand(options: CliOptions): void {
   }
   printApprovalStatus(status);
 }
+// REPLACE WITH THIS NEW FUNCTION
+// in: ripple-main/packages/cli/src/index.ts
+// REPLACE THE ENTIRE OLD `ciCommand` FUNCTION WITH THIS:
 
 async function ciCommand(options: CliOptions): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(".");
   const baseRef = options.base ?? defaultCiBaseRef();
-  const hasExplicitIntent = Boolean(options.intent);
-  const intentRef = options.intent ?? "latest";
   const files = listGitChangedFiles(workspaceRoot, baseRef);
   const emitGithubAnnotations = shouldEmitGithubAnnotations(options);
+  const commitSha = options.sha ?? getCurrentCommitSha(execSync);
 
-  if (!hasExplicitIntent) {
+  // FETCH THE AUTHORITATIVE INTENT FROM THE CLOUD.
+  const intent = await fetchActiveIntentForCommit(commitSha);
+
+  if (!intent) {
+    // If no active intent is found in the cloud, run a policy-only audit.
+    // This provides a baseline check without enforcing a specific boundary.
+    console.log("[Ripple CI] No active cloud intent found. Running in policy-only audit mode.");
+    
     const summary = await buildCheckSummaryForFiles({
       workspaceRoot,
       files,
@@ -4566,129 +4622,22 @@ async function ciCommand(options: CliOptions): Promise<void> {
     });
     const policySync = buildPolicySyncSummary(workspaceRoot);
 
-    if (options.json) {
-      printJson({
-        ...summary,
-        protocol: "ripple-ci-policy-audit",
-        version: 1,
-        auditMode: true,
-        blocking: false,
-        intentRequired: false,
-        policySync,
-      });
-    } else if (options.agent) {
-      printAgentStagedCheckSummary(summary);
-      console.log("");
-      console.log("ci_mode: policy-audit");
-      console.log("blocking: false");
-      console.log("intent_required: false");
-      console.log(`policy_sync: ${policySync.status}`);
-      if (policySync.missingRules.length > 0) {
-        console.log("policy_sync_missing_rules:");
-        policySync.missingRules.slice(0, 12).forEach((rule) => {
-          console.log(`- ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}`);
-        });
-      }
-      console.log("next_required_action: Review policy-risk findings and policy-sync warnings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
-    } else {
-      console.log("Ripple CI policy audit");
-      console.log("Status: audit");
-      console.log("Blocking: false");
-      console.log("Intent: none (local intents are not required in CI audit mode)");
-      console.log(`Policy sync: ${policySync.status}`);
-      if (policySync.missingRules.length > 0) {
-        console.log("");
-        console.log("Policy may be missing risky repo surfaces:");
-        policySync.missingRules.slice(0, 12).forEach((rule) => {
-          console.log(`- ${rule.paths.join(", ")} risk=${rule.risk ?? "medium"}`);
-        });
-      }
-      console.log("");
-      printStagedCheckSummary(summary);
-      console.log("");
-      console.log("Next action: Review policy-risk findings and policy-sync warnings before merge. Use --intent latest --strict only when you want an intent-bound hard gate.");
-    }
-
-    if (emitGithubAnnotations && !options.json) {
+    if (emitGithubAnnotations) {
       printGithubPolicyAuditAnnotations(summary, policySync);
-    }
-        writeGithubPolicyAuditStepSummary(summary, policySync);
-
-    // FOUNDER FIX: Add Cloud Sync to the Policy Audit Path
-    if (process.env.RIPPLE_API_KEY) {
-      const commitSha = options.sha ?? getCurrentCommitSha(execSync);
-      const branch = getCurrentBranch(execSync);
-      const actor = getCurrentActor(execSync);
-      const syntheticIntentId = `ci-policy-${commitSha.slice(0, 16)}`;
-
-      const cloudResult = await syncAuditToCloud({
-        protocol: 'ripple-audit', // FOUNDER FIX: Satisfy the strict Zod Cloud Schema
-        intentId: syntheticIntentId,
-        decision: 'continue',
-        commitSha,
-        branch,
-        actor,
-        source: 'ci',
-        payload: { mode: 'policy-audit', commitSha, branch, actor },
+      printGithubNoticeAnnotation({
+        title: "Ripple: Policy Audit Mode",
+        message: "No active intent was found in Ripple Cloud for this commit. To enable strict boundary checks, run `ripple intent push` locally after creating a plan.",
       });
-
-      if (cloudResult.sent) {
-        console.log(`\n[Ripple Cloud] ✓ Policy audit synced (${commitSha.slice(0, 7)})`);
-      } else if (cloudResult.error) {
-        console.warn(`\n[Ripple Cloud] ⚠ Sync failed: ${cloudResult.error}`);
-      }
     }
-
+    writeGithubPolicyAuditStepSummary(summary, policySync);
+    
+    // Policy-only audits do not block the build unless strict mode is on.
+    applyStrictExit(options.strict && summary.requiresAttention);
     return;
   }
 
-  let intent: ChangeIntent;
-
-  try {
-    intent = loadChangeIntent(workspaceRoot, intentRef);
-  } catch (err) {
-    const summary = await buildCheckSummaryForFiles({
-      workspaceRoot,
-      files,
-      mode: "changed",
-      baseRef,
-      tokenBudget: options.budget,
-    });
-    const message = intentLoadFailureMessage(intentRef, err);
-    if (options.json) {
-      printJson({
-        ...summary,
-        nextRequiredPhase: MISSING_INTENT_NEXT_REQUIRED_PHASE,
-        nextRequiredAction: MISSING_INTENT_NEXT_REQUIRED_ACTION,
-        intentLoadError: {
-          intent: intentRef,
-          message,
-          nextRequiredPhase: MISSING_INTENT_NEXT_REQUIRED_PHASE,
-          nextRequiredAction: MISSING_INTENT_NEXT_REQUIRED_ACTION,
-        },
-      });
-    } else if (options.agent) {
-      printAgentStagedCheckSummary(summary);
-      console.log("");
-      console.log(`next_required_phase: ${MISSING_INTENT_NEXT_REQUIRED_PHASE}`);
-      console.log(`next_required_action: ${MISSING_INTENT_NEXT_REQUIRED_ACTION}`);
-      console.log("");
-      console.log("intent_error:");
-      console.log(`- ${message}`);
-    } else {
-      printStagedCheckSummary(summary);
-      console.log("");
-      console.log(`Next required phase: ${MISSING_INTENT_NEXT_REQUIRED_PHASE}`);
-      console.log(`Next required action: ${MISSING_INTENT_NEXT_REQUIRED_ACTION}`);
-      console.log(`Intent error: ${message}`);
-    }
-    if (emitGithubAnnotations && !options.json) {
-      printGithubIntentLoadError(message);
-    }
-    writeGithubStepSummary({ summary, intentLoadError: message });
-    applyStrictExit(options.strict);
-    return;
-  }
+  // An active intent was found. Run the full, strict audit against the cloud boundary.
+  console.log(`[Ripple CI] Active intent '${intent.id}' found in cloud. Running full boundary check.`);
 
   const audit = await buildAuditForFiles({
     workspaceRoot,
@@ -4697,54 +4646,56 @@ async function ciCommand(options: CliOptions): Promise<void> {
     baseRef,
     tokenBudget: options.budget,
     intent,
-    currentPolicyExplanation: currentPolicyExplanationForIntent(workspaceRoot, intent),
+    currentPolicyExplanation: explainRipplePolicyForIntent(loadRipplePolicy(workspaceRoot), intent),
   });
 
   if (options.json) {
-    printJson({
-      ...audit,
-      gate: buildRippleGateSummary(audit),
-    });
+    printJson({ ...audit, gate: buildRippleGateSummary(audit) });
   } else if (options.agent) {
     printAgentAuditSummary(audit);
   } else {
     printAuditSummary(audit);
   }
+
   if (emitGithubAnnotations && !options.json) {
     printGithubAuditAnnotations(audit);
   }
- writeGithubAuditStepSummary(audit);
+  writeGithubAuditStepSummary(audit);
 
-  // ─── Ripple Cloud Sync ──────────────────────────────────────────────────
-  // Sends the audit result to ripple-cloud so the GitHub App can verify it.
-  // Only runs when RIPPLE_API_KEY is set. Never blocks or throws.
+  // Sync the final audit result back to the cloud for the webhook to read.
   if (process.env.RIPPLE_API_KEY) {
     const gate = buildRippleGateSummary(audit);
     const cloudDecision: "continue" | "human-review" | "blocked" =
       gate.canContinue ? "continue" :
       gate.needsHuman ? "human-review" : "blocked";
 
-    const commitSha = options.sha ?? getCurrentCommitSha(execSync);
-    const branch    = getCurrentBranch(execSync);
-    const actor     = getCurrentActor(execSync);
+    const branch = getCurrentBranch(execSync);
+    const actor = getCurrentActor(execSync);
+
+    const redactedPayload = {
+      decision: gate.decision,
+      status: gate.status,
+      risk: {
+        level: gate.risk.level,
+        score: gate.risk.score,
+        summary: gate.risk.summary,
+      },
+      auditStatus: audit.status,
+      approvalStatus: audit.approvalStatus.status,
+      intent: audit.intent,
+      mode: audit.mode,
+      baseRef: audit.baseRef,
+      blockingReasons: audit.blockingReasons,
+    };
 
     const cloudResult = await syncAuditToCloud({
-      intentId:  intent.id,
-      decision:  cloudDecision,
-      commitSha,
-      branch,
-      actor,
-      source: "ci",
-      payload: {
-        intentId:   intent.id,
-        commitSha,
-        branch,
-        actor,
-        decision:   cloudDecision,
-        gate,
-        violations: (audit as { violations?: unknown[] }).violations?.length ?? 0,
-        riskLevel:  (audit as { riskLevel?: string }).riskLevel ?? "unknown",
-      },
+      intentId: intent.id,
+      decision: cloudDecision,
+      commitSha: commitSha,
+      branch: branch,
+      actor: actor,
+      source: 'ci',
+      payload: redactedPayload,
     });
 
     if (cloudResult.sent) {
@@ -4753,9 +4704,9 @@ async function ciCommand(options: CliOptions): Promise<void> {
       console.warn(`[Ripple Cloud] ⚠ Sync failed (non-blocking): ${cloudResult.error}`);
     }
   }
-  // ────────────────────────────────────────────────────────────────────────
 
-  applyStrictExit(options.strict && strictAuditShouldFail(audit));
+  // Exit with a non-zero code if the audit did not pass, failing the CI job.
+  applyStrictExit(!audit.canProceed);
 }
 
 async function doctorCommand(options: CliOptions): Promise<void> {
@@ -5131,77 +5082,22 @@ function ripplePreCommitHookScript(): string {
   ].join("\n");
 }
 
+// ripple-main/packages/cli/src/index.ts
+
+// ... (keep all existing functions)
+
 function ripplePostCommitHookBlock(): string {
   return [
     RIPPLE_POST_COMMIT_HOOK_START,
-    `# Local intents are consumed after a successful commit.
-# If RIPPLE_API_KEY is set, the commit is synced to ripple-cloud for GitHub App verification.
+    `# After a successful commit, this hook cleans up the consumed intent marker
+# left by the 'ripple gate' command. This prevents old intents from being
+# reused accidentally if a commit is amended or rebased.
 set +e
 
-COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
-ACTOR=$(git config user.name 2>/dev/null || git config user.email 2>/dev/null || echo "unknown")
-CLOUD_URL=\${RIPPLE_CLOUD_URL:-https://your-ripple-cloud.vercel.app}
-
-INTENT_FILE=""
-for intent_file in .ripple/.cache/latest-intent.json .ripple/intents/latest.json; do
-  if [ -f "$intent_file" ]; then
-    INTENT_FILE="$intent_file"
-    break
-  fi
-done
-
-# Cloud sync — only if API key is set and we have an intent to sync
-if [ -n "$RIPPLE_API_KEY" ] && [ -n "$INTENT_FILE" ]; then
-  INTENT_ID=$(node -e "try{const d=require('fs').readFileSync(process.argv[1],'utf8');console.log(JSON.parse(d).id||'')}catch(e){console.log('')}" "$INTENT_FILE" 2>/dev/null || echo "")
-  if [ -n "$INTENT_ID" ]; then
-    node -e "
-const https = require('https');
-const http = require('http');
-const url = new URL(process.env.CLOUD_URL + '/api/audit');
-const isHttps = url.protocol === 'https:';
-const body = JSON.stringify({
-  intentId: process.env.INTENT_ID,
-  decision: 'continue',
-  commitSha: process.env.COMMIT_SHA,
-  branch: process.env.BRANCH,
-  actor: process.env.ACTOR,
-  source: 'cli',
-  payload: { commitSha: process.env.COMMIT_SHA, source: 'post-commit-hook', branch: process.env.BRANCH }
-});
-const lib = isHttps ? https : http;
-const req = lib.request({
-  hostname: url.hostname,
-  port: url.port || (isHttps ? 443 : 80),
-  path: url.pathname,
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer ' + process.env.RIPPLE_API_KEY,
-    'Content-Length': Buffer.byteLength(body)
-  }
-}, res => {
-  if (res.statusCode < 300) process.stdout.write('[Ripple Cloud] Commit synced (' + process.env.COMMIT_SHA.slice(0,7) + ')\\n');
-});
-req.setTimeout(3000, () => req.destroy());
-req.on('error', () => {});
-req.write(body);
-req.end();
-" 2>/dev/null || true
-  fi
-fi
-
-# Clear the local intent after sync
-cleared=0
-for intent_file in .ripple/.cache/latest-intent.json .ripple/intents/latest.json; do
-  if [ -f "$intent_file" ]; then
-    rm "$intent_file"
-    cleared=1
-  fi
-done
-
-if [ "$cleared" -eq 1 ]; then
-  echo "[Ripple] Consumed and cleared local intent."
+CONSUMED_INTENT_FILE=".ripple/.cache/consumed-intent.json"
+if [ -f "$CONSUMED_INTENT_FILE" ]; then
+  rm "$CONSUMED_INTENT_FILE"
+  echo "[Ripple] Cleaned up consumed intent marker."
 fi`,
     RIPPLE_POST_COMMIT_HOOK_END,
     "",

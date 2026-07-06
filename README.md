@@ -33,6 +33,15 @@ Continue / stop / human review.
 These are signals, not proofs. Ripple does not replace tests, typechecking,
 code review, or human judgment.
 
+## Ripple Enterprise Cloud
+
+For teams requiring a centralized audit trail, compliance reports (SOC2, ISO 27001), and a mandatory GitHub App merge gate, Ripple integrates with **Ripple Enterprise Cloud**.
+
+The local CLI remains free and open-source. The cloud service provides the tamper-evident ledger and CI/CD integration needed for regulated environments.
+
+[Learn more at ripple-cloud.vercel.app](https://ripple-cloud.vercel.app)
+
+---
 [![npm cli](https://img.shields.io/npm/v/@getripple/cli.svg)](https://www.npmjs.com/package/@getripple/cli)
 [![npm mcp](https://img.shields.io/npm/v/@getripple/mcp.svg)](https://www.npmjs.com/package/@getripple/mcp)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

@@ -11,4 +11,6 @@ export * from "./risk";
 export * from "./staged-check";
 export * from "./types";
 export * from "./cloud";
-export { syncAuditToCloud } from "./cloud.js";
+export {
+  syncAuditToCloud, pushIntentToCloud, fetchActiveIntentForCommit,
+} from "./cloud.js";

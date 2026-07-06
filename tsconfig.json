@@ -6,10 +6,10 @@
     "paths": {
       "@getripple/core": ["packages/core/src/index"]
     },
-    "target": "ES2020",
-    "module": "commonjs",
+    "target": "ES2022",
+    "module": "node16",
     "lib": ["ES2020"],
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -22,6 +22,11 @@
     "declaration": false,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "packages/core/src/**/*.ts", "packages/cli/src/**/*.ts", "packages/mcp/src/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "packages/core/src/**/*.ts",
+    "packages/cli/src/**/*.ts",
+    "packages/mcp/src/**/*.ts"
+  ],
   "exclude": ["node_modules", "out", ".ripple"]
 }
