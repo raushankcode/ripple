@@ -998,7 +998,7 @@ function githubActionsWorkflow(): string {
     "        with:",
     "          node-version: 20",
     "      - name: Ripple CI gate",
-    `        run: npx -y ${rippleCliPackageSpec()} ci --base origin/\${{ github.base_ref }} --github-annotations --sha \${{ github.sha }}`,
+`        run: npx -y ${rippleCliPackageSpec()} ci --base origin/\\\${{ github.base_ref || 'main' }} --github-annotations --sha \\\${{ github.event.pull_request.head.sha || github.sha }}`,
     "        env:",
     "          RIPPLE_API_KEY: ${{ secrets.RIPPLE_API_KEY }}",
     "          RIPPLE_CLOUD_URL: ${{ secrets.RIPPLE_CLOUD_URL }}",

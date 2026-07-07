@@ -161,8 +161,9 @@ export class RippleCloudClient {
     }
   }
 }
-
 export function getCurrentCommitSha(execSync: any): string {
+  // PR head SHA is the actual commit — not the synthetic merge SHA
+  if (process.env.GITHUB_HEAD_SHA) return process.env.GITHUB_HEAD_SHA;
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
   try { return execSync("git rev-parse HEAD").toString().trim(); } catch { return "unknown"; }
 }
@@ -271,17 +272,15 @@ export async function fetchActiveIntentForCommit(commitSha: string): Promise<Cha
   const apiUrl = process.env.RIPPLE_CLOUD_URL ?? "https://ripple-cloud.vercel.app";
 
   try {
-    const response = await fetch(`${apiUrl}/api/intents/active?commit_sha=${commitSha}`, {
+    // Query by project (via API key), not by commit SHA
+    // The commit SHA is only used for routing — the intent is per-project
+    const response = await fetch(`${apiUrl}/api/intents/active`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(10000),
     });
 
-    if (!response.ok) {
-      return null;
-    }
-    
-    // The response body is the raw intent payload
+    if (!response.ok) return null;
     return await response.json() as ChangeIntent;
   } catch {
     return null;
