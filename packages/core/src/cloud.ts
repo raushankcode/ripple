@@ -266,21 +266,25 @@ export async function pushIntentToCloud(intent: ChangeIntent): Promise<{ sent: b
 }
 
 /** Fetches the active intent for a project from Ripple Cloud using a commit SHA. */
-export async function fetchActiveIntentForCommit(commitSha: string): Promise<ChangeIntent | null> {
+export async function fetchActiveIntentForCommit(_commitSha: string): Promise<ChangeIntent | null> {
   const apiKey = process.env.RIPPLE_API_KEY;
   if (!apiKey) return null;
   const apiUrl = process.env.RIPPLE_CLOUD_URL ?? "https://ripple-cloud.vercel.app";
 
   try {
-    // Query by project (via API key), not by commit SHA
-    // The commit SHA is only used for routing — the intent is per-project
+    // Query by project via API key — NOT by commit SHA.
+    // At CI time a brand new commit has zero events in the DB yet,
+    // so SHA-based lookup always returns 404 on the very first run.
     const response = await fetch(`${apiUrl}/api/intents/active`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(10000),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return null;
+    }
+
     return await response.json() as ChangeIntent;
   } catch {
     return null;

@@ -1,6 +1,6 @@
 {
   "name": "@getripple/cli",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "CLI, Git hook, and CI enforcer for Ripple's local authorization gate for AI coding agents.",
   "license": "MIT",
   "type": "commonjs",
@@ -44,7 +44,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@getripple/core": "^1.0.11"
+    "@getripple/core": "^1.0.12"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
