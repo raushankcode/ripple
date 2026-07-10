@@ -2,7 +2,7 @@
   "name": "ripple",
   "displayName": "Ripple — Local Authorization Gate",
   "description": "VS Code interface for Ripple's local authorization gate: live context, focus files, blast-radius signals, and safer AI-agent workflow prompts.",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "publisher": "rippleai",
   "author": {
     "name": "Raushan Soni"
