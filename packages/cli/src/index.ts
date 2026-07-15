@@ -74,9 +74,7 @@ import {
   SymbolCallersSummary,
   SymbolGraphSummary,
   SymbolLinkSummary,
- validateStagedCheckAgainstIntent,
-  // Cloud sync — GitHub App integration
-  
+ validateStagedCheckAgainstIntent,  
   getCurrentCommitSha,
   getCurrentBranch,
   getCurrentActor,
@@ -84,6 +82,8 @@ import {
    pushIntentToCloud,
   fetchActiveIntentForCommit,
 } from "@getripple/core";
+import * as crypto from "crypto";
+
 
 // The CLI makes Ripple's plan/check/repair loop readable for both humans and agents.
 type CliOptions = {
@@ -970,14 +970,17 @@ function rippleDirectRunnerHookLines(): string[] {
 }
 
 const GITHUB_ACTIONS_WORKFLOW_PATH = RIPPLE_CI_WORKFLOW_PATH;
+
 function githubActionsWorkflow(): string {
+  // This function generates the definitive, user-friendly, public-package-based workflow.
+  // It correctly uses `npx` with `@latest` to ensure the CI runner always gets
+  // the most recently published, working version of the CLI.
   return [
     "name: Ripple Enterprise Gate",
     "",
     "on:",
     "  pull_request:",
-    "  push:",
-    "    branches: [main, master]",
+    "    types: [opened, synchronize, reopened]",
     "",
     "permissions:",
     "  contents: read",
@@ -985,23 +988,27 @@ function githubActionsWorkflow(): string {
     "  checks: write",
     "",
     "jobs:",
-    "  ripple:",
+    "  ripple-gate:",
     "    name: Ripple authorization gate",
     "    runs-on: ubuntu-latest",
     "    steps:",
-    "      - name: Checkout",
+    "      - name: Checkout PR Code",
     "        uses: actions/checkout@v4",
     "        with:",
     "          fetch-depth: 0",
-    "      - name: Setup Node",
+    "      ",
+    "      - name: Setup Node.js",
     "        uses: actions/setup-node@v4",
     "        with:",
-    "          node-version: 20",
+    "          node-version: '22.x' # Use a current LTS version",
+    "",
     "      - name: Ripple CI gate",
-`           run: npx -y ${rippleCliPackageSpec()} ci --base origin/\\\${{ github.base_ref || 'main' }} --github-annotations --sha \\\${{ github.event.pull_request.head.sha || github.sha }}`,
     "        env:",
     "          RIPPLE_API_KEY: ${{ secrets.RIPPLE_API_KEY }}",
     "          RIPPLE_CLOUD_URL: ${{ secrets.RIPPLE_CLOUD_URL }}",
+    "        run: |",
+    "          # Use npx to securely fetch and run the latest version from the public npm registry.",
+    `          npx -y @getripple/cli@latest ci --base origin/\\\${{ github.base_ref || 'main' }} --github-annotations --sha \\\${{ github.event.pull_request.head.sha || github.sha }}`,
     "",
   ].join("\n");
 }
@@ -4562,12 +4569,32 @@ function approvalCommand(options: CliOptions): void {
   }
   printApprovalStatus(status);
 }
-// REPLACE WITH THIS NEW FUNCTION
-// in: ripple-main/packages/cli/src/index.ts
-// REPLACE THE ENTIRE OLD `ciCommand` FUNCTION WITH THIS:
 
+// THEN, REPLACE THE ENTIRE ciCommand with this:
 async function ciCommand(options: CliOptions): Promise<void> {
+  // --- FIX 1 & 2: Define workspaceRoot BEFORE it is used ---
   const workspaceRoot = resolveWorkspaceRoot(".");
+
+  // --- FIX 3: This logic is now correctly placed and will find workspaceRoot ---
+  // Verify policy file has not been tampered with
+  const policyPath = path.join(workspaceRoot, '.ripple', 'policy.json');
+  if (fs.existsSync(policyPath)) {
+    const localPolicyHash = crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(policyPath, 'utf8'))
+      .digest('hex');
+
+    // --- NOTE: You will need to implement this function and its API endpoint ---
+    // Fetch registered policy hash from cloud
+    // const registeredHash = await fetchRegisteredPolicyHash(); 
+    // if (registeredHash && registeredHash !== localPolicyHash) {
+    //   console.error('[Ripple] ⛔ SECURITY: policy.json has been modified since registration.');
+    //   console.error('[Ripple] ⛔ Run `ripple policy register` to legitimately update the policy.');
+    //   process.exit(1);
+    // }
+  }
+
+  // The rest of the function proceeds as before
   const baseRef = options.base ?? defaultCiBaseRef();
   const files = listGitChangedFiles(workspaceRoot, baseRef);
   const emitGithubAnnotations = shouldEmitGithubAnnotations(options);
@@ -4578,7 +4605,6 @@ async function ciCommand(options: CliOptions): Promise<void> {
 
   if (!intent) {
     // If no active intent is found in the cloud, run a policy-only audit.
-    // This provides a baseline check without enforcing a specific boundary.
     console.log("[Ripple CI] No active cloud intent found. Running in policy-only audit mode.");
     
     const summary = await buildCheckSummaryForFiles({
@@ -4599,7 +4625,6 @@ async function ciCommand(options: CliOptions): Promise<void> {
     }
     writeGithubPolicyAuditStepSummary(summary, policySync);
     
-    // Sync a receipt so the webhook can verify this commit even in policy-only mode.
     if (process.env.RIPPLE_API_KEY) {
       const branch = getCurrentBranch(execSync);
       const actor  = getCurrentActor(execSync);
@@ -4647,7 +4672,6 @@ async function ciCommand(options: CliOptions): Promise<void> {
   }
   writeGithubAuditStepSummary(audit);
 
-  // Sync the final audit result back to the cloud for the webhook to read.
   if (process.env.RIPPLE_API_KEY) {
     const gate = buildRippleGateSummary(audit);
     const cloudDecision: "continue" | "human-review" | "blocked" =
@@ -4690,10 +4714,8 @@ async function ciCommand(options: CliOptions): Promise<void> {
     }
   }
 
-  // Exit with a non-zero code if the audit did not pass, failing the CI job.
   applyStrictExit(!audit.canProceed);
 }
-
 async function doctorCommand(options: CliOptions): Promise<void> {
   const workspaceRoot = resolveWorkspaceRoot(".");
   const engine = createCliEngine(workspaceRoot);
@@ -5011,6 +5033,40 @@ if [ "$ripple_previous_status" -ne 0 ]; then
 fi
 
 set +e
+
+# ── SECURITY: Block any staged changes to Ripple configuration files ─────
+# AI agents and automated processes must never modify policy or agent
+# instruction files. These are the rules. They cannot rewrite the rules.
+RIPPLE_PROTECTED_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -E '^\.ripple/policy\.json$|^\.ripple/policy/|^CLAUDE\.md$|^\.cursorrules$|^AGENTS\.md$|^\.github/workflows/ripple\.yml$' || true)
+
+if [ -n "$RIPPLE_PROTECTED_STAGED" ]; then
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════╗"
+  echo "║   [RIPPLE SECURITY] PROTECTED FILE MODIFICATION DETECTED    ║"
+  echo "╚══════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "  The following Ripple configuration files were staged for commit:"
+  echo ""
+  echo "$RIPPLE_PROTECTED_STAGED" | while IFS= read -r f; do
+    echo "    ⛔  $f"
+  done
+  echo ""
+  echo "  Ripple configuration files define the rules of governance."
+  echo "  AI agents and automated processes cannot modify them."
+  echo ""
+  echo "  If you are an AI agent:"
+  echo "  - DO NOT attempt to modify these files."
+  echo "  - Ask the human developer to make this change manually."
+  echo ""
+  echo "  If you are a human developer making a legitimate policy change:"
+  echo "  - Unstage the config file: git reset HEAD <file>"
+  echo "  - Commit your other changes first"
+  echo "  - Then commit the policy change alone in a separate commit"
+  echo "  - The cloud will flag it for review in the PR"
+  echo ""
+  exit 1
+fi
+# ── End security protection ───────────────────────────────────────────────
 
 ripple_run() {
 ${rippleDirectRunnerHookLines().join("\n")}
