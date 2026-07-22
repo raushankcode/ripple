@@ -9,6 +9,7 @@ export type RippleRiskLevel = "low" | "medium" | "high" | "critical";
 export type RippleRiskReasonKind =
   | "boundary-crossed"
   | "intent-drift"
+  | "approval-missing"
   | "risky-path"
   | "blast-radius"
   | "public-contract"
@@ -42,6 +43,8 @@ export type BuildRippleRiskSummaryInput = {
   changedOutsideBoundarySymbols: string[];
   unplannedFiles?: string[];
   unplannedSymbols?: string[];
+  /** Saved intent requires human sign-off that has not been recorded yet. */
+  humanGateUnsatisfied?: boolean;
   verificationTargets: string[];
   nextSteps: string[];
   stagedFiles: StagedCheckFileSummary[];
@@ -108,12 +111,13 @@ export function buildRippleRiskSummary(input: BuildRippleRiskSummaryInput): Ripp
 
   addBoundaryReasons(input, reasons);
   addIntentReasons(input, reasons);
+  addApprovalReason(input, reasons);
   addPolicyReason(input, reasons);
   addFileRiskReasons(input, reasons, affectedFiles);
   addContractReasons(input, reasons, affectedSymbols);
   addVerificationReason(input, reasons);
 
-  const score = Math.min(100, reasons.reduce((total, reason) => total + reason.weight, 0));
+  const score = rippleRiskScore(reasons);
   const level = riskLevelForScore(score);
   const requiredActions = buildRequiredActions(input, reasons);
 
@@ -126,6 +130,53 @@ export function buildRippleRiskSummary(input: BuildRippleRiskSummaryInput): Ripp
     affectedSymbols: Array.from(affectedSymbols).sort(),
     requiredActions,
   };
+}
+
+/**
+ * Reasons that mean "the agent did something it was not authorized to do", as
+ * opposed to "this code is sensitive". Only these can push a change into the
+ * high/critical bands.
+ */
+const VIOLATION_REASON_KINDS: ReadonlySet<RippleRiskReasonKind> = new Set([
+  "boundary-crossed",
+  "intent-drift",
+  // Not yet a breach, but keeping the change would be unauthorized, so it
+  // belongs on the violation axis rather than the "this code is sensitive" one.
+  "approval-missing",
+]);
+
+/** Highest score a change with no boundary violation may reach (stays MEDIUM). */
+const NO_VIOLATION_SCORE_CAP = 50;
+/** Lowest score a change with a boundary violation may report (at least HIGH). */
+const VIOLATION_SCORE_FLOOR = 51;
+
+/**
+ * Risk is scored on two axes so the number discriminates.
+ *
+ * Exposure (how sensitive this code is: policy risk, risky path, blast radius,
+ * contracts, missing tests) is real signal, but on its own it is not a finding —
+ * editing a payments file correctly is not the same as breaching a boundary.
+ * Summing both axes made an authorized edit to a sensitive file score the same
+ * as an unauthorized one, so the score carried no information.
+ *
+ * Clean changes are therefore capped in the medium band, and any boundary or
+ * intent violation floors into the high band before exposure is added on top.
+ */
+function rippleRiskScore(reasons: WeightedRiskReason[]): number {
+  let violation = 0;
+  let exposure = 0;
+  for (const reason of reasons) {
+    if (VIOLATION_REASON_KINDS.has(reason.kind)) {
+      violation += reason.weight;
+    } else {
+      exposure += reason.weight;
+    }
+  }
+
+  if (violation === 0) {
+    return Math.min(NO_VIOLATION_SCORE_CAP, exposure);
+  }
+  return Math.min(100, Math.max(VIOLATION_SCORE_FLOOR, violation + exposure));
 }
 
 function addBoundaryReasons(input: BuildRippleRiskSummaryInput, reasons: WeightedRiskReason[]): void {
@@ -181,6 +232,19 @@ function addIntentReasons(input: BuildRippleRiskSummaryInput, reasons: WeightedR
   }
 }
 
+function addApprovalReason(input: BuildRippleRiskSummaryInput, reasons: WeightedRiskReason[]): void {
+  if (!input.humanGateUnsatisfied) {
+    return;
+  }
+  reasons.push({
+    kind: "approval-missing",
+    severity: "high",
+    weight: 30,
+    message: "Saved intent requires human approval that has not been recorded.",
+    evidence: ["human approval: missing"],
+  });
+}
+
 function addPolicyReason(input: BuildRippleRiskSummaryInput, reasons: WeightedRiskReason[]): void {
   if (input.boundaryRisk === "high" || input.boundaryRisk === "critical") {
     reasons.push({
@@ -208,9 +272,13 @@ function addFileRiskReasons(
         severity: file.modificationRisk === "dangerous" ? "high" : "medium",
         weight: graphWeight,
         message: `${file.file} is marked ${file.modificationRisk} by Ripple graph risk.`,
+        // Prefixed with the file: two changed files sharing the same importer
+        // or symbol count would otherwise produce identical evidence strings
+        // that collide when the CLI later flattens/dedupes evidence across
+        // every reason for the whole gate summary.
         evidence: [
-          `importer count: ${file.importerCount}`,
-          `symbol count: ${file.symbolCount}`,
+          `${file.file} importer count: ${file.importerCount}`,
+          `${file.file} symbol count: ${file.symbolCount}`,
         ],
       });
     }
@@ -221,7 +289,7 @@ function addFileRiskReasons(
         severity: "high",
         weight: 26,
         message: `${file.file} has a large downstream blast radius.`,
-        evidence: [`${file.importerCount} direct importers may be affected`],
+        evidence: [`${file.file}: ${file.importerCount} direct importers may be affected`],
       });
     } else if (file.importerCount >= 2) {
       reasons.push({
@@ -229,7 +297,7 @@ function addFileRiskReasons(
         severity: "medium",
         weight: 14,
         message: `${file.file} is shared by multiple downstream files.`,
-        evidence: [`${file.importerCount} direct importers may be affected`],
+        evidence: [`${file.file}: ${file.importerCount} direct importers may be affected`],
       });
     }
 
@@ -269,12 +337,17 @@ function addContractReasons(
     severity: highestRisk === "high" ? "high" : "medium",
     weight: Math.max(...contractRisks.map((contractRisk) => CONTRACT_RISK_WEIGHT[contractRisk.risk])),
     message: "Changed exported/public symbols may affect callers or external contracts.",
+    // Each line is prefixed with the symbol it describes. Two changed symbols
+    // very commonly share the same caller count or exported flag — plain
+    // `callers: 0` / `exported: true` strings would collide and get silently
+    // dropped by uniqueItems below (and again by the CLI's own cross-reason
+    // evidence dedup), making it look like only the first symbol has data.
     evidence: uniqueItems(
       contractRisks.flatMap((contractRisk) => [
         `symbol: ${contractRisk.symbol}`,
-        `callers: ${contractRisk.callers}`,
-        `exported: ${contractRisk.exported}`,
-        `reason: ${contractRisk.reason}`,
+        `${contractRisk.symbol} callers: ${contractRisk.callers}`,
+        `${contractRisk.symbol} exported: ${contractRisk.exported}`,
+        `${contractRisk.symbol} reason: ${contractRisk.reason}`,
       ])
     ),
   });

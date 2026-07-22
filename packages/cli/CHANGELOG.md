@@ -1,5 +1,18 @@
 # @getripple/cli Changelog
 
+## [1.0.14] - 2026-07-21
+
+### Fixed
+- `ripple gate` no longer consumes the saved intent on a passing preview run; consumption now happens only in the post-commit hook, after a real commit.
+- `ripple gate --json` no longer prints a trailing plain-text message after the JSON payload.
+- `ripple demo --json` now honors `--json` instead of printing ANSI prose, and no longer calls `console.clear()` (which wiped terminal scrollback).
+- Installing Ripple's git hooks now updates an existing hook block in place when its contents changed, instead of reporting "already-present" forever.
+- `ripple demo` now runs against a real installed pre-commit hook and a real `git commit` for every scenario shown, including the blocked one, instead of narrating a result.
+
+### Added
+- `ripple demo --publish`: opt-in publish of a demo run to Ripple Cloud, printing a public share link.
+- Update package metadata to depend on `@getripple/core@^1.0.14`.
+
 ## [1.0.9] - 2026-06-13
 
 ### Changed

@@ -51,8 +51,11 @@ export class RippleCloudClient {
       const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8", stdio: "pipe" }).trim();
       let actor = "unknown_actor";
       try {
-        actor = commitSha 
-          ? execSync(`git log -1 --pretty=format:'%ae' ${commitSha}`, { encoding: "utf8", stdio: "pipe" }).trim()
+        actor = commitSha
+          // Double quotes, not single: on Windows (cmd.exe) single quotes are
+          // not string delimiters, so 'git log --pretty=format:'%ae'' returns
+          // the address wrapped in literal quotes and corrupts the audit actor.
+          ? execSync(`git log -1 --pretty=format:"%ae" ${commitSha}`, { encoding: "utf8", stdio: "pipe" }).trim()
           : execSync("git config user.email", { encoding: "utf8", stdio: "pipe" }).trim();
       } catch {
         actor = execSync("git config user.email", { encoding: "utf8", stdio: "pipe" }).trim();
@@ -180,6 +183,18 @@ export function getCurrentActor(execSync: any): string {
 }
 
 
+/** Requests that the cloud mint a public share link for this audit event. */
+export interface CloudSharePayload {
+  /** Defaults to the safest level ("minimal") server-side when omitted. */
+  redaction?: "minimal" | "paths" | "full";
+  expiresInDays?: number;
+}
+
+export interface CloudShareResult {
+  url: string;
+  expiresAt?: string;
+}
+
 export interface CloudAuditPayload {
   protocol?: string;
   intentId: string;
@@ -189,9 +204,17 @@ export interface CloudAuditPayload {
   actor: string;
   source: string;
   payload: any;
+  /** Opt-in only. Omitted entirely unless the caller asked to publish. */
+  share?: CloudSharePayload;
 }
 
-export async function syncAuditToCloud(data: CloudAuditPayload): Promise<{ sent: boolean; error?: string }> {
+export type CloudAuditResult = {
+  sent: boolean;
+  error?: string;
+  share?: CloudShareResult;
+};
+
+export async function syncAuditToCloud(data: CloudAuditPayload): Promise<CloudAuditResult> {
   const apiKey = process.env.RIPPLE_API_KEY;
   const apiUrl = process.env.RIPPLE_CLOUD_URL ?? "https://ripple-cloud.vercel.app";
 
@@ -213,6 +236,9 @@ export async function syncAuditToCloud(data: CloudAuditPayload): Promise<{ sent:
       payloadHash: crypto.createHash("sha256").update(JSON.stringify(data.payload)).digest("hex"),
       decision: data.decision,
       payload: data.payload,
+      // Only present when the caller explicitly opted into publishing. Older
+      // cloud deployments ignore the field, so this stays backward compatible.
+      ...(data.share ? { share: data.share } : {}),
     };
 
     const response = await fetch(`${apiUrl}/api/audit`, {
@@ -230,10 +256,29 @@ export async function syncAuditToCloud(data: CloudAuditPayload): Promise<{ sent:
       return { sent: false, error: `HTTP ${response.status}: ${body}` };
     }
 
-    return { sent: true };
+    // The audit itself already succeeded, so a missing or unparseable body must
+    // never turn into a failed sync — the share link is strictly a bonus.
+    return { sent: true, share: await parseShareResult(response) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { sent: false, error: message };
+  }
+}
+
+async function parseShareResult(response: Response): Promise<CloudShareResult | undefined> {
+  try {
+    const body = await response.json() as { share?: { url?: unknown; expiresAt?: unknown } };
+    const url = body?.share?.url;
+    if (typeof url !== "string" || url.length === 0) {
+      return undefined;
+    }
+    const expiresAt = body.share?.expiresAt;
+    return {
+      url,
+      expiresAt: typeof expiresAt === "string" ? expiresAt : undefined,
+    };
+  } catch {
+    return undefined;
   }
 }
 

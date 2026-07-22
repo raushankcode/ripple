@@ -472,6 +472,7 @@ function classifyIntentLoadError(message: string): RippleGateIntentState {
   if (
     message.includes("Invalid Ripple change intent") ||
     message.includes("Malformed Ripple change intent") ||
+    message.includes("Tampered or unverifiable Ripple change intent") ||
     message.includes("Found protocol")
   ) {
     return "invalid";

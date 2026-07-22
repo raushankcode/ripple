@@ -344,7 +344,10 @@ function resolveWorkspaceRoot(argv: string[]): string {
 
 if (require.main === module) {
   try {
-    void runStdioServer(resolveWorkspaceRoot(process.argv.slice(2)));
+    runStdioServer(resolveWorkspaceRoot(process.argv.slice(2))).catch((err: unknown) => {
+      console.error(`Ripple MCP error: ${errorMessage(err)}`);
+      process.exitCode = 1;
+    });
   } catch (err) {
     console.error(`Ripple MCP error: ${errorMessage(err)}`);
     process.exitCode = 1;

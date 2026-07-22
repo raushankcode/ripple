@@ -3,6 +3,7 @@
     "outDir": "./out",
     "rootDir": ".",
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@getripple/core": ["packages/core/src/index"]
     },

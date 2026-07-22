@@ -39,6 +39,12 @@ export type ChangeIntent = {
   verificationEvidence: RippleVerificationEvidence[];
   readinessSnapshot: ChangeIntentReadinessSnapshot;
   why: string;
+  // Tamper-evidence fingerprint over the boundary-defining fields, stamped on
+  // save and verified on load. It catches accidental corruption and naive
+  // hand-editing of the saved boundary; it is not a defense against an agent
+  // that can read this code and recompute it — that requires the server to be
+  // authoritative over intents. See computeIntentFingerprint.
+  integrity?: string;
 };
 
 export type RippleVerificationStatus = "passed" | "failed" | "skipped" | "unknown";
@@ -1108,6 +1114,48 @@ function uniqueRepairActions(actions: IntentDriftRepairAction[]): IntentDriftRep
   });
 }
 
+/**
+ * Canonical serialization of the boundary-defining fields of an intent. This is
+ * deliberately narrow: it excludes verificationEvidence (which legitimately
+ * mutates via `ripple verify`) and the integrity field itself, so that
+ * re-saving after recording evidence does not invalidate the fingerprint.
+ */
+function intentIntegrityPayload(source: {
+  id?: unknown;
+  createdAt?: unknown;
+  controlMode?: unknown;
+  targetFile?: unknown;
+  humanGate?: unknown;
+  boundaryRisk?: unknown;
+  allowedSymbols?: unknown;
+  allowedFiles?: unknown;
+  editableFiles?: unknown;
+  expectedFiles?: unknown;
+  expectedSymbols?: unknown;
+  protectedContracts?: unknown;
+  contextFiles?: unknown;
+}): string {
+  return JSON.stringify({
+    id: source.id ?? null,
+    createdAt: source.createdAt ?? null,
+    controlMode: source.controlMode ?? null,
+    targetFile: source.targetFile ?? null,
+    humanGate: source.humanGate ?? null,
+    boundaryRisk: source.boundaryRisk ?? null,
+    allowedSymbols: source.allowedSymbols ?? [],
+    allowedFiles: source.allowedFiles ?? [],
+    editableFiles: source.editableFiles ?? [],
+    expectedFiles: source.expectedFiles ?? [],
+    expectedSymbols: source.expectedSymbols ?? [],
+    protectedContracts: source.protectedContracts ?? [],
+    contextFiles: source.contextFiles ?? [],
+  });
+}
+
+export function computeIntentFingerprint(source: Parameters<typeof intentIntegrityPayload>[0]): string {
+  return crypto.createHash("sha256").update(intentIntegrityPayload(source)).digest("hex");
+}
+
 export function saveChangeIntent(
   workspaceRoot: string,
   intent: ChangeIntent,
@@ -1117,7 +1165,8 @@ export function saveChangeIntent(
     ? resolveIntentPath(workspaceRoot, intentPath)
     : defaultChangeIntentPath(workspaceRoot);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, `${JSON.stringify(intent, null, 2)}\n`, "utf8");
+  const stamped: ChangeIntent = { ...intent, integrity: computeIntentFingerprint(intent) };
+  fs.writeFileSync(targetPath, `${JSON.stringify(stamped, null, 2)}\n`, "utf8");
   return targetPath;
 }
 
@@ -2114,7 +2163,14 @@ function buildBoundaryVerdict(input: {
         if (input.intent.controlMode !== "function") {
           return false;
         }
-        return allowedFileSet.has(symbol.file) && !allowedSymbolSet.has(symbol.symbol);
+        // A symbol is outside the boundary if it isn't an approved symbol —
+        // whether because its file was never approved at all, or because it's
+        // an unapproved symbol inside an approved file. Previously this only
+        // checked the latter, so a changed symbol in a wholly unauthorized
+        // file (a stronger violation, not a weaker one) was silently omitted
+        // from this list even though changedOutsideBoundaryFiles caught the
+        // file itself.
+        return !allowedSymbolSet.has(symbol.symbol);
       })
       .map((symbol) => symbol.symbol)
   );
@@ -2614,7 +2670,17 @@ function assertChangeIntent(value: unknown, sourcePath: string): ChangeIntent {
       `Malformed Ripple change intent at ${sourcePath}. Ask the human to inspect or recreate the saved boundary before continuing.`
     );
   }
+  assertIntentIntegrity(value, sourcePath);
   return normalizeChangeIntent(value as RawChangeIntent);
+}
+
+function assertIntentIntegrity(value: Record<string, unknown>, sourcePath: string): void {
+  const expected = computeIntentFingerprint(value);
+  if (typeof value.integrity !== "string" || value.integrity !== expected) {
+    throw new Error(
+      `Tampered or unverifiable Ripple change intent at ${sourcePath}. The saved boundary's integrity fingerprint does not match its contents, so Ripple cannot prove it is the boundary a human approved. Create a fresh plan with ripple plan --file <file> --task "<task>" --agent --save before the agent continues.`
+    );
+  }
 }
 
 function closedIntentErrorMessage(value: Record<string, unknown>, sourcePath: string): string {

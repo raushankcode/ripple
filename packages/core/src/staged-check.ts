@@ -25,7 +25,7 @@ export type StagedCheckSymbolChangeKind =
   | "return-shape-review";
 
 export type StagedCheckSymbolContractRisk = "none" | "review" | "high";
-export type StagedCheckSymbolStatus = "created" | "modified";
+export type StagedCheckSymbolStatus = "created" | "modified" | "deleted";
 
 export type StagedCheckChangedSymbol = {
   symbol: string;
@@ -768,13 +768,83 @@ function getChangedSymbolsForFile(
     ? new Map<string, ParsedSymbolRange>()
     : symbolsByName(parseSymbolRanges(engine, workspaceRoot, projectPath, previousContent));
 
-  return symbols
+  const changed = symbols
     .filter((symbol) => rangesIntersectSymbol(diff.changedLineRanges, symbol))
-    .map((symbol) => buildChangedSymbol(symbol, diff, previousSymbols.get(symbol.name)))
-    .sort((a, b) => {
-      const riskDelta = contractRiskRank(b.contractRisk) - contractRiskRank(a.contractRisk);
-      return riskDelta || a.symbol.localeCompare(b.symbol);
-    });
+    .map((symbol) => buildChangedSymbol(symbol, diff, previousSymbols.get(symbol.name)));
+
+  // Deleted symbols never appear in the new content, so the range-intersection
+  // pass above cannot see them. Detect them as a set difference: any symbol
+  // present at HEAD but absent from the new file was removed (or renamed, in
+  // which case the new name is reported separately as "created"). Without this,
+  // an agent scoped to one symbol could silently delete any other export.
+  const currentNames = new Set(symbols.map((symbol) => symbol.name));
+  const hasRemovedLines = diff.changedLines.some((line) => line.kind === "removed");
+  if (hasRemovedLines) {
+    for (const [name, previousSymbol] of previousSymbols) {
+      if (!currentNames.has(name)) {
+        changed.push(buildDeletedSymbol(previousSymbol));
+      }
+    }
+  }
+
+  return changed.sort((a, b) => {
+    const riskDelta = contractRiskRank(b.contractRisk) - contractRiskRank(a.contractRisk);
+    return riskDelta || a.symbol.localeCompare(b.symbol);
+  });
+}
+
+function buildDeletedSymbol(previousSymbol: ParsedSymbolRange): StagedCheckChangedSymbol {
+  // Removing an exported symbol or one with callers breaks its contract for
+  // every downstream caller, so it is always at least a contract change.
+  const contractChanged = previousSymbol.exported || previousSymbol.callers > 0;
+  const contractRisk: StagedCheckSymbolContractRisk =
+    previousSymbol.exported && previousSymbol.callers > 0
+      ? "high"
+      : contractChanged
+        ? "review"
+        : "none";
+
+  return {
+    symbol: previousSymbol.symbol,
+    file: previousSymbol.file,
+    name: previousSymbol.name,
+    kind: previousSymbol.kind,
+    layer: previousSymbol.layer,
+    exported: previousSymbol.exported,
+    callers: previousSymbol.callers,
+    calls: previousSymbol.calls,
+    symbolStatus: "deleted",
+    changeKind: "signature-or-contract",
+    contractRisk,
+    signatureTouched: true,
+    signatureChanged: true,
+    contractChanged,
+    returnLineChanged: false,
+    changedLines: [],
+    lineRange: {
+      start: previousSymbol.startLine,
+      end: previousSymbol.endLine,
+    },
+    reason: deletedSymbolReason(previousSymbol, contractRisk),
+    adapterSignals: [],
+  };
+}
+
+function deletedSymbolReason(
+  previousSymbol: ParsedSymbolRange,
+  contractRisk: StagedCheckSymbolContractRisk
+): string {
+  const signals: string[] = ["symbol removed compared with HEAD"];
+  if (previousSymbol.exported) {
+    signals.push("exported symbol");
+  }
+  if (previousSymbol.callers > 0) {
+    signals.push(`${previousSymbol.callers} caller(s)`);
+  }
+  const detail = signals.join("; ");
+  return contractRisk === "none"
+    ? detail
+    : `${detail}; deleting it breaks downstream callers — contract review required`;
 }
 
 function readWorkingTreeFileContent(workspaceRoot: string, projectPath: string): string | null {
