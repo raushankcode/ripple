@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as os from 'os'; 
 
 import * as fs from "fs";
 import * as path from "path";
@@ -112,6 +113,8 @@ type CliOptions = {
   githubAnnotations: boolean;
   force: boolean;
   print: boolean;
+  /** Opt-in: publish a run to Ripple Cloud and print a public share link. */
+  publish: boolean;
   sha?: string;
 };
 
@@ -180,7 +183,7 @@ type RippleAgentSetupSummary = {
   nextSteps: string[];
 };
 
-type RippleHookInstallAction = "created" | "appended" | "already-present";
+type RippleHookInstallAction = "created" | "appended" | "updated" | "already-present";
 
 type RippleHookInstallSummary = {
   protocol: "ripple-hook-install";
@@ -358,6 +361,7 @@ function usage(): string {
     "  ripple agent",
     "  ripple agent setup [--print] [--force]",
     "  ripple hook install [--print] [--force]",
+    "  ripple demo [--publish] [--json]",
     "",
     "Options:",
     "  --json, -j    Print machine-readable JSON",
@@ -381,6 +385,7 @@ function usage(): string {
     "  --github-annotations  Emit GitHub Actions annotations for CI findings",
     "  --print       Print generated setup content instead of writing files",
     "  --force       Overwrite existing generated setup files",
+    "  --publish     ripple demo only: send the run to Ripple Cloud and print a PUBLIC share link (needs RIPPLE_API_KEY)",
     "",
     "Examples:",
     "  ripple init",
@@ -640,6 +645,7 @@ function parseCliArgs(argv: string[]): ParsedCliArgs {
     githubAnnotations: false,
     force: false,
     print: false,
+    publish: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -682,6 +688,10 @@ function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (token === "--print") {
       options.print = true;
+      continue;
+    }
+    if (token === "--publish") {
+      options.publish = true;
       continue;
     }
     if (token === "--last") {
@@ -1007,8 +1017,8 @@ function githubActionsWorkflow(): string {
     "          RIPPLE_API_KEY: ${{ secrets.RIPPLE_API_KEY }}",
     "          RIPPLE_CLOUD_URL: ${{ secrets.RIPPLE_CLOUD_URL }}",
     "        run: |",
-    "          # Use npx to securely fetch and run the latest version from the public npm registry.",
-    `          npx -y @getripple/cli@latest ci --base origin/\\\${{ github.base_ref || 'main' }} --github-annotations --sha \\\${{ github.event.pull_request.head.sha || github.sha }}`,
+    "          # Use npx to fetch the same published CLI version that generated this workflow.",
+    `          npx -y ${rippleCliPackageSpec()} ci --base origin/\${{ github.base_ref }} --github-annotations --sha \${{ github.event.pull_request.head.sha || github.sha }}`,
     "",
   ].join("\n");
 }
@@ -1094,13 +1104,6 @@ function intentLoadFailureMessage(intentRef: string, error: unknown): string {
     "Run ripple plan --save for local intent-based checks, or pass a valid --intent path. Do not commit local latest intents into PRs.",
     detail,
   ].join(" ");
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
 
 function defaultCiBaseRef(): string {
@@ -4311,26 +4314,13 @@ async function gateCommand(options: CliOptions): Promise<void> {
     printGateSummary(gate);
   }
 
-  // Consume intent on pass to prevent "ghost intents" if commit is aborted.
-  if (gate.canContinue && intentRef === "latest" && mode === "staged") {
-    try {
-      const consumedIntentCachePath = path.join(workspaceRoot, ".ripple", ".cache", "consumed-intent.json");
-      if (fs.existsSync(consumedIntentCachePath)) {
-        fs.unlinkSync(consumedIntentCachePath);
-      }
-      fs.renameSync(intentPath, consumedIntentCachePath);
-      console.log("\n[Ripple] Intent validated and consumed by gate. Ready for commit.");
-    } catch (err) {
-      // Use the 'errorMessage' helper we created earlier
-      const errorDetail = errorMessage(err);
-      console.warn(`[Ripple] CRITICAL WARNING: Could not consume intent file. To prevent a future 'ghost intent' block, manually delete '${intentPath}' after your commit. Error: ${errorDetail}`);
-    }
-  }
-
-  // NO CLOUD SYNC BLOCK HERE. This is the fix.
-  // The local gate's only job is to block or allow the commit locally.
-  // The CI job is the sole authority for the cloud audit trail.
-
+  // The gate is a pure, read-only check: it validates staged changes against
+  // the saved intent and never mutates it. Consuming the intent here would
+  // destroy it on any manual/preview run even when no commit follows. Intent
+  // consumption happens in the post-commit hook, which only fires on a real
+  // commit — see ripplePostCommitHookBlock. The local gate's only job is to
+  // block or allow the commit locally; CI is the sole authority for the cloud
+  // audit trail.
   applyStrictExit(options.strict && !gate.canContinue);
 }
 
@@ -4600,11 +4590,37 @@ async function ciCommand(options: CliOptions): Promise<void> {
   const emitGithubAnnotations = shouldEmitGithubAnnotations(options);
   const commitSha = options.sha ?? getCurrentCommitSha(execSync);
 
+  if (options.intent) {
+    const audit = await buildAuditFromCliOptions({
+      ...options,
+      changed: true,
+      staged: false,
+      worktree: false,
+      base: baseRef,
+    });
+
+    if (options.json) {
+      printJson({ ...audit, gate: buildRippleGateSummary(audit) });
+    } else if (options.agent) {
+      printAgentAuditSummary(audit);
+    } else {
+      printAuditSummary(audit);
+    }
+
+    if (emitGithubAnnotations && !options.json) {
+      printGithubAuditAnnotations(audit);
+    }
+    writeGithubAuditStepSummary(audit);
+    applyStrictExit(options.strict && !audit.canProceed);
+    return;
+  }
+
   // FETCH THE AUTHORITATIVE INTENT FROM THE CLOUD.
   const intent = await fetchActiveIntentForCommit(commitSha);
 
   if (!intent) {
     // If no active intent is found in the cloud, run a policy-only audit.
+    console.log("Ripple CI policy audit");
     console.log("[Ripple CI] No active cloud intent found. Running in policy-only audit mode.");
     
     const summary = await buildCheckSummaryForFiles({
@@ -4615,6 +4631,9 @@ async function ciCommand(options: CliOptions): Promise<void> {
       tokenBudget: options.budget,
     });
     const policySync = buildPolicySyncSummary(workspaceRoot);
+    console.log(`Policy sync: ${policySync.status}`);
+    console.log("Blocking: false");
+    console.log("Intent: none (local intents are not required in CI audit mode)");
 
     if (emitGithubAnnotations) {
       printGithubPolicyAuditAnnotations(summary, policySync);
@@ -5034,12 +5053,25 @@ fi
 
 set +e
 
-# ── SECURITY: Block any staged changes to Ripple configuration files ─────
+# ── SECURITY: Block tracked Ripple governance file modifications ─────────
 # AI agents and automated processes must never modify policy or agent
-# instruction files. These are the rules. They cannot rewrite the rules.
+# instruction files after they become part of the repository contract. Initial
+# additions are allowed so humans can commit the first ripple init setup.
 RIPPLE_PROTECTED_STAGED=$(git diff --cached --name-only 2>/dev/null | grep -E '^\.ripple/policy\.json$|^\.ripple/policy/|^CLAUDE\.md$|^\.cursorrules$|^AGENTS\.md$|^\.github/workflows/ripple\.yml$' || true)
+RIPPLE_PROTECTED_BLOCKED=""
 
 if [ -n "$RIPPLE_PROTECTED_STAGED" ]; then
+  if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    for f in $RIPPLE_PROTECTED_STAGED; do
+      if git cat-file -e "HEAD:$f" 2>/dev/null; then
+        RIPPLE_PROTECTED_BLOCKED="$RIPPLE_PROTECTED_BLOCKED
+$f"
+      fi
+    done
+  fi
+fi
+
+if [ -n "$RIPPLE_PROTECTED_BLOCKED" ]; then
   echo ""
   echo "╔══════════════════════════════════════════════════════════════╗"
   echo "║   [RIPPLE SECURITY] PROTECTED FILE MODIFICATION DETECTED    ║"
@@ -5047,7 +5079,10 @@ if [ -n "$RIPPLE_PROTECTED_STAGED" ]; then
   echo ""
   echo "  The following Ripple configuration files were staged for commit:"
   echo ""
-  echo "$RIPPLE_PROTECTED_STAGED" | while IFS= read -r f; do
+  echo "$RIPPLE_PROTECTED_BLOCKED" | while IFS= read -r f; do
+    if [ -z "$f" ]; then
+      continue
+    fi
     echo "    ⛔  $f"
   done
   echo ""
@@ -5130,15 +5165,19 @@ function ripplePreCommitHookScript(): string {
 function ripplePostCommitHookBlock(): string {
   return [
     RIPPLE_POST_COMMIT_HOOK_START,
-    `# After a successful commit, this hook cleans up the consumed intent marker
-# left by the 'ripple gate' command. This prevents old intents from being
-# reused accidentally if a commit is amended or rebased.
+    `# After a successful commit, this hook consumes the active intent so an old,
+# already-committed approval cannot silently gate a later unrelated commit
+# ("ghost intent"). Consumption happens here — only on a real commit — and not
+# in 'ripple gate', so manual/preview gate runs never destroy the intent.
+# The consumed intent is archived (not deleted) so it can be recovered.
 set +e
 
+ACTIVE_INTENT_FILE=".ripple/intents/latest.json"
 CONSUMED_INTENT_FILE=".ripple/.cache/consumed-intent.json"
-if [ -f "$CONSUMED_INTENT_FILE" ]; then
-  rm "$CONSUMED_INTENT_FILE"
-  echo "[Ripple] Cleaned up consumed intent marker."
+if [ -f "$ACTIVE_INTENT_FILE" ]; then
+  mkdir -p ".ripple/.cache"
+  mv "$ACTIVE_INTENT_FILE" "$CONSUMED_INTENT_FILE"
+  echo "[Ripple] Consumed and cleared local intent after commit (archived to $CONSUMED_INTENT_FILE)."
 fi`,
     RIPPLE_POST_COMMIT_HOOK_END,
     "",
@@ -5171,8 +5210,9 @@ function installRippleHookBlock(input: {
   fullScript: string;
   block: string;
   marker: string;
+  endMarker: string;
 }): RippleHookInstallAction {
-  const { hookPath, fullScript, block, marker } = input;
+  const { hookPath, fullScript, block, marker, endMarker } = input;
   if (!fs.existsSync(hookPath)) {
     fs.mkdirSync(path.dirname(hookPath), { recursive: true });
     fs.writeFileSync(hookPath, fullScript, { encoding: "utf8", mode: 0o755 });
@@ -5185,8 +5225,30 @@ function installRippleHookBlock(input: {
   }
 
   const existing = fs.readFileSync(hookPath, "utf8");
-  if (existing.includes(marker)) {
-    return "already-present";
+
+  // An existing Ripple block is replaced in place when its content changed, so
+  // upgrades actually land instead of silently reporting "already-present".
+  const startIndex = existing.indexOf(marker);
+  if (startIndex !== -1) {
+    const endIndex = existing.indexOf(endMarker, startIndex);
+    if (endIndex === -1) {
+      // Start marker without a matching end marker: leave the file untouched.
+      return "already-present";
+    }
+    const blockEnd = endIndex + endMarker.length;
+    const currentBlock = existing.slice(startIndex, blockEnd);
+    const newBlock = block.trim();
+    if (currentBlock === newBlock) {
+      return "already-present";
+    }
+    const updated = existing.slice(0, startIndex) + newBlock + existing.slice(blockEnd);
+    fs.writeFileSync(hookPath, updated, "utf8");
+    try {
+      fs.chmodSync(hookPath, 0o755);
+    } catch {
+      // chmod is best-effort on Windows.
+    }
+    return "updated";
   }
 
   const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
@@ -5213,12 +5275,14 @@ function installRippleHooks(workspaceRoot: string): RippleHookInstallSummary {
     fullScript: content,
     block: ripplePreCommitHookBlock(),
     marker: RIPPLE_PRE_COMMIT_HOOK_START,
+    endMarker: RIPPLE_PRE_COMMIT_HOOK_END,
   });
   const postCommitAction = installRippleHookBlock({
     hookPath: postCommitHookPath,
     fullScript: postCommitContent,
     block: ripplePostCommitHookBlock(),
     marker: RIPPLE_POST_COMMIT_HOOK_START,
+    endMarker: RIPPLE_POST_COMMIT_HOOK_END,
   });
   const wroteSomething = preCommitAction !== "already-present" || postCommitAction !== "already-present";
 
@@ -5287,12 +5351,14 @@ function hookInstallCommand(subcommand: string | undefined, options: CliOptions)
     fullScript: content,
     block: ripplePreCommitHookBlock(),
     marker: RIPPLE_PRE_COMMIT_HOOK_START,
+    endMarker: RIPPLE_PRE_COMMIT_HOOK_END,
   });
   const postCommitAction = installRippleHookBlock({
     hookPath: postCommitHookPath,
     fullScript: postCommitContent,
     block: ripplePostCommitHookBlock(),
     marker: RIPPLE_POST_COMMIT_HOOK_START,
+    endMarker: RIPPLE_POST_COMMIT_HOOK_END,
   });
   const wroteSomething = preCommitAction !== "already-present" || postCommitAction !== "already-present";
 
@@ -5981,9 +6047,527 @@ async function focusCommand(filePath: string | undefined, options: CliOptions): 
   }
 }
 
+
+
+// ========================================================================
+// FINAL RIPPLE DEMO CODE BLOCK
+// Replace all previous demo-related code in `index.ts` with this.
+// ========================================================================
+
+// This is our "UI" library for the terminal.
+const demoUi = {
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
+  magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
+  underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
+  /** Solid red block, white text — used once, for the rejection banner. */
+  bgRed: (s: string) => `\x1b[41m\x1b[37m${s}\x1b[0m`,
+};
+// ========================================================================
+// REPLACE YOUR OLD printDemoGateResult WITH THIS NEW, ROBUST VERSION
+// ========================================================================
+
+/** Prints a simplified, story-focused gate verdict for the demo. */
+function printDemoGateResult(gate: RippleGateSummary): void {
+  const { bold, dim, green, red } = demoUi;
+
+  // Helper to safely shorten a symbol name.
+  const shortSymbol = (symbol: string) => (symbol ? symbol.split("::").pop() ?? symbol : "unknown");
+  
+  // Helper to safely create a list from an array that might be undefined.
+  const list = (symbols: string[] | undefined) => {
+    if (!symbols || symbols.length === 0) {
+      return dim("none");
+    }
+    return symbols.map(shortSymbol).join(", ");
+  };
+
+  const statusLabel = gate.canContinue ? green(bold("CONTINUE")) : red(bold("STOP"));
+
+  console.log(`${bold("Ripple gate:")} ${statusLabel}`);
+
+  const approvedSymbols = list(gate.allowedSymbols);
+  const changedSymbols = list(gate.reviewPacket?.actualChanges?.changedSymbols);
+  const outsideSymbols = list(gate.changedOutsideBoundarySymbols);
+
+  console.log(`  Approved to change : ${approvedSymbols}`);
+  
+  // For the story, only show "Actually changed" if it's a violation.
+  if (!gate.canContinue && changedSymbols !== approvedSymbols) {
+    console.log(`  Actually changed   : ${red(changedSymbols)}`);
+  }
+  
+  console.log(
+    `  Outside boundary   : ${(gate.changedOutsideBoundarySymbols?.length ?? 0) > 0 ? red(outsideSymbols) : dim("none")}`
+  );
+
+  // Always the engine's real score. A demo that prints a friendlier number than
+  // the tool produces is the one thing a prospect can catch us on.
+  const riskLabel = `${gate.risk.level.toUpperCase()} ${gate.risk.score}/100`;
+  if (gate.canContinue) {
+    console.log(`  Risk               : ${riskLabel}`);
+    if (gate.risk?.reasons?.[0]) {
+      console.log(dim(`                       ${gate.risk.reasons[0].message}`));
+    }
+  } else {
+    console.log(`  Risk               : ${red(riskLabel)}`);
+    if (gate.risk?.reasons?.[0]) {
+      console.log(dim(`                       ${gate.risk.reasons[0].message}`));
+    }
+    if (gate.fixNow?.[0]) {
+      // The engine's fix text uses fully-qualified symbols; shorten them to
+      // match the rest of this panel, then wrap under the value column.
+      const fixText = gate.fixNow[0].replace(
+        /[\w./-]+::([A-Za-z_][A-Za-z0-9_]*)/g,
+        (_match, name: string) => name
+      );
+      const indent = " ".repeat("  Fix                : ".length);
+      wrapDemoText(fixText, 46).forEach((line, index) => {
+        console.log(index === 0 ? `  Fix                : ${red(line)}` : `${indent}${red(line)}`);
+      });
+    }
+  }
+}
+
+/** Greedy word wrap so long engine text stays inside the demo panel. */
+function wrapDemoText(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let current = "";
+  for (const word of text.split(/\s+/)) {
+    if (!current) {
+      current = word;
+    } else if (`${current} ${word}`.length <= width) {
+      current += ` ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) {
+    lines.push(current);
+  }
+  return lines;
+}
+/**
+ * Opt-in publish of a demo run to Ripple Cloud, returning a public share URL.
+ *
+ * Deliberately conservative: it is skipped unless --publish was passed AND an
+ * API key exists, it never throws, and it never changes the exit code. A demo
+ * that cannot reach the network must still be a working demo.
+ *
+ * Demo receipts are tagged `source: "demo"` because they describe a synthetic
+ * commit in a scratch repo, not a real project's history — the receipt page
+ * relies on that field to label them.
+ */
+async function publishDemoReceipt(input: {
+  publish: boolean;
+  jsonMode: boolean;
+  demoDir: string;
+  gate: RippleGateSummary;
+  readHeadSha: () => string;
+  log: (message: string) => void;
+}): Promise<string | undefined> {
+  const { dim, yellow } = demoUi;
+  if (!input.publish) {
+    return undefined;
+  }
+
+  // stderr, so --json stdout stays a single valid JSON document.
+  const warn = (message: string) => {
+    if (input.jsonMode) {
+      console.error(message);
+    } else {
+      input.log(message);
+    }
+  };
+
+  if (!process.env.RIPPLE_API_KEY) {
+    warn(
+      `\n${yellow("--publish skipped:")} set RIPPLE_API_KEY to publish this run to Ripple Cloud.`
+    );
+    return undefined;
+  }
+
+  input.log(dim("\n⏳ Publishing this run to Ripple Cloud..."));
+  try {
+    // Same shape `ripple ci` sends, so the receipt renderer has one schema.
+    const result = await syncAuditToCloud({
+      intentId: input.gate.intent.id,
+      decision: input.gate.canContinue ? "continue" : input.gate.needsHuman ? "human-review" : "blocked",
+      commitSha: input.readHeadSha(),
+      branch: "demo",
+      actor: "demo@ripple.dev",
+      source: "demo",
+      payload: {
+        decision: input.gate.decision,
+        status: input.gate.status,
+        risk: {
+          level: input.gate.risk.level,
+          score: input.gate.risk.score,
+          summary: input.gate.risk.summary,
+        },
+        auditStatus: input.gate.auditStatus,
+        approvalStatus: input.gate.approvalStatus,
+        intent: input.gate.intent,
+        mode: input.gate.mode,
+        baseRef: input.gate.baseRef,
+        blockingReasons: input.gate.why,
+      },
+      share: { redaction: "minimal" },
+    });
+
+    if (!result.sent) {
+      warn(`\n${yellow("--publish failed")} (demo unaffected): ${result.error ?? "unknown error"}`);
+      return undefined;
+    }
+    if (!result.share?.url) {
+      warn(
+        `\n${yellow("--publish:")} run recorded, but this Ripple Cloud deployment returned no share link.`
+      );
+      return undefined;
+    }
+    return result.share.url;
+  } catch (err) {
+    warn(
+      `\n${yellow("--publish failed")} (demo unaffected): ${err instanceof Error ? err.message : String(err)}`
+    );
+    return undefined;
+  }
+}
+
+async function demoCommand(options: CliOptions): Promise<void> {
+  const { bold, dim, cyan, green, yellow, red, magenta, underline, bgRed } = demoUi;
+
+  const jsonMode = options.json;
+  const fast =
+    jsonMode ||
+    options.agent ||
+    !process.stdout.isTTY ||
+    process.env.RIPPLE_DEMO_FAST === "1";
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, fast ? 0 : ms));
+  const log = jsonMode ? () => {} : (message: string) => console.log(message);
+  const rule = () => log(dim("──────────────────────────────────────────────────"));
+  const thick = () => log(cyan("══════════════════════════════════════════════════"));
+
+  thick();
+  log(bold(cyan("🚀 Welcome to the Ripple Demo")));
+  log("A real AI boundary violation, caught by the real Ripple engine.");
+  thick();
+  await sleep(3000);
+
+  const demoDir = fs.mkdtempSync(path.join(os.tmpdir(), "ripple-demo-"));
+  // Two files: cart.ts is the low-risk file the boundary actually covers, so
+  // the authorized edit reads LOW risk with no human-gate friction. checkout.ts
+  // is payments code (critical by Ripple's own path rules) — untouched until
+  // the rogue edit reaches into it, which is the reveal in Scene 4.
+  const cartFile = "src/store/cart.ts";
+  const checkoutFile = "src/billing/checkout.ts";
+
+  try {
+    // The demo repo must be self-contained: never inherit the user's git
+    // identity, signing config, or hooks, and fail loudly if git does not run.
+    // Without this, `git commit` silently fails on machines with no global
+    // identity and the demo reports a verdict against the wrong repo state.
+    const run = (args: string[]) => {
+      const result = spawnSync(
+        "git",
+        [
+          "-c", "user.email=demo@ripple.dev",
+          "-c", "user.name=Ripple Demo",
+          "-c", "commit.gpgsign=false",
+          ...args,
+        ],
+        { cwd: demoDir, stdio: "pipe", encoding: "utf8" }
+      );
+      if (result.status !== 0) {
+        throw new Error(`Demo git command failed: git ${args.join(" ")}\n${result.stderr ?? ""}`);
+      }
+      return result;
+    };
+
+    /** Same as run(), but returns the result instead of throwing. Used where a
+     *  non-zero exit is the point being demonstrated (a blocked commit). */
+    const runAllowFail = (args: string[]) =>
+      spawnSync(
+        "git",
+        [
+          "-c", "user.email=demo@ripple.dev",
+          "-c", "user.name=Ripple Demo",
+          "-c", "commit.gpgsign=false",
+          ...args,
+        ],
+        { cwd: demoDir, stdio: "pipe", encoding: "utf8" }
+      );
+
+    const writeDemoFile = (relativePath: string, contents: string) =>
+      fs.writeFileSync(path.join(demoDir, relativePath), contents);
+
+    /** Creates a genuine saved intent exactly the way `ripple plan --save` does,
+     *  so humanGate/boundaryRisk/protectedContracts are engine-derived rather
+     *  than asserted by the demo. */
+    const realPlan = async (targetFile: string, symbol: string, task: string): Promise<ChangeIntent> => {
+      const engine = createCliEngine(demoDir);
+      try {
+        await runWithQuietEngine(() => engine.initialScan());
+        const summary = engine.planContext(task, targetFile, 4000);
+        if (!summary) {
+          throw new Error(`Demo file is not in the Ripple graph: ${targetFile}`);
+        }
+        const loadedPolicy = loadRipplePolicy(demoDir);
+        const policyExplanation = explainRipplePolicyForTarget(loadedPolicy, targetFile, {
+          controlMode: "function",
+        });
+        const planned = buildChangeIntent(summary, {
+          controlMode: "function",
+          allowedSymbols: [symbol],
+          policy: resolveRipplePolicyForTarget(loadedPolicy, targetFile),
+          policyExplanation,
+        });
+        planned.readinessSnapshot = buildChangeIntentReadinessSnapshot(
+          buildRippleReadinessSummary(demoDir, engine)
+        );
+        saveChangeIntent(demoDir, planned, defaultChangeIntentPath(demoDir));
+        return planned;
+      } finally {
+        engine.dispose();
+      }
+    };
+
+    // --- SCENE 1: THE SETUP ---
+    log(`\n${yellow("SCENE 1: THE SETUP")}`);
+    rule();
+    run(["init", "--initial-branch=main"]);
+    fs.mkdirSync(path.join(demoDir, "src", "store"), { recursive: true });
+    fs.mkdirSync(path.join(demoDir, "src", "billing"), { recursive: true });
+
+    // Not exported: this keeps the authorized edit's contract-risk reason from
+    // firing, so the real risk score reads LOW instead of MEDIUM. That's an
+    // honest characterization, not a fudge — an unexported helper genuinely
+    // has no external callers to break.
+    const initialCartCode = `// ${cartFile}
+function applyDiscount(price: number, discountCode: string): number {
+  if (discountCode === 'SAVE10') {
+    return price * 0.9;
+  }
+  return price;
+}`;
+    const initialCheckoutCode = `// ${checkoutFile}
+export function processCharge(price: number, user: string): { success: boolean } {
+  // CRITICAL: This function charges the user's credit card.
+  console.log(\`Charging \${user} for \${price}\`);
+  return { success: true };
+}`;
+    writeDemoFile(cartFile, initialCartCode);
+    writeDemoFile(checkoutFile, initialCheckoutCode);
+    run(["add", "."]);
+    run(["commit", "-m", "Initial commit: add cart and billing logic"]);
+    log(`✓ A cart file exists: ${bold(cartFile)}`);
+    log(`✓ A payment processing file exists: ${bold(checkoutFile)} ${dim("(untouched, for now)")}`);
+    // A real pre-commit hook, so every "blocked" claim below is enforced by
+    // Ripple rather than narrated by this script.
+    installRippleHooks(demoDir);
+    log(dim(`  [ripple] pre-commit hook installed — commits are now gated.`));
+    await sleep(2000);
+
+    // --- SCENE 2: THE TASK ---
+    log(`\n${yellow("SCENE 2: THE TASK")}`);
+    rule();
+    log("Developer declares what the AI is allowed to change:");
+    log(dim(`\n  $ ripple plan --file ${cartFile} \\`));
+    log(dim(`                --symbol applyDiscount \\`));
+    log(dim(`                --mode function --save`));
+
+    const approvedSymbol = `${cartFile}::applyDiscount`;
+    let intent = await realPlan(cartFile, approvedSymbol, "Add 'SAVE20' discount code");
+    await sleep(2000);
+    log(green(`\n✓ Boundary set. Only the 'applyDiscount' function can be changed.`));
+    log(dim(`  boundary risk: ${intent.boundaryRisk} · human gate: ${intent.humanGate}`));
+    await sleep(2000);
+
+    // cart.ts is low-risk by Ripple's own path rules, so this normally reads
+    // "none" and the demo flows straight to the edit. The check stays real
+    // (not hardcoded) — if the engine ever did require sign-off here, the demo
+    // would still show it rather than silently skip a real gate.
+    if (intent.humanGate !== "none") {
+      log(`\nRipple requires human sign-off on this path first:`);
+      log(dim(`\n  $ ripple approve --gate before-risky-edit \\`));
+      log(dim(`                   --reason "discount copy change only"`));
+      recordRippleApproval(demoDir, intent, {
+        gate: "before-risky-edit",
+        reason: "discount copy change only",
+        approvedBy: "Demo Human",
+      });
+      log(green(`\n✓ Human approval recorded.`));
+      await sleep(2500);
+    }
+
+    const runGate = async (): Promise<RippleGateSummary> => {
+      const audit = await buildAuditForFiles({
+        workspaceRoot: demoDir,
+        files: listGitStagedFiles(demoDir),
+        mode: "staged",
+        tokenBudget: 4000,
+        intent,
+        // Must match how `ripple gate` computes this, or the intent's saved
+        // policy snapshot looks drifted and the gate stops for the wrong reason.
+        currentPolicyExplanation: explainRipplePolicyForIntent(
+          loadRipplePolicy(demoDir),
+          intent
+        ),
+      });
+      return buildRippleGateSummary(audit);
+    };
+
+    // --- SCENE 3: THE AUTHORIZED EDIT ---
+    log(`\n${yellow("SCENE 3: THE AI WORKS (SAFELY)")}`);
+    rule();
+    log("AI adds the SAVE20 discount code to applyDiscount... " + dim("done."));
+
+    const authorizedCartCode = initialCartCode.replace(
+        "return price;",
+        "  if (discountCode === 'SAVE20') return price * 0.8;\n  return price;"
+    );
+    writeDemoFile(cartFile, authorizedCartCode);
+    run(["add", cartFile]);
+    await sleep(2000);
+
+    log(dim("\n⏳ Running Ripple gate on authorized-only changes...\n"));
+    await sleep(1500);
+    const authorizedGate = await runGate();
+    if (!jsonMode) printDemoGateResult(authorizedGate);
+    const commitResult = run(["commit", "-m", "Add SAVE20 discount code"]);
+    log(green(`\n✓ Commit passes. The SAVE20 discount is in git history.`));
+    // Read the file count back out of git rather than asserting it, so the
+    // line stays true if the demo's edits ever change.
+    const commitStat = /(\d+ files? changed)/.exec(commitResult.stdout ?? "");
+    if (commitStat) {
+      log(dim(`\n  [git] ${commitStat[1]} — commit recorded cleanly.`));
+    }
+    await sleep(3500);
+
+    // --- SCENE 4: THE ROGUE EDIT ---
+    log(`\n${yellow("SCENE 4: THE ROGUE EDIT")}`);
+    rule();
+    log(`Now, the AI also "refactors" ${bold(checkoutFile)} — a file it was never authorized to touch at all.`);
+    log("");
+    log(red(`  -   console.log(\`Charging \${user} for \${price}\`);`));
+    log(red(`  +   console.log(\`Charging \${user} for \${price * 1.1}\`);`));
+    log("");
+    log(dim("  A silent 10% surcharge on every payment. Nobody asked for this."));
+
+    // The authorized commit consumed the first intent, so the developer opens
+    // the next task on the same approved function before the AI continues.
+    intent = await realPlan(cartFile, approvedSymbol, "Continue discount work");
+    if (intent.humanGate !== "none") {
+      recordRippleApproval(demoDir, intent, {
+        gate: "before-risky-edit",
+        reason: "discount copy change only",
+        approvedBy: "Demo Human",
+      });
+    }
+
+    const rogueCode = initialCheckoutCode.replace('price}', 'price * 1.1}');
+    writeDemoFile(checkoutFile, rogueCode);
+    run(["add", checkoutFile]);
+    await sleep(3500);
+
+    log("\nDeveloper trusts the AI and runs " + bold("git commit") + ".");
+    await sleep(2000);
+    log(dim("\n⏳ Ripple pre-commit hook runs...\n"));
+    await sleep(1500);
+
+    const blockedGate = await runGate();
+    if (!jsonMode) printDemoGateResult(blockedGate);
+
+    // Actually attempt the commit and let the real hook decide. Nothing below
+    // is asserted by the demo: the exit code and git log come from git.
+    const rogueCommit = runAllowFail(["commit", "-m", "refactor processCharge"]);
+    const headSubject = run(["log", "-1", "--pretty=%s"]).stdout?.trim();
+    if (rogueCommit.status !== 0) {
+      log("");
+      log(bgRed(`  ⛔ git commit REJECTED by Ripple (exit ${rogueCommit.status})  `));
+      log("");
+      log(dim(`  [git] HEAD is still: "${headSubject}"`));
+      log(bold(red(`  The 10% surcharge never entered git history.`)));
+    } else {
+      log(bold(red(`\n⚠ Commit was NOT blocked (exit 0). HEAD: "${headSubject}"`)));
+    }
+    await sleep(4000);
+
+    // --- OPTIONAL: PUBLISH A PUBLIC RECEIPT ---
+    // Opt-in only. Must run before the finally block deletes the temp repo,
+    // because the commit SHA is read out of it.
+    const receiptUrl = await publishDemoReceipt({
+      publish: options.publish,
+      jsonMode,
+      demoDir,
+      gate: blockedGate,
+      readHeadSha: () => run(["rev-parse", "HEAD"]).stdout?.trim() ?? "unknown",
+      log,
+    });
+
+    // --- THE POINT ---
+    log("");
+    rule();
+    log("Prompts tell AI agents what to do.");
+    log(bold("Ripple enforces what they are allowed to do."));
+    log("The difference is a compliance trail your auditors can read.");
+    log("");
+    if (receiptUrl) {
+      log(`Public receipt:       ${bold(underline(receiptUrl))}`);
+    }
+    log(`Try it in your repo:  ${bold("npx @getripple/cli@latest init")}`);
+    log(`Dashboard:            ${bold(underline("https://ripple-cloud.vercel.app"))}`);
+    log("");
+    thick();
+
+    if (jsonMode) {
+      printJson({
+        protocol: "ripple-demo",
+        version: 1,
+        scenarios: [
+          {
+            name: "authorized-edit",
+            decision: authorizedGate.decision,
+            canContinue: authorizedGate.canContinue,
+          },
+          {
+            name: "rogue-edit",
+            decision: blockedGate.decision,
+            canContinue: blockedGate.canContinue,
+          },
+        ],
+        ...(receiptUrl ? { receiptUrl } : {}),
+      });
+    }
+  } finally {
+    fs.rmSync(demoDir, { recursive: true, force: true });
+    if (!jsonMode) {
+        console.log(dim("\n(Demo complete. Temporary files cleaned up.)"));
+    }
+  }
+}
+
+
+
+
+
+
+
 async function main(): Promise<void> {
   const { command, args, options } = parseCliArgs(process.argv.slice(2));
   const [arg] = args;
+
+  // --- ADD THIS NEW CASE ---
+  if (command === "demo") {
+    await demoCommand(options);
+    return;
+  }
+  // --- END NEW CASE ---
 
   if (!command || command === "--help" || command === "-h") {
     console.log(usage());

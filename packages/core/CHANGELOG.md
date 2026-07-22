@@ -1,5 +1,16 @@
 # @getripple/core Changelog
 
+## [1.0.14] - 2026-07-21
+
+### Fixed
+- Detect changed symbols in files outside the approved boundary (`changedOutsideBoundarySymbols` previously only checked symbols inside already-allowed files, silently missing edits to unauthorized files entirely).
+- Detect deletions of unapproved symbols during a staged/worktree check (previously invisible to the gate).
+- Stamp and verify a tamper-evidence fingerprint on saved change intents, rejecting hand-edited `.ripple/intents/latest.json` files.
+- Fix Windows quoting bug in cloud audit actor lookup (`git log --pretty=format:'%ae'` returned a literal-quoted string on cmd.exe).
+- Fix risk evidence loss: contract-risk and file-risk evidence lines were deduplicated as plain strings, so two changed symbols/files sharing the same caller count, exported flag, or importer count would silently lose one entry's evidence.
+- Recognize Python module-level assignments and decorator changes as tracked symbols (previously invisible to the staged-diff parser).
+- Two-axis risk scoring: clean, boundary-respecting changes are capped at score 50 (LOW/MEDIUM); any real violation is floored at 51+ (HIGH/CRITICAL), so risk score now reliably discriminates authorized from unauthorized changes.
+
 ## [1.0.9] - 2026-06-13
 
 ### Changed

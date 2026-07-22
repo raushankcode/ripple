@@ -1,6 +1,12 @@
 # Ripple
 
-**A local authorization gate for AI coding agents.**
+\*_A local authorization gate for AI coding agents._
+
+run command for demo in your terminal
+
+```txt
+npx @getripple/cli demo
+```
 
 Ripple is a local authorization gate for AI coding agents that defines what an
 agent may change, checks the real Git diff, and returns continue, repair, or
@@ -42,6 +48,7 @@ The local CLI remains free and open-source. The cloud service provides the tampe
 [Learn more at ripple-cloud.vercel.app](https://ripple-cloud.vercel.app)
 
 ---
+
 [![npm cli](https://img.shields.io/npm/v/@getripple/cli.svg)](https://www.npmjs.com/package/@getripple/cli)
 [![npm mcp](https://img.shields.io/npm/v/@getripple/mcp.svg)](https://www.npmjs.com/package/@getripple/mcp)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -183,14 +190,14 @@ the agent crosses the boundary, Ripple stops and gives a concrete review packet.
 
 Ripple is one local engine exposed through MCP, CLI, hooks, CI, and VS Code.
 
-| Layer | What it means |
-| --- | --- |
-| Policy | Permanent repo rules in `.ripple/policy.json` |
-| Intent | Temporary approved boundary for the current task |
-| Git diff | The staged or changed files Ripple checks |
-| MCP | Structured tools for AI agents |
-| Hook | Local pre-commit gate before code enters history |
-| CI | Pull request gate before merge |
+| Layer    | What it means                                    |
+| -------- | ------------------------------------------------ |
+| Policy   | Permanent repo rules in `.ripple/policy.json`    |
+| Intent   | Temporary approved boundary for the current task |
+| Git diff | The staged or changed files Ripple checks        |
+| MCP      | Structured tools for AI agents                   |
+| Hook     | Local pre-commit gate before code enters history |
+| CI       | Pull request gate before merge                   |
 
 The model is intentionally small:
 
@@ -205,13 +212,13 @@ Gate decides whether the agent may continue.
 
 Ripple stores the freedom level the agent was given before editing.
 
-| Mode | Agent is allowed to |
-| --- | --- |
-| `brainstorm` | Suggest and explain only. No edits. |
-| `function` | Edit only the approved symbol. |
-| `file` | Edit only the approved file. |
-| `task` | Edit files in the saved task plan. |
-| `pr` | Complete low-risk PR work for human review before merge. |
+| Mode         | Agent is allowed to                                      |
+| ------------ | -------------------------------------------------------- |
+| `brainstorm` | Suggest and explain only. No edits.                      |
+| `function`   | Edit only the approved symbol.                           |
+| `file`       | Edit only the approved file.                             |
+| `task`       | Edit files in the saved task plan.                       |
+| `pr`         | Complete low-risk PR work for human review before merge. |
 
 When an agent calls `ripple_plan_context`, it chooses one of these control
 modes and can save that boundary as the active local intent.
@@ -295,12 +302,12 @@ Human reviews only when the boundary breaks.
 
 ## Interfaces
 
-| Interface | Use it for |
-| --- | --- |
-| `@getripple/mcp` | Direct AI-agent access through MCP tools |
-| `@getripple/cli` | Terminal, Git hooks, CI, local proofs |
-| `@getripple/core` | Custom integrations |
-| `rippleai.ripple` | Optional VS Code visual context |
+| Interface         | Use it for                               |
+| ----------------- | ---------------------------------------- |
+| `@getripple/mcp`  | Direct AI-agent access through MCP tools |
+| `@getripple/cli`  | Terminal, Git hooks, CI, local proofs    |
+| `@getripple/core` | Custom integrations                      |
+| `rippleai.ripple` | Optional VS Code visual context          |
 
 ## Git Hooks
 
@@ -361,10 +368,10 @@ whether to commit them.
 
 ## Language Support
 
-| Language | Status |
-| --- | --- |
-| TypeScript / JavaScript | Deep support for imports, exports, symbols, callers, staged drift, and blast radius |
-| Python | Basic support for imports, functions, classes, methods, and file-level staged checks |
+| Language                | Status                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| TypeScript / JavaScript | Deep support for imports, exports, symbols, callers, staged drift, and blast radius  |
+| Python                  | Basic support for imports, functions, classes, methods, and file-level staged checks |
 
 Ripple uses static analysis. It can miss runtime-only behavior, dynamic imports,
 reflection, decorators, generated code, and framework-specific magic.
